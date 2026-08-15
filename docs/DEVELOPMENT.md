@@ -76,6 +76,34 @@ Ids are lowercase stable namespaces. Versions use semantic versioning. Paths are
 empty, `.` or `..` segments. API versions and permissions are closed sets; an unknown value is rejected before execution.
 Supported v1 contributions are `commands`, typed `settings`, isolated `panels`, and `projectTemplates`.
 
+A project template keeps the original v1 `id`, `title`, and `assetsRoot` fields and may add the UI metadata below:
+
+```json
+{
+  "projectTemplates": [{
+    "id": "com.example.templates.dashboard",
+    "title": "Dashboard",
+    "description": "Dashboard starter",
+    "stack": "React",
+    "firstPrompt": "Build a dashboard",
+    "devServerCommand": "npm run dev",
+    "assetsRoot": "templates/dashboard",
+    "localizations": {
+      "ko": {
+        "title": "대시보드",
+        "description": "대시보드 시작점",
+        "firstPrompt": "대시보드를 만들어줘"
+      }
+    }
+  }]
+}
+```
+
+The four UI fields `description`, `stack`, `firstPrompt`, and `devServerCommand` are optional for v1 compatibility,
+but Desktop lists only templates that provide all four. `localizations` may override `title`, `description`, and
+`firstPrompt`; lookup falls back from an exact locale to its base language and then to the default fields. Asset paths
+must stay relative to `assetsRoot`; Desktop reads them through bounded host APIs rather than exposing installation paths.
+
 ## Lifecycle and permissions
 
 Installation validates and stores an extension but leaves it disabled. Enablement exposes contributions without loading

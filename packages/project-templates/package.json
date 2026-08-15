@@ -1,0 +1,13 @@
+{
+  "name": "@buzzni/saycode-extension-project-templates",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node ../sdk/dist/cli.js validate .",
+    "pack": "node ../sdk/dist/cli.js pack ."
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.1.0"
+  }
+}

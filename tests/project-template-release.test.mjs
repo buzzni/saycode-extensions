@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { test } from 'node:test'
+
+const root = new URL('..', import.meta.url)
+
+test('release gate verifies, packs, checksums, and publishes the official project templates', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+
+  assert.match(packageJson.scripts['verify:project-templates'], /verify-project-templates\.mjs/)
+  assert.match(packageJson.scripts['package:project-templates'], /project-templates.*pack/)
+  assert.match(workflow, /npm run verify:project-templates/)
+  assert.match(workflow, /npm run package:project-templates/)
+  assert.match(workflow, /buzzni\.project-templates-1\.0\.0\.saycode-extension\.sha256/)
+  assert.match(workflow, /packages\/project-templates\/buzzni\.project-templates-1\.0\.0\.saycode-extension/)
+})

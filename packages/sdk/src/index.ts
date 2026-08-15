@@ -25,6 +25,7 @@ export type {
   ExtensionManifest,
   ExtensionPanelContribution,
   ExtensionPermission,
+  ExtensionProjectTemplateLocalization,
   ExtensionProjectTemplateContribution,
   ExtensionSettingContribution,
 } from './manifest.js'

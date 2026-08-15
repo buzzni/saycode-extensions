@@ -7,7 +7,9 @@
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world"
+    "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world",
+    "verify:project-templates": "node scripts/verify-project-templates.mjs",
+    "package:project-templates": "npm run --workspace @buzzni/saycode-extension-project-templates pack"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { build, context } from 'esbuild'
@@ -90,6 +90,21 @@ async function bundle(projectPath: string, outfile: string, watch: boolean): Pro
   await new Promise(() => undefined)
 }
 
+async function addDirectoryToZip(zip: JSZip, root: string, relativeDirectory: string): Promise<void> {
+  const entries = await readdir(join(root, relativeDirectory), { withFileTypes: true })
+  for (const entry of entries) {
+    const relativePath = `${relativeDirectory}/${entry.name}`
+    if (entry.isSymbolicLink()) throw new Error(`project-template assets cannot contain symlinks: ${relativePath}`)
+    if (entry.isDirectory()) {
+      await addDirectoryToZip(zip, root, relativePath)
+    } else if (entry.isFile()) {
+      zip.file(relativePath, await readFile(join(root, relativePath)))
+    } else {
+      throw new Error(`project-template asset must be a regular file: ${relativePath}`)
+    }
+  }
+}
+
 async function develop(projectPath: string): Promise<void> {
   await manifestAt(projectPath)
   const output = join(resolve(projectPath), '.saycode/dev/index.js')
@@ -108,6 +123,8 @@ async function pack(projectPath: string): Promise<void> {
     const zip = new JSZip()
     zip.file('extension.json', JSON.stringify({ ...manifest, entrypoint: 'index.js' }, null, 2))
     zip.file('index.js', await readFile(entrypoint))
+    const assetRoots = new Set((manifest.contributes.projectTemplates ?? []).map((template) => template.assetsRoot))
+    for (const assetsRoot of assetRoots) await addDirectoryToZip(zip, root, assetsRoot)
     const output = resolve(argument('--output') ?? join(root, `${manifest.id}-${manifest.version}.saycode-extension`))
     await mkdir(resolve(output, '..'), { recursive: true })
     await writeFile(output, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
