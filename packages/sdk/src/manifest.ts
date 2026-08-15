@@ -7,7 +7,21 @@ export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
 export interface ExtensionCommandContribution { id: string; title: string }
 export interface ExtensionSettingContribution { id: string; title: string; type: 'boolean' | 'number' | 'string' }
 export interface ExtensionPanelContribution { id: string; title: string; entrypoint: string }
-export interface ExtensionProjectTemplateContribution { id: string; title: string; assetsRoot: string }
+export interface ExtensionProjectTemplateLocalization {
+  title?: string
+  description?: string
+  firstPrompt?: string
+}
+export interface ExtensionProjectTemplateContribution {
+  id: string
+  title: string
+  assetsRoot: string
+  description?: string
+  stack?: string
+  firstPrompt?: string
+  devServerCommand?: string
+  localizations?: Record<string, ExtensionProjectTemplateLocalization>
+}
 export interface ExtensionContributions {
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
@@ -27,6 +41,7 @@ export interface ExtensionManifest {
 
 const ID = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const LOCALE = /^[a-z]{2,3}(?:-[A-Z]{2})?$/
 const PERMISSIONS = new Set<string>(EXTENSION_PERMISSIONS)
 
 function record(value: unknown, path: string): Record<string, unknown> {
@@ -37,6 +52,10 @@ function record(value: unknown, path: string): Record<string, unknown> {
 function text(value: unknown, path: string): string {
   if (typeof value !== 'string' || !value || value.trim() !== value) throw new Error(`${path}: expected string`)
   return value
+}
+
+function optionalText(value: unknown, path: string): string | undefined {
+  return value === undefined ? undefined : text(value, path)
 }
 
 function stableId(value: unknown, path: string): string {
@@ -90,8 +109,32 @@ export function parseExtensionManifest(
     return { ...contributionBase(item, `settings[${index}]`), type } as ExtensionSettingContribution
   })
   const projectTemplates = contributions.projectTemplates === undefined ? undefined : list(contributions.projectTemplates, 'projectTemplates').map((item, index) => {
-    const base = contributionBase(item, `projectTemplates[${index}]`)
-    return { ...base, assetsRoot: safePath(record(item, `projectTemplates[${index}]`).assetsRoot, `projectTemplates[${index}].assetsRoot`) }
+    const path = `projectTemplates[${index}]`
+    const source = record(item, path)
+    const base = contributionBase(item, path)
+    let localizations: Record<string, ExtensionProjectTemplateLocalization> | undefined
+    if (source.localizations !== undefined) {
+      localizations = {}
+      for (const [locale, value] of Object.entries(record(source.localizations, `${path}.localizations`))) {
+        if (!LOCALE.test(locale)) throw new Error(`${path}.localizations: invalid locale ${locale}`)
+        const localizationPath = `${path}.localizations.${locale}`
+        const localization = record(value, localizationPath)
+        localizations[locale] = {
+          ...(optionalText(localization.title, `${localizationPath}.title`) === undefined ? {} : { title: text(localization.title, `${localizationPath}.title`) }),
+          ...(optionalText(localization.description, `${localizationPath}.description`) === undefined ? {} : { description: text(localization.description, `${localizationPath}.description`) }),
+          ...(optionalText(localization.firstPrompt, `${localizationPath}.firstPrompt`) === undefined ? {} : { firstPrompt: text(localization.firstPrompt, `${localizationPath}.firstPrompt`) }),
+        }
+      }
+    }
+    return {
+      ...base,
+      assetsRoot: safePath(source.assetsRoot, `${path}.assetsRoot`),
+      ...(optionalText(source.description, `${path}.description`) === undefined ? {} : { description: text(source.description, `${path}.description`) }),
+      ...(optionalText(source.stack, `${path}.stack`) === undefined ? {} : { stack: text(source.stack, `${path}.stack`) }),
+      ...(optionalText(source.firstPrompt, `${path}.firstPrompt`) === undefined ? {} : { firstPrompt: text(source.firstPrompt, `${path}.firstPrompt`) }),
+      ...(optionalText(source.devServerCommand, `${path}.devServerCommand`) === undefined ? {} : { devServerCommand: text(source.devServerCommand, `${path}.devServerCommand`) }),
+      ...(localizations === undefined ? {} : { localizations }),
+    }
   })
   return {
     id: stableId(raw.id, 'manifest.id'),

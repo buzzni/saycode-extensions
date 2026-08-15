@@ -21,6 +21,33 @@ test('manifest parser rejects unknown APIs and unsafe paths', () => {
   assert.throws(() => parseExtensionManifest({ ...manifest, entrypoint: '../index.js' }, { supportedApiVersion: 1 }), /entrypoint/i)
 })
 
+test('manifest parser accepts additive project-template metadata and the previous minimal shape', () => {
+  const base = {
+    id: 'buzzni.templates', version: '1.0.0', apiVersion: 1,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+  }
+  const complete = parseExtensionManifest({
+    ...base,
+    contributes: {
+      projectTemplates: [{
+        id: 'buzzni.templates.dashboard', title: 'Dashboard', description: 'Dashboard starter',
+        stack: 'React', firstPrompt: 'Build a dashboard', devServerCommand: 'npm run dev',
+        assetsRoot: 'templates/dashboard',
+        localizations: { ko: { title: '대시보드', description: '대시보드 시작점', firstPrompt: '대시보드를 만들어줘' } },
+      }],
+    },
+  }, { supportedApiVersion: 1 })
+  const previous = parseExtensionManifest({
+    ...base,
+    contributes: { projectTemplates: [{ id: 'buzzni.templates.legacy', title: 'Legacy', assetsRoot: 'templates/legacy' }] },
+  }, { supportedApiVersion: 1 })
+
+  assert.equal(complete.contributes.projectTemplates[0].localizations.ko.title, '대시보드')
+  assert.deepEqual(previous.contributes.projectTemplates[0], {
+    id: 'buzzni.templates.legacy', title: 'Legacy', assetsRoot: 'templates/legacy',
+  })
+})
+
 test('packed SDK installs and exposes only documented entrypoints', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'saycode-sdk-pack-'))
   try {
