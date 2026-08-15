@@ -16,11 +16,23 @@
 Use **Disable** before updating an extension. **Update** asks for another local artifact and rejects an artifact with a
 different extension id. **Uninstall** removes every installed version and its registry entry.
 
+## Official Project Templates
+
+When the official `buzzni.project-templates` extension is absent, the new-project **Templates** tab offers to install the
+version bundled with Saycode Desktop. Confirming the prompt installs the checksum-verified artifact without a network
+download; enabling it remains a separate explicit action. The extension provides Dashboard, Survey Form, and API
+Backoffice starters.
+
+Disable or uninstall it from **Settings → Extensions** when those starters are not needed. Saycode does not silently
+reinstall it on restart, and disabling or uninstalling it does not change projects that were already created from a
+template.
+
 ## Failures and recovery
 
 An extension that crashes repeatedly is disabled and marked **Quarantined**. Read the displayed error and update or
 remove the artifact if its source is untrusted. **Recover and re-enable** clears the crash counter only after an explicit
-user action; it does not bypass manifest or capability checks.
+user action; it does not bypass manifest or capability checks. If an update is quarantined, recovery selects the stored
+last-known-good version.
 
 Saycode v1 has no marketplace or automatic update channel. Never install an artifact received unexpectedly, and never
 enter a Saycode token, encryption secret, password, or cookie into an extension panel.

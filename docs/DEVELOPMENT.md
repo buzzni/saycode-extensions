@@ -136,6 +136,25 @@ npm run typecheck
 npm run package:fixture
 ```
 
+## First-party Project Templates
+
+`packages/project-templates` is the single source for the official starter ids, metadata, four-locale strings, asset
+trees, and their content hashes. Desktop owns only the generic contribution/install/security contract and a
+checksum-pinned integration smoke; do not copy exact starter content or content assertions back into Desktop.
+
+Run the complete package gates before releasing a change:
+
+```bash
+npm test
+npm run typecheck
+npm run package:project-templates
+npm run verify:project-templates
+```
+
+The verifier installs each starter into an isolated temporary project, builds it, starts its development server, and
+then terminates that server. A `v*` tag packages the extension and publishes the artifact plus `.sha256` from the same
+workflow run.
+
 ## Versioning and compatibility
 
 Use semantic versions for extension releases. `apiVersion` is the wire schema version and changes only for incompatible
