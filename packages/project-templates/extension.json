@@ -1,0 +1,40 @@
+{
+  "id": "buzzni.project-templates",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": [],
+  "activationEvents": [],
+  "contributes": {
+    "projectTemplates": [
+      {
+        "id": "buzzni.project-templates.dashboard",
+        "title": "Internal Dashboard",
+        "description": "Start from a working dashboard with KPI tiles, a chart, and a request table.",
+        "stack": "Vite · React · TypeScript",
+        "firstPrompt": "This project starts from the Vite + React internal dashboard template. First run npm install and npm run dev, confirm the dashboard actually renders in the browser, and report the result with the local URL. Then propose, based on the code, how to wire the WEEKLY_HANDLED and RECENT_REQUESTS dummy data in src/App.tsx to a real API.",
+        "devServerCommand": "npm run dev",
+        "assetsRoot": "templates/dashboard"
+      },
+      {
+        "id": "buzzni.project-templates.survey-form",
+        "title": "Survey Form",
+        "description": "Start from a working survey form with questions, validation, and a submission summary.",
+        "stack": "Vite · React · TypeScript",
+        "firstPrompt": "This project starts from the Vite + React survey form template. First run npm install and npm run dev, confirm the form works through submission in the browser, and report the result with the local URL. Then propose, based on the code, how to adapt the question constants (TEAMS, SATISFACTION, CHANNELS) in src/App.tsx to my survey topic and how to replace the TODO in submit() with a real collection API.",
+        "devServerCommand": "npm run dev",
+        "assetsRoot": "templates/survey-form"
+      },
+      {
+        "id": "buzzni.project-templates.api-backoffice",
+        "title": "API Backoffice",
+        "description": "Start from a working admin screen with list, create, edit, and delete.",
+        "stack": "Vite · React · TypeScript",
+        "firstPrompt": "This project starts from the Vite + React API backoffice template. First run npm install and npm run dev, confirm creating/editing/deleting items works in the browser, and report the result with the local URL. Then propose, based on the code, the order of work to replace the in-memory functions in src/api.ts with a real backend API.",
+        "devServerCommand": "npm run dev",
+        "assetsRoot": "templates/api-backoffice"
+      }
+    ]
+  }
+}

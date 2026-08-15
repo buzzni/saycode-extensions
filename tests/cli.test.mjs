@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -39,6 +39,31 @@ test('browser build rejects Node ambient authority', async () => {
     await exec('node', [cli, 'scaffold', temporary, '--id', 'buzzni.denied'])
     await writeFile(join(temporary, 'src/index.ts'), "import { readFileSync } from 'node:fs'; readFileSync('/etc/passwd')")
     await assert.rejects(exec('node', [cli, 'pack', temporary]), /node:fs|Could not resolve/)
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
+
+test('pack includes declared project-template asset trees', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-template-pack-'))
+  const archive = join(temporary, 'templates.saycode-extension')
+  try {
+    await mkdir(join(temporary, 'src'), { recursive: true })
+    await mkdir(join(temporary, 'templates/dashboard/src'), { recursive: true })
+    await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
+    await writeFile(join(temporary, 'templates/dashboard/src/App.tsx'), 'export function App() {}')
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify({
+      id: 'buzzni.templates', version: '1.0.0', apiVersion: 1,
+      engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+      contributes: {
+        projectTemplates: [{ id: 'buzzni.templates.dashboard', title: 'Dashboard', assetsRoot: 'templates/dashboard' }],
+      },
+    }))
+
+    await exec('node', [cli, 'pack', temporary, '--output', archive])
+
+    const zip = await JSZip.loadAsync(await readFile(archive))
+    assert.equal(await zip.file('templates/dashboard/src/App.tsx').async('string'), 'export function App() {}')
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
