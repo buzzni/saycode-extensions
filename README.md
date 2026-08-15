@@ -40,3 +40,11 @@ This preview path does not require a Saycode Desktop/core checkout and does not 
 
 The `examples/hello-world` package is the smallest supported command extension. Existing Saycode features remain in
 Desktop until a separate migration specification approves moving them.
+
+## First-party extensions
+
+`packages/project-templates` owns the official Dashboard, Survey Form, and API Backoffice starter metadata, localized
+prompts, source assets, and content tests. Saycode Desktop ships a checksum-pinned release artifact but installs and
+enables it only after the user confirms from the new-project **Templates** tab. See the
+[user guide](docs/USER_GUIDE.md#official-project-templates) for lifecycle behavior and the
+[developer guide](docs/DEVELOPMENT.md#first-party-project-templates) for package gates.
