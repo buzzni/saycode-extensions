@@ -16,14 +16,23 @@ npm run validate
 npm run pack
 ```
 
-During the v1 preview the SDK is not published to a public registry. Contributors to this repository can use the
-workspace CLI instead:
+During the v1 preview the SDK is not published to a public registry. Contributors can build one local SDK tarball,
+use its CLI to scaffold into a separate directory, and install that same tarball instead:
 
 ```bash
 npm ci
 npm run build
+mkdir -p .artifacts
+npm pack --workspace @buzzni/saycode-extension-sdk --pack-destination .artifacts
 node packages/sdk/dist/cli.js scaffold /tmp/my-extension --id com.example.my-extension
+cd /tmp/my-extension
+npm install /path/to/saycode-extensions/.artifacts/buzzni-saycode-extension-sdk-0.1.0.tgz
+npm run validate
+npm run dev -- --once
+npm run pack
 ```
+
+This preview path does not require a Saycode Desktop/core checkout and does not imply public npm publication.
 
 - [Install and manage extensions](docs/USER_GUIDE.md)
 - [Developer guide](docs/DEVELOPMENT.md)

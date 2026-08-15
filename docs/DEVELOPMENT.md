@@ -17,6 +17,28 @@ The result is `com.example.hello-1.0.0.saycode-extension`. The scaffolded comman
 extension only when `com.example.hello.hello` is first invoked. Repository contributors can replace the global CLI with
 `node /path/to/saycode-extensions/packages/sdk/dist/cli.js`.
 
+The SDK is not publicly published during the v1 preview. To reproduce the complete Quick Start without a Desktop/core
+checkout, build a tarball from this repository and use it for both the CLI and scaffolded dependency:
+
+```bash
+# In saycode-extensions
+npm ci
+npm run build
+mkdir -p .artifacts
+npm pack --workspace @buzzni/saycode-extension-sdk --pack-destination .artifacts
+node packages/sdk/dist/cli.js scaffold /tmp/hello-extension --id com.example.hello
+
+# In the newly scaffolded directory
+cd /tmp/hello-extension
+npm install /path/to/saycode-extensions/.artifacts/buzzni-saycode-extension-sdk-0.1.0.tgz
+npm run validate
+npm run dev -- --once
+npm run pack
+```
+
+Public npm publication remains a separate approval. Replace the example repository and `/tmp` paths with local paths;
+do not commit the generated tarball.
+
 ## Public API
 
 Only these imports are stable:
