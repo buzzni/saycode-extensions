@@ -1,0 +1,19 @@
+{
+  "name": "@buzzni/saycode-extension-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "saycode-extension": "dist/cli.js" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./manifest": { "types": "./dist/manifest.d.ts", "import": "./dist/manifest.js" }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.12",
+    "jszip": "^3.10.1"
+  }
+}

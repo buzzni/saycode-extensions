@@ -1,0 +1,12 @@
+{
+  "id": "buzzni.hello-world",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": [],
+  "activationEvents": ["onCommand:buzzni.hello-world.hello"],
+  "contributes": {
+    "commands": [{ "id": "buzzni.hello-world.hello", "title": "Hello from Saycode" }]
+  }
+}

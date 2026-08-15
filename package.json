@@ -1,0 +1,17 @@
+{
+  "name": "saycode-extensions",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.7.2"
+  }
+}
