@@ -41,7 +41,10 @@ async function stop(child, closed) {
     closed.then(() => true),
     new Promise((resolve) => setTimeout(() => resolve(false), 5_000)),
   ])
-  if (!exited) child.kill('SIGKILL')
+  if (!exited) {
+    child.kill('SIGKILL')
+    await closed
+  }
 }
 
 async function verifyTemplate(templateId) {
@@ -52,7 +55,7 @@ async function verifyTemplate(templateId) {
     await exec('npm', ['install', '--ignore-scripts'], { cwd: project })
     await exec('npm', ['run', 'build'], { cwd: project })
     const port = await availablePort()
-    const child = execFile('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+    const child = execFile(join(project, 'node_modules/.bin/vite'), ['--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
       cwd: project,
     })
     let output = ''
