@@ -10,7 +10,7 @@
     "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.2.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   }
