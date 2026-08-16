@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import { build, context } from 'esbuild'
 import JSZip from 'jszip'
 import { parseExtensionManifest, type ExtensionManifest } from './manifest.js'
+
+const ARCHIVE_DATE = new Date('2000-01-01T00:00:00.000Z')
+
+function addFile(zip: JSZip, path: string, content: Uint8Array | string): void {
+  zip.file(path, content, { createFolders: false, date: ARCHIVE_DATE })
+}
 
 function argument(name: string): string | null {
   const index = process.argv.indexOf(name)
@@ -91,14 +97,15 @@ async function bundle(projectPath: string, outfile: string, watch: boolean): Pro
 }
 
 async function addDirectoryToZip(zip: JSZip, root: string, relativeDirectory: string): Promise<void> {
-  const entries = await readdir(join(root, relativeDirectory), { withFileTypes: true })
+  const entries = (await readdir(join(root, relativeDirectory), { withFileTypes: true }))
+    .sort((left, right) => left.name.localeCompare(right.name))
   for (const entry of entries) {
     const relativePath = `${relativeDirectory}/${entry.name}`
     if (entry.isSymbolicLink()) throw new Error(`project-template assets cannot contain symlinks: ${relativePath}`)
     if (entry.isDirectory()) {
       await addDirectoryToZip(zip, root, relativePath)
     } else if (entry.isFile()) {
-      zip.file(relativePath, await readFile(join(root, relativePath)))
+      addFile(zip, relativePath, await readFile(join(root, relativePath)))
     } else {
       throw new Error(`project-template asset must be a regular file: ${relativePath}`)
     }
@@ -121,10 +128,23 @@ async function pack(projectPath: string): Promise<void> {
     const entrypoint = join(staging, 'index.js')
     await bundle(root, entrypoint, false)
     const zip = new JSZip()
-    zip.file('extension.json', JSON.stringify({ ...manifest, entrypoint: 'index.js' }, null, 2))
-    zip.file('index.js', await readFile(entrypoint))
+    addFile(zip, 'extension.json', JSON.stringify({ ...manifest, entrypoint: 'index.js' }, null, 2))
+    addFile(zip, 'index.js', await readFile(entrypoint))
     const assetRoots = new Set((manifest.contributes.projectTemplates ?? []).map((template) => template.assetsRoot))
     for (const assetsRoot of assetRoots) await addDirectoryToZip(zip, root, assetsRoot)
+    for (const panel of manifest.contributes.panels ?? []) {
+      const panelPath = join(root, panel.entrypoint)
+      const panelStat = await lstat(panelPath)
+      if (panelStat.isSymbolicLink() || !panelStat.isFile()) {
+        throw new Error(`panel entrypoint must be a regular file: ${panel.entrypoint}`)
+      }
+      const realRoot = await realpath(root)
+      const realPanelPath = await realpath(panelPath)
+      if (!realPanelPath.startsWith(`${realRoot}${sep}`)) {
+        throw new Error(`panel entrypoint must stay inside the extension: ${panel.entrypoint}`)
+      }
+      addFile(zip, panel.entrypoint, await readFile(realPanelPath))
+    }
     const output = resolve(argument('--output') ?? join(root, `${manifest.id}-${manifest.version}.saycode-extension`))
     await mkdir(resolve(output, '..'), { recursive: true })
     await writeFile(output, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))

@@ -1,5 +1,6 @@
 import type {
   ExtensionCommandHandler,
+  ExtensionPermission,
   JsonValue,
   SaycodeExtension,
 } from '@buzzni/saycode-extension-sdk'
@@ -10,7 +11,18 @@ export interface ExtensionTestHost {
   deactivate(): Promise<void>
 }
 
-export function createTestHost(extensionId: string): ExtensionTestHost {
+export interface ExtensionTestHostOptions {
+  invokeCapability?(
+    permission: ExtensionPermission,
+    action: string,
+    args: JsonValue,
+  ): Promise<JsonValue>
+}
+
+export function createTestHost(
+  extensionId: string,
+  options: ExtensionTestHostOptions = {},
+): ExtensionTestHost {
   const commands = new Map<string, ExtensionCommandHandler>()
   let active: SaycodeExtension | null = null
   return {
@@ -19,6 +31,12 @@ export function createTestHost(extensionId: string): ExtensionTestHost {
       active = extension
       await extension.activate({
         extensionId,
+        invokeCapability(permission, action, args) {
+          if (!options.invokeCapability) {
+            return Promise.reject(new Error(`capability is unavailable: ${permission}`))
+          }
+          return options.invokeCapability(permission, action, args)
+        },
         commands: {
           register(id, handler) {
             if (!id.startsWith(`${extensionId}.`)) throw new Error(`command must be namespaced by ${extensionId}`)

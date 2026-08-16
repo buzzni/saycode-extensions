@@ -15,3 +15,13 @@ test('release gate verifies, packs, checksums, and publishes the official projec
   assert.match(workflow, /buzzni\.project-templates-1\.0\.0\.saycode-extension\.sha256/)
   assert.match(workflow, /packages\/project-templates\/buzzni\.project-templates-1\.0\.0\.saycode-extension/)
 })
+
+test('release gate packs, checksums, and publishes the official Plugin Manager', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+
+  assert.match(packageJson.scripts['package:plugin-manager'], /plugin-manager.*pack/)
+  assert.match(workflow, /npm run package:plugin-manager/)
+  assert.match(workflow, /buzzni\.plugin-manager-1\.0\.0\.saycode-extension\.sha256/)
+  assert.match(workflow, /packages\/plugin-manager\/buzzni\.plugin-manager-1\.0\.0\.saycode-extension/)
+})

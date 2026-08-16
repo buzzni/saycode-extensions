@@ -1,0 +1,33 @@
+{
+  "id": "buzzni.plugin-manager",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": ["machine.execute"],
+  "activationEvents": [
+    "onCommand:buzzni.plugin-manager.open",
+    "onCommand:buzzni.plugin-manager.list",
+    "onCommand:buzzni.plugin-manager.enable",
+    "onCommand:buzzni.plugin-manager.disable"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "buzzni.plugin-manager.open",
+        "title": "Open Plugin Manager",
+        "panelId": "buzzni.plugin-manager.panel"
+      },
+      { "id": "buzzni.plugin-manager.list", "title": "List plugins" },
+      { "id": "buzzni.plugin-manager.enable", "title": "Enable a plugin" },
+      { "id": "buzzni.plugin-manager.disable", "title": "Disable a plugin" }
+    ],
+    "panels": [
+      {
+        "id": "buzzni.plugin-manager.panel",
+        "title": "Plugins",
+        "entrypoint": "panel.html"
+      }
+    ]
+  }
+}

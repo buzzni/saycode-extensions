@@ -1,3 +1,5 @@
+import type { ExtensionPermission } from './manifest.js'
+
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
@@ -5,6 +7,7 @@ export type ExtensionCommandHandler = (...args: JsonValue[]) => JsonValue | Prom
 
 export interface ExtensionContext {
   readonly extensionId: string
+  invokeCapability(permission: ExtensionPermission, action: string, args: JsonValue): Promise<JsonValue>
   readonly commands: {
     register(id: string, handler: ExtensionCommandHandler): void
   }
