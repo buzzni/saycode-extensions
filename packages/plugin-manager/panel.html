@@ -47,7 +47,7 @@
       toggleFailed: '无法更改插件设置。', userOnly: '这里只能更改 user 范围的插件。',
     },
   };
-  const language = (navigator.language || 'en').split('-')[0];
+  const language = (document.documentElement.lang || navigator.language || 'en').split('-')[0];
   const copy = translations[language] || translations.en;
   const elements = {
     title: document.getElementById('title'), refresh: document.getElementById('refresh'),
