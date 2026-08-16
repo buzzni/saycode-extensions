@@ -1,0 +1,134 @@
+<style>
+  :root { color-scheme: light dark; font: 14px/1.45 system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; color: CanvasText; background: Canvas; }
+  header, .row, .actions { display: flex; align-items: center; gap: 12px; }
+  header { justify-content: space-between; margin-bottom: 8px; }
+  h1 { margin: 0; font-size: 20px; }
+  p { margin: 6px 0; color: GrayText; }
+  button { padding: 7px 12px; border: 1px solid ButtonBorder; border-radius: 7px; }
+  #error { min-height: 22px; color: #c33; }
+  #plugins { display: grid; gap: 8px; margin-top: 16px; }
+  .row { padding: 12px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; }
+  .row input { width: 18px; height: 18px; }
+  .details { min-width: 0; flex: 1; }
+  .details strong, .details small { display: block; overflow-wrap: anywhere; }
+  .details small { color: GrayText; }
+</style>
+<header>
+  <h1 id="title"></h1>
+  <button id="refresh" type="button"></button>
+</header>
+<p id="hint"></p>
+<p id="status" role="status"></p>
+<p id="error" role="alert"></p>
+<section id="plugins"></section>
+<script>
+(() => {
+  const translations = {
+    en: {
+      title: 'Plugins', refresh: 'Refresh', hint: 'Changes take effect in your next conversation.',
+      loading: 'Loading plugins…', empty: 'No plugins are installed.', loadFailed: 'Could not load plugins.',
+      toggleFailed: 'Could not change the plugin setting.', userOnly: 'Only user-scope plugins can be changed here.',
+    },
+    ko: {
+      title: '플러그인', refresh: '새로고침', hint: '변경은 다음 대화부터 적용됩니다.',
+      loading: '플러그인을 불러오는 중…', empty: '설치된 플러그인이 없습니다.', loadFailed: '플러그인을 불러오지 못했습니다.',
+      toggleFailed: '플러그인 설정을 변경하지 못했습니다.', userOnly: 'user 스코프 플러그인만 여기서 변경할 수 있습니다.',
+    },
+    ja: {
+      title: 'プラグイン', refresh: '更新', hint: '変更は次の会話から適用されます。',
+      loading: 'プラグインを読み込み中…', empty: 'インストール済みのプラグインはありません。', loadFailed: 'プラグインを読み込めませんでした。',
+      toggleFailed: 'プラグイン設定を変更できませんでした。', userOnly: 'ここでは user スコープのプラグインだけ変更できます。',
+    },
+    zh: {
+      title: '插件', refresh: '刷新', hint: '更改将在下一次对话中生效。',
+      loading: '正在加载插件…', empty: '没有已安装的插件。', loadFailed: '无法加载插件。',
+      toggleFailed: '无法更改插件设置。', userOnly: '这里只能更改 user 范围的插件。',
+    },
+  };
+  const language = (navigator.language || 'en').split('-')[0];
+  const copy = translations[language] || translations.en;
+  const elements = {
+    title: document.getElementById('title'), refresh: document.getElementById('refresh'),
+    hint: document.getElementById('hint'), status: document.getElementById('status'),
+    error: document.getElementById('error'), plugins: document.getElementById('plugins'),
+  };
+  elements.title.textContent = copy.title;
+  elements.refresh.textContent = copy.refresh;
+  elements.hint.textContent = copy.hint;
+  let plugins = [];
+  let pendingId = null;
+  let requestGeneration = 0;
+
+  function render() {
+    elements.plugins.replaceChildren();
+    if (plugins.length === 0 && !elements.status.textContent) elements.status.textContent = copy.empty;
+    for (const plugin of plugins) {
+      const row = document.createElement('label');
+      row.className = 'row';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = plugin.enabled;
+      const togglable = plugin.scope === 'user';
+      checkbox.disabled = !togglable || pendingId !== null;
+      checkbox.addEventListener('change', () => void toggle(plugin, checkbox.checked));
+      const details = document.createElement('span');
+      details.className = 'details';
+      const name = document.createElement('strong');
+      name.textContent = plugin.name || plugin.id;
+      const metadata = document.createElement('small');
+      metadata.textContent = [plugin.marketplace, plugin.version, plugin.scope].filter(Boolean).join(' · ')
+        + (togglable ? '' : ' — ' + copy.userOnly);
+      details.append(name, metadata);
+      row.append(checkbox, details);
+      elements.plugins.append(row);
+    }
+  }
+
+  async function load() {
+    const generation = ++requestGeneration;
+    elements.status.textContent = copy.loading;
+    elements.error.textContent = '';
+    try {
+      const result = await window.saycodePanel.invokeCommand('buzzni.plugin-manager.list', []);
+      if (generation !== requestGeneration) return;
+      plugins = result.plugins;
+      elements.status.textContent = '';
+      render();
+    } catch {
+      if (generation !== requestGeneration) return;
+      elements.status.textContent = '';
+      elements.error.textContent = copy.loadFailed;
+    }
+  }
+
+  async function toggle(plugin, enabled) {
+    if (plugin.scope !== 'user') return;
+    const generation = ++requestGeneration;
+    const previous = plugins;
+    pendingId = plugin.id;
+    plugins = plugins.map((item) => item.id === plugin.id ? { ...item, enabled } : item);
+    elements.error.textContent = '';
+    render();
+    try {
+      const action = enabled ? 'buzzni.plugin-manager.enable' : 'buzzni.plugin-manager.disable';
+      const result = await window.saycodePanel.invokeCommand(action, [plugin.id]);
+      if (generation !== requestGeneration) return;
+      plugins = result.plugins;
+    } catch {
+      if (generation !== requestGeneration) return;
+      plugins = previous;
+      elements.error.textContent = copy.toggleFailed;
+    } finally {
+      if (generation === requestGeneration) {
+        pendingId = null;
+        render();
+      }
+    }
+  }
+
+  elements.refresh.addEventListener('click', () => void load());
+  window.saycodePanel.ready.then(load);
+})();
+</script>

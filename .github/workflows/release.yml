@@ -22,12 +22,16 @@ jobs:
       - run: npm run verify:project-templates
       - run: npm run package:fixture
       - run: npm run package:project-templates
+      - run: npm run package:plugin-manager
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.0.saycode-extension.sha256
       - name: Create project templates checksum
         working-directory: packages/project-templates
         run: sha256sum *.saycode-extension > buzzni.project-templates-1.0.0.saycode-extension.sha256
+      - name: Create Plugin Manager checksum
+        working-directory: packages/plugin-manager
+        run: sha256sum *.saycode-extension > buzzni.plugin-manager-1.0.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,5 +41,7 @@ jobs:
           examples/hello-world/buzzni.hello-world-1.0.0.saycode-extension.sha256
           packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension
           packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension.sha256
+          packages/plugin-manager/buzzni.plugin-manager-1.0.0.saycode-extension
+          packages/plugin-manager/buzzni.plugin-manager-1.0.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
