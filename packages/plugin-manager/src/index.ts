@@ -40,7 +40,7 @@ function pluginResponse(value: JsonValue): { plugins: MachinePlugin[] } {
 }
 
 function pluginId(value: JsonValue | undefined): string {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9._@/-]+$/.test(value)) {
+  if (typeof value !== 'string' || value.startsWith('-') || !/^[A-Za-z0-9._@/-]+$/.test(value)) {
     throw new Error('plugin id is invalid')
   }
   return value

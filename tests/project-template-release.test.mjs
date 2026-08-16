@@ -24,7 +24,7 @@ test('release gate packs, checksums, and publishes the official Plugin Manager',
   const archive = `${manifest.id}-${manifest.version}.saycode-extension`
 
   assert.match(packageJson.scripts['package:plugin-manager'], /plugin-manager.*pack/)
-  assert.equal(manifest.version, '1.0.1')
+  assert.equal(manifest.version, '1.0.2')
   assert.equal(pluginPackage.version, manifest.version)
   assert.match(workflow, /npm run package:plugin-manager/)
   assert.match(workflow, new RegExp(`${archive.replaceAll('.', '\\.')}\\.sha256`))

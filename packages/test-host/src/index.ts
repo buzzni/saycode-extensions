@@ -54,9 +54,10 @@ export function createTestHost(
       return await handler(...args)
     },
     async deactivate() {
-      await active?.deactivate?.()
+      const extension = active
       active = null
       commands.clear()
+      await extension?.deactivate?.()
     },
   }
 }

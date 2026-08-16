@@ -67,3 +67,24 @@ test('failed activation leaves no partial commands and can be retried', async ()
 
   assert.equal(await host.invokeCommand('buzzni.test.healthy', []), 'healthy')
 })
+
+test('failed deactivation still removes registered commands and allows a new activation', async () => {
+  const host = createTestHost('buzzni.test')
+  await host.activate(defineExtension({
+    activate(context) {
+      context.commands.register('buzzni.test.stale', () => 'stale')
+    },
+    async deactivate() {
+      throw new Error('deactivate failed')
+    },
+  }))
+
+  await assert.rejects(host.deactivate(), /deactivate failed/)
+  await assert.rejects(host.invokeCommand('buzzni.test.stale', []), /not registered/)
+  await host.activate(defineExtension({
+    activate(context) {
+      context.commands.register('buzzni.test.fresh', () => 'fresh')
+    },
+  }))
+  assert.equal(await host.invokeCommand('buzzni.test.fresh', []), 'fresh')
+})

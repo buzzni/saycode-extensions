@@ -54,18 +54,19 @@ async function flushPanel() {
   await new Promise((resolve) => setImmediate(resolve))
 }
 
-async function runPanel(zip, invokeCommand, language = 'en') {
+async function runPanel(zip, invokeCommand, language = 'en', navigatorLanguage = language) {
   const html = await zip.file('panel.html').async('string')
   const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)?.[1]
   assert.ok(script)
   const ids = Object.fromEntries(['title', 'refresh', 'hint', 'status', 'error', 'plugins']
     .map((id) => [id, new FakeElement()]))
   const document = {
+    documentElement: { lang: language },
     getElementById(id) { return ids[id] },
     createElement() { return new FakeElement() },
   }
   const window = { saycodePanel: { ready: Promise.resolve(), invokeCommand } }
-  Function('window', 'document', 'navigator', script)(window, document, { language })
+  Function('window', 'document', 'navigator', script)(window, document, { language: navigatorLanguage })
   await flushPanel()
   return ids
 }
@@ -84,6 +85,7 @@ test('official Plugin Manager uses only the public machine.execute capability', 
 
     assert.equal(await host.invokeCommand('buzzni.plugin-manager.open', []), null)
     assert.deepEqual(await host.invokeCommand('buzzni.plugin-manager.list', []), { plugins: [plugin] })
+    await assert.rejects(host.invokeCommand('buzzni.plugin-manager.enable', ['--help']), /plugin id/i)
     await host.invokeCommand('buzzni.plugin-manager.enable', [plugin.id])
     await host.invokeCommand('buzzni.plugin-manager.disable', [plugin.id])
     assert.deepEqual(calls, [
@@ -91,6 +93,21 @@ test('official Plugin Manager uses only the public machine.execute capability', 
       { permission: 'machine.execute', action: 'enable', args: { pluginId: plugin.id } },
       { permission: 'machine.execute', action: 'disable', args: { pluginId: plugin.id } },
     ])
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+test('isolated panel follows the host document language instead of the OS language', async () => {
+  const packed = await packedPluginManager()
+  try {
+    const elements = await runPanel(
+      packed.zip,
+      async () => ({ plugins: [] }),
+      'ko',
+      'en',
+    )
+    assert.equal(elements.title.textContent, '플러그인')
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
   }
