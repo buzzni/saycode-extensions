@@ -31,7 +31,7 @@ jobs:
         run: sha256sum *.saycode-extension > buzzni.project-templates-1.0.0.saycode-extension.sha256
       - name: Create Plugin Manager checksum
         working-directory: packages/plugin-manager
-        run: sha256sum *.saycode-extension > buzzni.plugin-manager-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.plugin-manager-1.0.1.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,7 +41,7 @@ jobs:
           examples/hello-world/buzzni.hello-world-1.0.0.saycode-extension.sha256
           packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension
           packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension.sha256
-          packages/plugin-manager/buzzni.plugin-manager-1.0.0.saycode-extension
-          packages/plugin-manager/buzzni.plugin-manager-1.0.0.saycode-extension.sha256
+          packages/plugin-manager/buzzni.plugin-manager-1.0.1.saycode-extension
+          packages/plugin-manager/buzzni.plugin-manager-1.0.1.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
