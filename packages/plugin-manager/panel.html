@@ -62,6 +62,7 @@
   let requestGeneration = 0;
 
   function render() {
+    elements.refresh.disabled = pendingId !== null;
     elements.plugins.replaceChildren();
     if (plugins.length === 0 && !elements.status.textContent) elements.status.textContent = copy.empty;
     for (const plugin of plugins) {
@@ -87,6 +88,7 @@
   }
 
   async function load() {
+    if (pendingId !== null) return;
     const generation = ++requestGeneration;
     elements.status.textContent = copy.loading;
     elements.error.textContent = '';
