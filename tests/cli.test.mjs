@@ -68,3 +68,50 @@ test('pack includes declared project-template asset trees', async () => {
     await rm(temporary, { recursive: true, force: true })
   }
 })
+
+test('pack includes each declared panel entrypoint', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-panel-pack-'))
+  const archive = join(temporary, 'panel.saycode-extension')
+  try {
+    await mkdir(join(temporary, 'src'), { recursive: true })
+    await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
+    await writeFile(join(temporary, 'panel.html'), '<h1>Panel</h1>')
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify({
+      id: 'buzzni.panel', version: '1.0.0', apiVersion: 1,
+      engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+      contributes: {
+        panels: [{ id: 'buzzni.panel.main', title: 'Panel', entrypoint: 'panel.html' }],
+      },
+    }))
+
+    await exec('node', [cli, 'pack', temporary, '--output', archive])
+
+    const zip = await JSZip.loadAsync(await readFile(archive))
+    assert.equal(await zip.file('panel.html').async('string'), '<h1>Panel</h1>')
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
+
+test('pack writes byte-for-byte deterministic archives for the same inputs', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-deterministic-pack-'))
+  const first = join(temporary, 'first.saycode-extension')
+  const second = join(temporary, 'second.saycode-extension')
+  try {
+    await mkdir(join(temporary, 'src'), { recursive: true })
+    await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify({
+      id: 'buzzni.deterministic', version: '1.0.0', apiVersion: 1,
+      engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+      contributes: {},
+    }))
+
+    await exec('node', [cli, 'pack', temporary, '--output', first])
+    await new Promise((resolve) => setTimeout(resolve, 2_100))
+    await exec('node', [cli, 'pack', temporary, '--output', second])
+
+    assert.deepEqual(await readFile(first), await readFile(second))
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+})

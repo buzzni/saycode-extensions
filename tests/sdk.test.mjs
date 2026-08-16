@@ -48,6 +48,32 @@ test('manifest parser accepts additive project-template metadata and the previou
   })
 })
 
+test('manifest command panelId must name a panel declared by the same extension', () => {
+  const base = {
+    id: 'buzzni.test', version: '1.0.0', apiVersion: 1,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+  }
+  const manifest = {
+    ...base,
+    contributes: {
+      commands: [{ id: 'buzzni.test.open', title: 'Open', panelId: 'buzzni.test.panel' }],
+      panels: [{ id: 'buzzni.test.panel', title: 'Panel', entrypoint: 'panel.html' }],
+    },
+  }
+
+  assert.deepEqual(
+    parseExtensionManifest(manifest, { supportedApiVersion: 1 }).contributes.commands,
+    manifest.contributes.commands,
+  )
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      ...manifest.contributes,
+      commands: [{ id: 'buzzni.test.open', title: 'Open', panelId: 'other.panel' }],
+    },
+  }, { supportedApiVersion: 1 }), /panelId/)
+})
+
 test('packed SDK installs and exposes only documented entrypoints', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'saycode-sdk-pack-'))
   try {

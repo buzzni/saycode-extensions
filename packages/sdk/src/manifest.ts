@@ -4,7 +4,7 @@ export const EXTENSION_PERMISSIONS = [
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
-export interface ExtensionCommandContribution { id: string; title: string }
+export interface ExtensionCommandContribution { id: string; title: string; panelId?: string }
 export interface ExtensionSettingContribution { id: string; title: string; type: 'boolean' | 'number' | 'string' }
 export interface ExtensionPanelContribution { id: string; title: string; entrypoint: string }
 export interface ExtensionProjectTemplateLocalization {
@@ -97,11 +97,26 @@ export function parseExtensionManifest(
     return permission as ExtensionPermission
   })
   const contributions = record(raw.contributes, 'manifest.contributes')
-  const commands = contributions.commands === undefined ? undefined : list(contributions.commands, 'commands').map((item, index) => contributionBase(item, `commands[${index}]`))
+  const commands = contributions.commands === undefined ? undefined : list(contributions.commands, 'commands').map((item, index) => {
+    const path = `commands[${index}]`
+    const source = record(item, path)
+    return {
+      ...contributionBase(item, path),
+      ...(source.panelId === undefined ? {} : { panelId: stableId(source.panelId, `${path}.panelId`) }),
+    }
+  })
   const panels = contributions.panels === undefined ? undefined : list(contributions.panels, 'panels').map((item, index) => {
     const base = contributionBase(item, `panels[${index}]`)
     return { ...base, entrypoint: safePath(record(item, `panels[${index}]`).entrypoint, `panels[${index}].entrypoint`) }
   })
+  for (const [index, command] of (commands ?? []).entries()) {
+    if (
+      command.panelId !== undefined
+      && (!command.panelId.startsWith(`${text(raw.id, 'manifest.id')}.`) || !panels?.some((panel) => panel.id === command.panelId))
+    ) {
+      throw new Error(`commands[${index}].panelId: expected a panel declared by the same extension`)
+    }
+  }
   const settings = contributions.settings === undefined ? undefined : list(contributions.settings, 'settings').map((item, index) => {
     const source = record(item, `settings[${index}]`)
     const type = text(source.type, `settings[${index}].type`)
