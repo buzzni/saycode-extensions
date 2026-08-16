@@ -48,3 +48,22 @@ test('test host rejects unavailable capabilities with the Desktop-shaped context
 
   await assert.rejects(host.invokeCommand('buzzni.test.plugins', []), /capability is unavailable/i)
 })
+
+test('failed activation leaves no partial commands and can be retried', async () => {
+  const host = createTestHost('buzzni.test')
+  await assert.rejects(host.activate(defineExtension({
+    activate(context) {
+      context.commands.register('buzzni.test.partial', () => 'partial')
+      throw new Error('activation failed')
+    },
+  })), /activation failed/)
+
+  await assert.rejects(host.invokeCommand('buzzni.test.partial', []), /not registered/)
+  await host.activate(defineExtension({
+    activate(context) {
+      context.commands.register('buzzni.test.healthy', () => 'healthy')
+    },
+  }))
+
+  assert.equal(await host.invokeCommand('buzzni.test.healthy', []), 'healthy')
+})

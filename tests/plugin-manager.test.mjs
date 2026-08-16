@@ -152,3 +152,35 @@ test('isolated panel keeps request order, user-only toggles, and rollback on fai
     await rm(packed.temporary, { recursive: true, force: true })
   }
 })
+
+test('isolated panel does not let refresh supersede a pending toggle', async () => {
+  const packed = await packedPluginManager()
+  let listCalls = 0
+  let finishToggle
+  try {
+    const elements = await runPanel(packed.zip, async (command) => {
+      if (command === 'buzzni.plugin-manager.list') {
+        listCalls += 1
+        return { plugins: [plugin] }
+      }
+      return new Promise((resolve) => { finishToggle = resolve })
+    })
+    let [userRow] = elements.plugins.children
+
+    userRow.children[0].checked = true
+    userRow.children[0].dispatch('change')
+    await flushPanel()
+    assert.equal(elements.refresh.disabled, true)
+    elements.refresh.dispatch('click')
+    await flushPanel()
+    assert.equal(listCalls, 1)
+
+    finishToggle({ plugins: [{ ...plugin, enabled: true }] })
+    await flushPanel()
+    ;[userRow] = elements.plugins.children
+    assert.equal(userRow.children[0].disabled, false)
+    assert.equal(elements.refresh.disabled, false)
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})

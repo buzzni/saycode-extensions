@@ -28,7 +28,7 @@ export function createTestHost(
   return {
     async activate(extension) {
       if (active) throw new Error('test host already has an active extension')
-      active = extension
+      const registered = new Map<string, ExtensionCommandHandler>()
       await extension.activate({
         extensionId,
         invokeCapability(permission, action, args) {
@@ -40,11 +40,13 @@ export function createTestHost(
         commands: {
           register(id, handler) {
             if (!id.startsWith(`${extensionId}.`)) throw new Error(`command must be namespaced by ${extensionId}`)
-            if (commands.has(id)) throw new Error(`duplicate command: ${id}`)
-            commands.set(id, handler)
+            if (registered.has(id)) throw new Error(`duplicate command: ${id}`)
+            registered.set(id, handler)
           },
         },
       })
+      for (const [id, handler] of registered) commands.set(id, handler)
+      active = extension
     },
     async invokeCommand(id, args) {
       const handler = commands.get(id)
