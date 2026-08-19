@@ -26,8 +26,14 @@ if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
 }
 
 // `files` only ships what exists. Publishing before a build would put a permanently empty version on the
-// registry, and npm reports that as success.
-for (const entry of manifest.files) {
+// registry, and npm reports that as success. Checking the entry points, not just the dist directory,
+// catches a partial build too.
+const shippedPaths = [
+  ...manifest.files,
+  ...Object.values(manifest.bin ?? {}),
+  ...Object.values(manifest.exports ?? {}).flatMap((entry) => Object.values(entry)),
+]
+for (const entry of shippedPaths) {
   try {
     await access(new URL(`../packages/sdk/${entry}`, import.meta.url))
   } catch {

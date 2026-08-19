@@ -89,7 +89,10 @@ test('scaffolded projects depend on the SDK at build time only', async () => {
     // `pack` inlines the SDK into the browser bundle, so nothing resolves it at runtime. Declaring it as a
     // runtime dependency would also pull the CLI's esbuild/jszip into every extension author's tree.
     assert.equal(manifest.dependencies, undefined)
-    assert.ok(manifest.devDependencies?.['@buzzni/saycode-extension-sdk'])
+    // The range must track the CLI that generated the project: a hardcoded `^0.1.0` would keep installing
+    // the 0.1.x line after the SDK moves to 0.2.0, since caret ranges do not cross 0.x minors.
+    const { version } = await readSdkManifest()
+    assert.equal(manifest.devDependencies?.['@buzzni/saycode-extension-sdk'], `^${version}`)
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
