@@ -20,7 +20,7 @@ jobs:
       - run: npm ci
       - run: npm run build -w @buzzni/saycode-extension-sdk
       - run: npm run typecheck -w @buzzni/saycode-extension-sdk
-      - run: node --test tests/sdk.test.mjs
+      - run: node --test tests/sdk.test.mjs tests/project-templates.test.mjs tests/project-template-release.test.mjs
 
   test-host:
     runs-on: ubuntu-latest
@@ -34,7 +34,8 @@ jobs:
       - run: npm run build -w @buzzni/saycode-extension-sdk
       - run: npm run build -w @buzzni/saycode-extension-test-host
       - run: npm run typecheck -w @buzzni/saycode-extension-test-host
-      - run: node --test tests/test-host.test.mjs
+      # plugin-manager exercises a packaged extension inside the test host, so it belongs to this job's builds.
+      - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs
 
   cli-and-package:
     runs-on: ubuntu-latest
@@ -48,3 +49,17 @@ jobs:
       - run: npm run build -w @buzzni/saycode-extension-sdk
       - run: node --test tests/cli.test.mjs
       - run: npm run package:fixture
+
+  publish-contract:
+    # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first
+    # time on a release tag, when the mistake is already expensive.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @buzzni/saycode-extension-sdk
+      - run: node --test tests/npm-publish-gate.test.mjs tests/sdk-publish.test.mjs tests/ci-coverage.test.mjs

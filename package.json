@@ -9,6 +9,7 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world",
     "verify:project-templates": "node scripts/verify-project-templates.mjs",
+    "publish:sdk": "node scripts/publish-sdk.mjs",
     "package:project-templates": "npm run --workspace @buzzni/saycode-extension-project-templates pack",
     "package:plugin-manager": "npm run --workspace @buzzni/saycode-extension-plugin-manager pack"
   },

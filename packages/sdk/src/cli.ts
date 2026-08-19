@@ -21,6 +21,14 @@ async function exists(path: string): Promise<boolean> {
   try { await access(path); return true } catch { return false }
 }
 
+async function sdkVersion(): Promise<string> {
+  // dist/cli.js reads its own package manifest so scaffolded ranges track the CLI that generated them —
+  // a hardcoded range would keep installing an older 0.x line after a minor bump, since caret ranges do
+  // not cross 0.x minors.
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+  return manifest.version
+}
+
 async function scaffold(projectPath: string): Promise<void> {
   const id = argument('--id') ?? basename(resolve(projectPath)).toLowerCase().replace(/[^a-z0-9.-]+/g, '-')
   const root = resolve(projectPath)
@@ -36,7 +44,9 @@ async function scaffold(projectPath: string): Promise<void> {
         dev: 'saycode-extension dev .',
         pack: 'saycode-extension pack .',
       },
-      dependencies: { '@buzzni/saycode-extension-sdk': '^0.1.0' },
+      // Build-time only: `pack` inlines the SDK into the bundle, and a runtime declaration would drag the
+      // CLI's esbuild/jszip into every extension author's dependency tree.
+      devDependencies: { '@buzzni/saycode-extension-sdk': `^${await sdkVersion()}` },
     }, null, 2) + '\n',
     'extension.json': JSON.stringify({
       id,
