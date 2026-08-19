@@ -46,8 +46,19 @@ test('sdk package stays on 0.x so the compatibility promise stays limited', asyn
   assert.match(manifest.version, /^0\./)
 })
 
-test('sdk ships a license file next to the readme', async () => {
+test('sdk ships a license file matching the repository license', async () => {
   await access(join(sdk, 'LICENSE'))
+
+  // The published copy is separate from the repository root's, so nothing stops the two from drifting
+  // and shipping terms that were never agreed to.
+  const [shipped, repository] = await Promise.all([
+    readFile(join(sdk, 'LICENSE'), 'utf8'),
+    readFile(join(root, 'LICENSE'), 'utf8'),
+  ])
+  assert.equal(shipped, repository)
+
+  const manifest = await readSdkManifest()
+  assert.match(shipped, new RegExp(`^${manifest.license} License`, 'm'))
 })
 
 test('sdk readme is self-contained for readers who cannot open the repository', async () => {

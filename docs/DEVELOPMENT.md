@@ -171,6 +171,11 @@ generates SHA-256 metadata, attaches both files to a GitHub release, and publish
 when its version is not already published. Marketplace listing, automatic update, artifact signing, and revocation are
 separate approvals and are not performed by this workflow.
 
+The release tag (`v0.3.4`) and the SDK version (`packages/sdk/package.json`) are independent. The job publishes
+only when the SDK version is not already on the registry, so **an SDK change without a version bump is skipped
+silently** — the workflow logs `skipping publish: ... is already published` and still succeeds. Bump
+`packages/sdk/package.json` in the same PR as any change to `packages/sdk/`.
+
 ### npm publish token
 
 The `publish-sdk` job authenticates with the repository secret `NPM_TOKEN`. Nothing else in this repository reads it,

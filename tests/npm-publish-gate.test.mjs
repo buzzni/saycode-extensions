@@ -17,6 +17,35 @@ test('publishes when the registry has never seen the package', () => {
   assert.match(decision.reason, /not published/i)
 })
 
+test('reads the structured E404 npm reports on stdout under --json', () => {
+  // `npm view --json` emits the machine-readable error on stdout and only prose on stderr. Depending on the
+  // prose breaks when npm rewords it (`npm ERR!` → `npm error`) or when stderr is silenced.
+  const decision = decidePublish({
+    ...query,
+    exitCode: 1,
+    stdout: JSON.stringify({ error: { code: 'E404', summary: 'Not Found', detail: 'not in this registry' } }),
+    stderr: '',
+  })
+
+  assert.equal(decision.publish, true)
+})
+
+test('fails closed on a structured registry error that is not a missing package', () => {
+  assert.throws(
+    () => decidePublish({ ...query, exitCode: 1, stdout: JSON.stringify({ error: { code: 'EPERM' } }), stderr: '' }),
+    /EPERM|unexpected/i,
+  )
+})
+
+test('publishes when the package exists but the registry returns no matching version', () => {
+  // `npm view pkg@<absent version> version --json` exits 0 with empty output. This is the ordinary path for
+  // every release after the first.
+  const decision = decidePublish({ ...query, exitCode: 0, stdout: '\n', stderr: '' })
+
+  assert.equal(decision.publish, true)
+  assert.match(decision.reason, /0\.1\.0/)
+})
+
 test('publishes when the package exists but this version does not', () => {
   const decision = decidePublish({ ...query, exitCode: 0, stdout: '["0.0.1","0.0.2"]\n', stderr: '' })
 

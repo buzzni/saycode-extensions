@@ -20,6 +20,11 @@ if (name !== workspace) {
   throw new Error(`expected ${workspace} but packages/sdk declares ${name}`)
 }
 
+// Without `files`, npm publishes the whole workspace including `src/` and build config.
+if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+  throw new Error('packages/sdk/package.json must keep a "files" whitelist — without it npm publishes everything')
+}
+
 // `files` only ships what exists. Publishing before a build would put a permanently empty version on the
 // registry, and npm reports that as success.
 for (const entry of manifest.files) {

@@ -6,6 +6,18 @@
  * publishing on an ambiguous signal would push an unintended artifact to a public, effectively permanent registry.
  */
 
+/** Reads `{"error":{"code":"..."}}`, the shape `npm view --json` prints on stdout when it fails. */
+function readErrorCode(stdout) {
+  if (stdout === '') return undefined
+  try {
+    const parsed = JSON.parse(stdout)
+    const code = parsed?.error?.code
+    return typeof code === 'string' ? code : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * @param {{ name: string, version: string, exitCode: number, stdout: string, stderr: string }} query
  * @returns {{ publish: boolean, reason: string }}
@@ -16,17 +28,29 @@ export function decidePublish(query) {
   if (!name) throw new Error('npm publish gate requires a package name')
   if (!version) throw new Error('npm publish gate requires an exact version')
 
+  const trimmed = stdout.trim()
+
   if (exitCode !== 0) {
     // A missing package is the expected first-publish signal; anything else is a registry or auth problem.
+    // Prefer the machine-readable error `--json` puts on stdout: the stderr prose has been reworded across
+    // npm versions (`npm ERR!` → `npm error`) and disappears entirely under --silent.
+    const code = readErrorCode(trimmed)
+    if (code === 'E404') {
+      return { publish: true, reason: `${name} is not published yet` }
+    }
+    if (code) {
+      throw new Error(`npm view ${name} failed with ${code} (exit ${exitCode})`)
+    }
     if (/\bE404\b/.test(stderr) || /\b404 Not Found\b/.test(stderr)) {
       return { publish: true, reason: `${name} is not published yet` }
     }
     throw new Error(`npm view ${name} failed unexpectedly (exit ${exitCode}): ${stderr.trim() || '<no stderr>'}`)
   }
 
-  const trimmed = stdout.trim()
   if (trimmed === '') {
-    return { publish: true, reason: `${name} has no published versions` }
+    // The package exists but no version matched the exact query — the ordinary path for every release
+    // after the first.
+    return { publish: true, reason: `${name}@${version} is not published yet` }
   }
 
   let parsed
