@@ -176,6 +176,10 @@ only when the SDK version is not already on the registry, so **an SDK change wit
 silently** — the workflow logs `skipping publish: ... is already published` and still succeeds. Bump
 `packages/sdk/package.json` in the same PR as any change to `packages/sdk/`.
 
+`npm publish` always moves the `latest` dist-tag to the version it publishes. Publishing an older-line hotfix
+(say 0.1.1 after 0.2.0 is out) would repoint `latest` at the hotfix, so plain `npm i` would start serving the
+old line. If that situation ever comes up, pass an explicit `--tag` in `scripts/publish-sdk.mjs` for that release.
+
 ### npm publish token
 
 The `publish-sdk` job authenticates with the repository secret `NPM_TOKEN`. Nothing else in this repository reads it,
@@ -186,6 +190,8 @@ To create or rotate it:
 1. On npmjs.com, sign in as a maintainer of the `@buzzni` scope and create a **Granular access token** scoped to
    `@buzzni/saycode-extension-sdk` with **Read and write** permission. Choose the shortest expiry the release cadence
    allows; a token that can publish any `@buzzni` package is broader than this workflow needs.
+   **First publish only**: a package that has never been published cannot be selected, so scope the token to the
+   `@buzzni` organization instead, and rotate to a package-scoped token right after the first release.
 2. Register it at **Settings → Secrets and variables → Actions → New repository secret**, named `NPM_TOKEN`.
 3. Revoke the previous token on npmjs.com after a release confirms the new one works.
 

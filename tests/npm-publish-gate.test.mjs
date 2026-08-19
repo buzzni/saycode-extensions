@@ -5,25 +5,29 @@ import { decidePublish } from '../scripts/lib/npmPublishGate.mjs'
 
 const query = { name: '@buzzni/saycode-extension-sdk', version: '0.1.0' }
 
+// Measured contract of `npm view <pkg>@<version> version --json` on npm 10 (the npm Node 22 ships, pinned in CI):
+// both "package never published" and "package exists, version absent" exit 1 with a structured E404 on stdout.
+// The prose on stderr is not part of the contract — npm has reworded it across majors and it vanishes under
+// --silent — so the gate must never publish on any signal other than that structured E404.
+
 test('publishes when the registry has never seen the package', () => {
   const decision = decidePublish({
     ...query,
     exitCode: 1,
-    stdout: '',
-    stderr: 'npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@buzzni%2fsaycode-extension-sdk',
+    stdout: JSON.stringify({ error: { code: 'E404', summary: 'Not Found', detail: 'is not in this registry' } }),
+    stderr: 'npm error code E404',
   })
 
   assert.equal(decision.publish, true)
   assert.match(decision.reason, /not published/i)
 })
 
-test('reads the structured E404 npm reports on stdout under --json', () => {
-  // `npm view --json` emits the machine-readable error on stdout and only prose on stderr. Depending on the
-  // prose breaks when npm rewords it (`npm ERR!` → `npm error`) or when stderr is silenced.
+test('publishes when the package exists but this exact version does not', () => {
+  // The ordinary path for every release after the first.
   const decision = decidePublish({
     ...query,
     exitCode: 1,
-    stdout: JSON.stringify({ error: { code: 'E404', summary: 'Not Found', detail: 'not in this registry' } }),
+    stdout: JSON.stringify({ error: { code: 'E404', summary: 'No match found for version 0.1.0', detail: '' } }),
     stderr: '',
   })
 
@@ -33,23 +37,16 @@ test('reads the structured E404 npm reports on stdout under --json', () => {
 test('fails closed on a structured registry error that is not a missing package', () => {
   assert.throws(
     () => decidePublish({ ...query, exitCode: 1, stdout: JSON.stringify({ error: { code: 'EPERM' } }), stderr: '' }),
-    /EPERM|unexpected/i,
+    /EPERM/,
   )
 })
 
-test('publishes when the package exists but the registry returns no matching version', () => {
-  // `npm view pkg@<absent version> version --json` exits 0 with empty output. This is the ordinary path for
-  // every release after the first.
-  const decision = decidePublish({ ...query, exitCode: 0, stdout: '\n', stderr: '' })
-
-  assert.equal(decision.publish, true)
-  assert.match(decision.reason, /0\.1\.0/)
-})
-
-test('publishes when the package exists but this version does not', () => {
-  const decision = decidePublish({ ...query, exitCode: 0, stdout: '["0.0.1","0.0.2"]\n', stderr: '' })
-
-  assert.equal(decision.publish, true)
+test('fails closed when npm fails without a structured error, even if stderr mentions a 404', () => {
+  // Publishing on stderr prose would mean publishing on a signal npm does not guarantee.
+  assert.throws(
+    () => decidePublish({ ...query, exitCode: 1, stdout: '', stderr: 'npm error code E404\nnpm error 404 Not Found' }),
+    /unexpectedly/,
+  )
 })
 
 test('skips when this exact version is already published', () => {
@@ -66,11 +63,10 @@ test('skips when the registry returns a single version as a bare string', () => 
   assert.equal(decision.publish, false)
 })
 
-test('fails closed on an unrecognised registry failure rather than publishing', () => {
-  assert.throws(
-    () => decidePublish({ ...query, exitCode: 1, stdout: '', stderr: 'npm error code E500\nnpm error 500 Internal' }),
-    /E500|unexpected/i,
-  )
+test('fails closed when npm succeeds but returns no output', () => {
+  // Older npm majors reported "version absent" this way; current npm never does. Absence of output is not
+  // a confirmed "not published" signal, so it must not publish.
+  assert.throws(() => decidePublish({ ...query, exitCode: 0, stdout: '\n', stderr: '' }), /shape|empty|unexpected/i)
 })
 
 test('fails closed when the registry response cannot be parsed', () => {

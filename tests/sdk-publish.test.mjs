@@ -3,11 +3,12 @@ import { execFile } from 'node:child_process'
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const sdk = join(root, 'packages/sdk')
 
 const readSdkManifest = async () => JSON.parse(await readFile(join(sdk, 'package.json'), 'utf8'))
@@ -96,6 +97,18 @@ test('scaffolded projects depend on the SDK at build time only', async () => {
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
+})
+
+test('publish script completes a dry run end to end', async () => {
+  // Everything else here checks inputs; this actually executes scripts/publish-sdk.mjs — its manifest guards,
+  // entry-point checks, registry query, and gate — stopping only at npm's own --dry-run. Without it the script
+  // has zero coverage and a broken relative path inside it would surface for the first time on a release tag.
+  const { stdout } = await exec('node', [join(root, 'scripts/publish-sdk.mjs'), '--dry-run'], {
+    cwd: root,
+    maxBuffer: 1024 * 1024 * 8,
+  })
+
+  assert.match(stdout, /^(publishing|skipping publish)/m)
 })
 
 test('published tarball contains only build output, readme, license, and manifest', async () => {

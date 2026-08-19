@@ -48,7 +48,7 @@ import { parseExtensionManifest } from '@buzzni/saycode-extension-sdk/manifest'
 ```ts
 export default defineExtension({
   activate(context) {
-    context.commands.register('com.example.hello', (name) => `Hello ${String(name)}`)
+    context.commands.register('com.example.hello.hello', (name) => `Hello ${String(name)}`)
   },
 })
 ```

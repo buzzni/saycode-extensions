@@ -28,14 +28,10 @@ if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
 // `files` only ships what exists. Publishing before a build would put a permanently empty version on the
 // registry, and npm reports that as success. Checking the entry points, not just the dist directory,
 // catches a partial build too.
-// npm allows string shorthands for both fields ({bin: "dist/cli.js"}, {".": "./dist/index.js"});
-// Object.values on a string would split it into characters and fail the check with a nonsense path.
-const pathsOf = (entry) => (typeof entry === 'string' ? [entry] : Object.values(entry ?? {}))
-const shippedPaths = [
-  ...manifest.files,
-  ...pathsOf(manifest.bin),
-  ...pathsOf(manifest.exports).flatMap(pathsOf),
-]
+// bin and exports nest arbitrarily (string shorthands, conditional export objects), so flatten recursively —
+// a fixed depth would either split strings into characters or stringify objects into nonsense paths.
+const pathsOf = (entry) => (typeof entry === 'string' ? [entry] : Object.values(entry ?? {}).flatMap(pathsOf))
+const shippedPaths = [...manifest.files, ...pathsOf(manifest.bin), ...pathsOf(manifest.exports)]
 for (const entry of shippedPaths) {
   try {
     await access(new URL(`../packages/sdk/${entry}`, import.meta.url))

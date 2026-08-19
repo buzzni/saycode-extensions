@@ -2,8 +2,10 @@
  * Decides whether a tagged release should publish the SDK to npm (ADR-046).
  *
  * A tag can be re-run, and an npm version can only be published once, so the release workflow must treat
- * "this version already exists" as success rather than failure. Every other registry outcome is an error:
- * publishing on an ambiguous signal would push an unintended artifact to a public, effectively permanent registry.
+ * "this version already exists" as success rather than failure. The only signal that may trigger a publish is
+ * npm's structured E404 ("not published") — measured on npm 10, both "package never published" and "package
+ * exists, version absent" report it on stdout under --json. Every other outcome is an error: publishing on an
+ * ambiguous signal would push an unintended artifact to a public, effectively permanent registry.
  */
 
 /** Reads `{"error":{"code":"..."}}`, the shape `npm view --json` prints on stdout when it fails. */
@@ -31,26 +33,18 @@ export function decidePublish(query) {
   const trimmed = stdout.trim()
 
   if (exitCode !== 0) {
-    // A missing package is the expected first-publish signal; anything else is a registry or auth problem.
-    // Prefer the machine-readable error `--json` puts on stdout: the stderr prose has been reworded across
-    // npm versions (`npm ERR!` → `npm error`) and disappears entirely under --silent.
     const code = readErrorCode(trimmed)
     if (code === 'E404') {
-      return { publish: true, reason: `${name} is not published yet` }
+      return { publish: true, reason: `${name}@${version} is not published yet` }
     }
     if (code) {
       throw new Error(`npm view ${name} failed with ${code} (exit ${exitCode})`)
-    }
-    if (/\bE404\b/.test(stderr) || /\b404 Not Found\b/.test(stderr)) {
-      return { publish: true, reason: `${name} is not published yet` }
     }
     throw new Error(`npm view ${name} failed unexpectedly (exit ${exitCode}): ${stderr.trim() || '<no stderr>'}`)
   }
 
   if (trimmed === '') {
-    // The package exists but no version matched the exact query — the ordinary path for every release
-    // after the first.
-    return { publish: true, reason: `${name}@${version} is not published yet` }
+    throw new Error(`npm view ${name} succeeded with empty output — not a confirmed "not published" signal`)
   }
 
   let parsed

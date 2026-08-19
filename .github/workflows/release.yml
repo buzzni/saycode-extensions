@@ -48,8 +48,9 @@ jobs:
 
   publish-sdk:
     # The SDK is the only package published to a public registry (ADR-046); first-party extensions ship as
-    # release artifacts above. Runs only after the artifact release passes, and skips versions already published
-    # so a re-run of an existing tag is not a failure.
+    # release artifacts above. Runs only after the artifact release passes. The already-published skip makes
+    # "Re-run failed jobs" on this job idempotent; a full re-run of an existing tag still fails earlier, in
+    # the release job's `gh release create`.
     needs: release
     runs-on: ubuntu-latest
     # Publishing needs the npm token, not the GitHub write scope the release job uses.
@@ -57,6 +58,15 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the ancestry gate below can walk from the tag to main.
+          fetch-depth: 0
+      - name: Require the tagged commit to be on main
+        # A v* tag on any branch would otherwise run that branch's code with NPM_TOKEN in reach and publish
+        # unreviewed bits to a permanent public registry.
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
