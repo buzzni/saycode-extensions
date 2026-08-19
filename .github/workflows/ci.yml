@@ -48,3 +48,17 @@ jobs:
       - run: npm run build -w @buzzni/saycode-extension-sdk
       - run: node --test tests/cli.test.mjs
       - run: npm run package:fixture
+
+  publish-contract:
+    # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first
+    # time on a release tag, when the mistake is already expensive.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @buzzni/saycode-extension-sdk
+      - run: node --test tests/npm-publish-gate.test.mjs tests/sdk-publish.test.mjs
