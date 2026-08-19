@@ -1,13 +1,18 @@
 {
   "name": "@buzzni/saycode-extension-sdk",
   "version": "0.1.0",
+  "description": "Contracts and CLI for building Saycode Desktop extensions.",
+  "license": "MIT",
+  "keywords": ["saycode", "extension", "sdk", "desktop"],
   "type": "module",
+  "engines": { "node": ">=22" },
+  "publishConfig": { "access": "public" },
   "bin": { "saycode-extension": "dist/cli.js" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./manifest": { "types": "./dist/manifest.d.ts", "import": "./dist/manifest.js" }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -45,3 +45,23 @@ jobs:
           packages/plugin-manager/buzzni.plugin-manager-1.0.2.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
+
+  publish-sdk:
+    # The SDK is the only package published to a public registry (ADR-046); first-party extensions ship as
+    # release artifacts above. Runs only after the artifact release passes, and skips versions already published
+    # so a re-run of an existing tag is not a failure.
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build
+      - name: Publish SDK to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm run publish:sdk

@@ -2,10 +2,11 @@
 
 ## Quick Start
 
-Follow these commands from a new directory after installing the SDK CLI:
+The SDK is published to the public npm registry, so the Quick Start needs no checkout of this repository:
 
 ```bash
-saycode-extension scaffold hello-extension --id com.example.hello
+npm i -D @buzzni/saycode-extension-sdk
+npx saycode-extension scaffold hello-extension --id com.example.hello
 cd hello-extension
 npm install
 npm run validate
@@ -14,11 +15,10 @@ npm run pack
 ```
 
 The result is `com.example.hello-1.0.0.saycode-extension`. The scaffolded command is lazy: Desktop activates the
-extension only when `com.example.hello.hello` is first invoked. Repository contributors can replace the global CLI with
-`node /path/to/saycode-extensions/packages/sdk/dist/cli.js`.
+extension only when `com.example.hello.hello` is first invoked.
 
-The SDK is not publicly published during the v1 preview. To reproduce the complete Quick Start without a Desktop/core
-checkout, build a tarball from this repository and use it for both the CLI and scaffolded dependency:
+Repository contributors testing an unreleased SDK change should build from this checkout instead of installing the
+published package, so the CLI and the scaffolded dependency come from the same working tree:
 
 ```bash
 # In saycode-extensions
@@ -36,8 +36,10 @@ npm run dev -- --once
 npm run pack
 ```
 
-Public npm publication remains a separate approval. Replace the example repository and `/tmp` paths with local paths;
-do not commit the generated tarball.
+Replace the example repository and `/tmp` paths with local paths; do not commit the generated tarball.
+
+`packages/sdk/README.md` is the published, self-contained copy of the contracts below. It must stay free of links
+relative to this repository, which outside readers cannot open; `tests/sdk-publish.test.mjs` enforces that.
 
 ## Public API
 
@@ -166,8 +168,34 @@ avoid that gate.
 
 `saycode-extension pack .` validates the manifest, creates a browser ESM bundle, and writes a deterministic package
 shape containing `extension.json` and `index.js`. A Git tag matching `v*` runs all tests, packages the official fixture,
-generates SHA-256 metadata, and attaches both files to a GitHub release. Public npm publication, marketplace listing,
-automatic update, artifact signing, and revocation are separate approvals and are not performed by this workflow.
+generates SHA-256 metadata, attaches both files to a GitHub release, and publishes the SDK to the public npm registry
+when its version is not already published. Marketplace listing, automatic update, artifact signing, and revocation are
+separate approvals and are not performed by this workflow.
+
+### npm publish token
+
+The `publish-sdk` job authenticates with the repository secret `NPM_TOKEN`. Nothing else in this repository reads it,
+and it never appears in a checked-in file.
+
+To create or rotate it:
+
+1. On npmjs.com, sign in as a maintainer of the `@buzzni` scope and create a **Granular access token** scoped to
+   `@buzzni/saycode-extension-sdk` with **Read and write** permission. Choose the shortest expiry the release cadence
+   allows; a token that can publish any `@buzzni` package is broader than this workflow needs.
+2. Register it at **Settings → Secrets and variables → Actions → New repository secret**, named `NPM_TOKEN`.
+3. Revoke the previous token on npmjs.com after a release confirms the new one works.
+
+To revoke access entirely, delete the token on npmjs.com first, then remove the repository secret. Deleting only the
+secret leaves a live publish credential outstanding.
+
+Verify the publish decision without touching the registry state:
+
+```bash
+npm run publish:sdk -- --dry-run
+```
+
+`scripts/lib/npmPublishGate.mjs` owns that decision and fails closed: it publishes only on a confirmed "version not
+published" signal, and treats any other registry response as an error rather than guessing.
 
 ## Security rules
 
