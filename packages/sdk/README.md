@@ -6,31 +6,35 @@ Extensions run in an isolated host, outside the Saycode renderer. This package g
 one and the CLI to validate, bundle, and package it. Desktop internals, Electron, Node built-ins, credentials, and
 unrestricted network/filesystem access are intentionally absent — the security boundary lives in Desktop, not here.
 
-## Install
-
-```bash
-npm i -D @buzzni/saycode-extension-sdk
-```
-
-Install it as a **devDependency**. The package pulls in `esbuild` and `jszip`, which are used only by the CLI when
-bundling and packaging; the runtime contracts you import into your extension have no dependencies of their own.
-
-Requires Node.js 22 or newer.
-
 ## Quick Start
 
+`scaffold` needs no prior install — `npx` fetches the CLI for you:
+
 ```bash
-npx saycode-extension scaffold hello-extension --id com.example.hello
+npx @buzzni/saycode-extension-sdk scaffold hello-extension --id com.example.hello
 cd hello-extension
 npm install
-npx saycode-extension validate .
-npx saycode-extension dev . --once
-npx saycode-extension pack .
+npm run validate
+npm run dev -- --once
+npm run pack
 ```
 
 The result is `com.example.hello-1.0.0.saycode-extension`, installable from **Settings → Extensions** in Saycode
 Desktop. The scaffolded command is lazy: Desktop activates the extension only when `com.example.hello.hello` is first
 invoked.
+
+## Install
+
+`scaffold` already adds the SDK to the generated project. To add it to an existing project:
+
+```bash
+npm i -D @buzzni/saycode-extension-sdk
+```
+
+Always a **devDependency**. `pack` inlines the contracts into your extension bundle, so nothing resolves this package
+at runtime — and declaring it as a runtime dependency would drag the CLI's `esbuild` and `jszip` into your tree.
+
+Requires Node.js 22 or newer.
 
 ## Public API
 

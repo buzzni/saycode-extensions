@@ -36,8 +36,13 @@ export function decidePublish(query) {
     throw new Error(`could not parse npm view output for ${name}: ${trimmed}`)
   }
 
-  // `npm view ... version --json` returns a string for one match and an array for several.
+  // `npm view ... version --json` returns a string for one match and an array of strings for several.
+  // Any other shape is unrecognised: silently treating it as "no match" would publish over an existing release.
   const versions = Array.isArray(parsed) ? parsed : [parsed]
+  if (!versions.every((entry) => typeof entry === 'string')) {
+    throw new Error(`unexpected npm view response shape for ${name}: ${trimmed}`)
+  }
+
   if (versions.includes(version)) {
     return { publish: false, reason: `${name}@${version} is already published` }
   }

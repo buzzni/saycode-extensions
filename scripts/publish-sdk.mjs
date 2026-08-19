@@ -6,7 +6,7 @@
  * Requires NODE_AUTH_TOKEN in the environment when it actually publishes.
  */
 import { spawnSync } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 
 import { decidePublish } from './lib/npmPublishGate.mjs'
 
@@ -18,6 +18,16 @@ const { name, version } = manifest
 
 if (name !== workspace) {
   throw new Error(`expected ${workspace} but packages/sdk declares ${name}`)
+}
+
+// `files` only ships what exists. Publishing before a build would put a permanently empty version on the
+// registry, and npm reports that as success.
+for (const entry of manifest.files) {
+  try {
+    await access(new URL(`../packages/sdk/${entry}`, import.meta.url))
+  } catch {
+    throw new Error(`packages/sdk/${entry} is missing — run "npm run build" before publishing`)
+  }
 }
 
 const view = spawnSync('npm', ['view', `${name}@${version}`, 'version', '--json'], { encoding: 'utf8' })

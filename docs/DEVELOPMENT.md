@@ -5,8 +5,7 @@
 The SDK is published to the public npm registry, so the Quick Start needs no checkout of this repository:
 
 ```bash
-npm i -D @buzzni/saycode-extension-sdk
-npx saycode-extension scaffold hello-extension --id com.example.hello
+npx @buzzni/saycode-extension-sdk scaffold hello-extension --id com.example.hello
 cd hello-extension
 npm install
 npm run validate

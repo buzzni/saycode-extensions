@@ -48,6 +48,13 @@ test('fails closed when the registry response cannot be parsed', () => {
   assert.throws(() => decidePublish({ ...query, exitCode: 0, stdout: 'not json', stderr: '' }), /parse/i)
 })
 
+test('fails closed on a registry response shape it does not understand', () => {
+  // An object or a nested value would otherwise miss `includes(version)` and publish over an existing release.
+  assert.throws(() => decidePublish({ ...query, exitCode: 0, stdout: '{"0.1.0":"0.1.0"}', stderr: '' }), /shape|unexpected/i)
+  assert.throws(() => decidePublish({ ...query, exitCode: 0, stdout: '[["0.1.0"]]', stderr: '' }), /shape|unexpected/i)
+  assert.throws(() => decidePublish({ ...query, exitCode: 0, stdout: 'null', stderr: '' }), /shape|unexpected/i)
+})
+
 test('rejects a query without an exact version', () => {
   assert.throws(() => decidePublish({ name: query.name, version: '', exitCode: 0, stdout: '[]', stderr: '' }), /version/i)
 })

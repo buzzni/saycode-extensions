@@ -36,7 +36,9 @@ async function scaffold(projectPath: string): Promise<void> {
         dev: 'saycode-extension dev .',
         pack: 'saycode-extension pack .',
       },
-      dependencies: { '@buzzni/saycode-extension-sdk': '^0.1.0' },
+      // Build-time only: `pack` inlines the SDK into the bundle, and a runtime declaration would drag the
+      // CLI's esbuild/jszip into every extension author's dependency tree.
+      devDependencies: { '@buzzni/saycode-extension-sdk': '^0.1.0' },
     }, null, 2) + '\n',
     'extension.json': JSON.stringify({
       id,

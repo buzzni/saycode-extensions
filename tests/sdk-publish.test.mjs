@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { access, readFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -52,15 +53,35 @@ test('sdk ships a license file next to the readme', async () => {
 test('sdk readme is self-contained for readers who cannot open the repository', async () => {
   const readme = await readFile(join(sdk, 'README.md'), 'utf8')
 
-  const relativeLinks = [...readme.matchAll(/\]\((\.\.?\/[^)]+)\)/g)].map((match) => match[1])
-  assert.deepEqual(relativeLinks, [], 'relative links resolve inside the private repository only')
+  // Any target that is not an absolute URL or an in-page anchor resolves inside the private repository,
+  // so it 404s for the npm readers this README exists for. `../x`, `./x`, and a bare `docs/x.md` all count.
+  const linkTargets = [...readme.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1].trim())
+  const unreachable = linkTargets.filter((target) => !/^(https?:\/\/|mailto:|#)/.test(target))
+  assert.deepEqual(unreachable, [], 'links resolve inside the private repository only')
 
   assert.doesNotMatch(readme, /not yet published/i)
-  // The reader must be able to get from install to a packaged artifact without the repo.
-  for (const command of ['scaffold', 'validate', 'dev', 'pack']) {
-    assert.match(readme, new RegExp(`saycode-extension ${command}`))
+  // The reader must be able to get from nothing to a packaged artifact using only what this file shows.
+  assert.match(readme, /npx @buzzni\/saycode-extension-sdk scaffold/)
+  for (const command of ['validate', 'dev', 'pack']) {
+    assert.match(readme, new RegExp(`npm run ${command}`))
   }
   assert.match(readme, /npm i -D @buzzni\/saycode-extension-sdk/)
+})
+
+test('scaffolded projects depend on the SDK at build time only', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-scaffold-dep-'))
+  const project = join(temporary, 'hello-extension')
+  try {
+    await exec('node', [join(sdk, 'dist/cli.js'), 'scaffold', project, '--id', 'com.example.hello'])
+    const manifest = JSON.parse(await readFile(join(project, 'package.json'), 'utf8'))
+
+    // `pack` inlines the SDK into the browser bundle, so nothing resolves it at runtime. Declaring it as a
+    // runtime dependency would also pull the CLI's esbuild/jszip into every extension author's tree.
+    assert.equal(manifest.dependencies, undefined)
+    assert.ok(manifest.devDependencies?.['@buzzni/saycode-extension-sdk'])
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
 })
 
 test('published tarball contains only build output, readme, license, and manifest', async () => {

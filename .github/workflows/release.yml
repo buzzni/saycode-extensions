@@ -52,6 +52,9 @@ jobs:
     # so a re-run of an existing tag is not a failure.
     needs: release
     runs-on: ubuntu-latest
+    # Publishing needs the npm token, not the GitHub write scope the release job uses.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
