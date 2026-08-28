@@ -24,8 +24,10 @@ export function defineExtension(extension: SaycodeExtension): SaycodeExtension {
 
 export type {
   ExtensionCommandContribution,
+  ExtensionArtifactActionContribution,
   ExtensionContributions,
   ExtensionManifest,
+  ExtensionMachineActionContribution,
   ExtensionPanelContribution,
   ExtensionPermission,
   ExtensionProjectTemplateLocalization,

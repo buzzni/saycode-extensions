@@ -1,0 +1,30 @@
+{
+  "id": "buzzni.artifact-publisher",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": [
+    "artifacts.publishPublic"
+  ],
+  "activationEvents": [],
+  "contributes": {
+    "artifactActions": [
+      {
+        "id": "buzzni.artifact-publisher.publish-public",
+        "title": "Create public link",
+        "localizations": {
+          "ko": { "title": "공개 링크 만들기" },
+          "en": { "title": "Create public link" },
+          "ja": { "title": "公開リンクを作成" },
+          "zh": { "title": "创建公开链接" }
+        },
+        "operation": "publishPublic",
+        "when": {
+          "sourceTypes": ["project-file", "personal-chat-file"],
+          "extensions": ["html", "htm"]
+        }
+      }
+    ]
+  }
+}

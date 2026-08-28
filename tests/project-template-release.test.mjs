@@ -30,3 +30,22 @@ test('release gate packs, checksums, and publishes the official Plugin Manager',
   assert.match(workflow, new RegExp(`${archive.replaceAll('.', '\\.')}\\.sha256`))
   assert.match(workflow, new RegExp(`packages/plugin-manager/${archive.replaceAll('.', '\\.')}`))
 })
+
+test('release gate packs, checksums, and publishes the official Artifact Publisher', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const artifactPublisherPackage = JSON.parse(
+    await readFile(new URL('packages/artifact-publisher/package.json', root), 'utf8'),
+  )
+  const manifest = JSON.parse(
+    await readFile(new URL('packages/artifact-publisher/extension.json', root), 'utf8'),
+  )
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+
+  assert.match(packageJson.scripts['package:artifact-publisher'], /artifact-publisher.*pack/)
+  assert.equal(artifactPublisherPackage.version, manifest.version)
+  assert.equal(manifest.apiVersion, 3)
+  assert.match(workflow, /npm run package:artifact-publisher/)
+  assert.match(workflow, new RegExp(`${archive.replaceAll('.', '\\.')}\\.sha256`))
+  assert.match(workflow, new RegExp(`packages/artifact-publisher/${archive.replaceAll('.', '\\.')}`))
+})

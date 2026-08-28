@@ -1,12 +1,30 @@
 export const EXTENSION_PERMISSIONS = [
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
+  'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
+  'artifacts.publishPublic',
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
 export interface ExtensionCommandContribution { id: string; title: string; panelId?: string }
 export interface ExtensionSettingContribution { id: string; title: string; type: 'boolean' | 'number' | 'string' }
 export interface ExtensionPanelContribution { id: string; title: string; entrypoint: string }
+export interface ExtensionMachineActionContribution {
+  id: string
+  title: string
+  command: string
+  when: { online: true }
+}
+export interface ExtensionArtifactActionContribution {
+  id: string
+  title: string
+  localizations?: Record<string, { title: string }>
+  operation: 'publishPublic'
+  when: {
+    sourceTypes: Array<'project-file' | 'personal-chat-file'>
+    extensions: string[]
+  }
+}
 export interface ExtensionProjectTemplateLocalization {
   title?: string
   description?: string
@@ -27,6 +45,8 @@ export interface ExtensionContributions {
   settings?: ExtensionSettingContribution[]
   panels?: ExtensionPanelContribution[]
   projectTemplates?: ExtensionProjectTemplateContribution[]
+  machineActions?: ExtensionMachineActionContribution[]
+  artifactActions?: ExtensionArtifactActionContribution[]
 }
 export interface ExtensionManifest {
   id: string
@@ -43,6 +63,7 @@ const ID = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const LOCALE = /^[a-z]{2,3}(?:-[A-Z]{2})?$/
 const PERMISSIONS = new Set<string>(EXTENSION_PERMISSIONS)
+const ARTIFACT_EXTENSION = /^[a-z0-9]+$/
 
 function record(value: unknown, path: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path}: expected object`)
@@ -82,21 +103,101 @@ function contributionBase(value: unknown, path: string): { id: string; title: st
   return { id: stableId(item.id, `${path}.id`), title: text(item.title, `${path}.title`) }
 }
 
+function uniqueStrings(value: unknown, path: string, parse: (item: unknown, itemPath: string) => string): string[] {
+  const values = list(value, path).map((item, index) => parse(item, `${path}[${index}]`))
+  if (values.length === 0 || new Set(values).size !== values.length) {
+    throw new Error(`${path}: expected a non-empty unique list`)
+  }
+  return values
+}
+
+function parseArtifactActions(value: unknown): ExtensionArtifactActionContribution[] {
+  const actions = list(value, 'artifactActions')
+  if (actions.length > 32) throw new Error('artifactActions: expected at most 32 actions')
+  return actions.map((item, index) => {
+    const path = `artifactActions[${index}]`
+    const source = record(item, path)
+    const allowed = new Set(['id', 'title', 'localizations', 'operation', 'when'])
+    const unknown = Object.keys(source).find((key) => !allowed.has(key))
+    if (unknown) throw new Error(`${path}: unknown field ${unknown}`)
+    const base = contributionBase(source, path)
+    if ([...base.title].length > 120) throw new Error(`${path}.title: exceeds 120 characters`)
+    if (source.operation !== 'publishPublic') throw new Error(`${path}.operation: unsupported`)
+    const when = record(source.when, `${path}.when`)
+    if (Object.keys(when).sort().join(',') !== 'extensions,sourceTypes') {
+      throw new Error(`${path}.when: expected sourceTypes and extensions`)
+    }
+    const sourceTypes = uniqueStrings(when.sourceTypes, `${path}.when.sourceTypes`, (item, itemPath) => {
+      if (item !== 'project-file' && item !== 'personal-chat-file') throw new Error(`${itemPath}: unsupported source type`)
+      return item
+    }) as Array<'project-file' | 'personal-chat-file'>
+    const extensions = uniqueStrings(when.extensions, `${path}.when.extensions`, (item, itemPath) => {
+      const extension = text(item, itemPath)
+      if (!ARTIFACT_EXTENSION.test(extension)) throw new Error(`${itemPath}: expected lowercase extension without a dot`)
+      return extension
+    })
+    if (extensions.length > 16) throw new Error(`${path}.when.extensions: expected at most 16 extensions`)
+    let localizations: Record<string, { title: string }> | undefined
+    if (source.localizations !== undefined) {
+      localizations = {}
+      const entries = Object.entries(record(source.localizations, `${path}.localizations`))
+      if (entries.length > 16) throw new Error(`${path}.localizations: too many locales`)
+      for (const [locale, localizedValue] of entries) {
+        if (!LOCALE.test(locale)) throw new Error(`${path}.localizations: invalid locale ${locale}`)
+        const localized = record(localizedValue, `${path}.localizations.${locale}`)
+        if (Object.keys(localized).join(',') !== 'title') throw new Error(`${path}.localizations.${locale}: expected only title`)
+        const title = text(localized.title, `${path}.localizations.${locale}.title`)
+        if ([...title].length > 120) throw new Error(`${path}.localizations.${locale}.title: exceeds 120 characters`)
+        localizations[locale] = { title }
+      }
+    }
+    return {
+      ...base,
+      ...(localizations ? { localizations } : {}),
+      operation: 'publishPublic',
+      when: { sourceTypes, extensions },
+    }
+  })
+}
+
 export function parseExtensionManifest(
   value: unknown,
-  options: { supportedApiVersion: number },
+  options: { supportedApiVersion: number; minimumSupportedApiVersion?: number },
 ): ExtensionManifest {
   const raw = record(value, 'manifest')
-  if (raw.apiVersion !== options.supportedApiVersion) throw new Error(`manifest.apiVersion: unsupported ${String(raw.apiVersion)}`)
+  const minimum = options.minimumSupportedApiVersion ?? options.supportedApiVersion
+  if (
+    typeof raw.apiVersion !== 'number'
+    || !Number.isInteger(raw.apiVersion)
+    || raw.apiVersion < minimum
+    || raw.apiVersion > options.supportedApiVersion
+    || options.supportedApiVersion - minimum > 1
+  ) throw new Error(`manifest.apiVersion: unsupported ${String(raw.apiVersion)}`)
+  const apiVersion = raw.apiVersion
   const version = text(raw.version, 'manifest.version')
   if (!SEMVER.test(version)) throw new Error('manifest.version: expected semantic version')
   const engines = record(raw.engines, 'manifest.engines')
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {
     const permission = text(item, `manifest.permissions[${index}]`)
     if (!PERMISSIONS.has(permission)) throw new Error(`manifest.permissions: unknown ${permission}`)
+    if (apiVersion < 2 && permission.startsWith('browserViewer.')) {
+      throw new Error('manifest.permissions: browserViewer permissions require Extension API version 2')
+    }
+    if (apiVersion < 3 && permission === 'artifacts.publishPublic') {
+      throw new Error('manifest.permissions: artifacts.publishPublic requires Extension API version 3')
+    }
     return permission as ExtensionPermission
   })
+  if (new Set(permissions).size !== permissions.length) {
+    throw new Error('manifest.permissions: duplicate permission')
+  }
   const contributions = record(raw.contributes, 'manifest.contributes')
+  if (apiVersion < 2 && contributions.machineActions !== undefined) {
+    throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
+  }
+  if (apiVersion < 3 && contributions.artifactActions !== undefined) {
+    throw new Error('manifest.contributes.artifactActions: requires Extension API version 3')
+  }
   const commands = contributions.commands === undefined ? undefined : list(contributions.commands, 'commands').map((item, index) => {
     const path = `commands[${index}]`
     const source = record(item, path)
@@ -109,6 +210,34 @@ export function parseExtensionManifest(
     const base = contributionBase(item, `panels[${index}]`)
     return { ...base, entrypoint: safePath(record(item, `panels[${index}]`).entrypoint, `panels[${index}].entrypoint`) }
   })
+  const machineActions = contributions.machineActions === undefined
+    ? undefined
+    : list(contributions.machineActions, 'machineActions').map((item, index) => {
+      const path = `machineActions[${index}]`
+      const source = record(item, path)
+      const unknown = Object.keys(source).find((key) => !['id', 'title', 'command', 'when'].includes(key))
+      if (unknown) throw new Error(`${path}: unknown field ${unknown}`)
+      const when = record(source.when, `${path}.when`)
+      if (Object.keys(when).join(',') !== 'online' || when.online !== true) {
+        throw new Error(`${path}.when: expected only online:true`)
+      }
+      return {
+        ...contributionBase(item, path),
+        command: stableId(source.command, `${path}.command`),
+        when: { online: true as const },
+      }
+    })
+  const artifactActions = contributions.artifactActions === undefined
+    ? undefined
+    : parseArtifactActions(contributions.artifactActions)
+  if (artifactActions?.length && !permissions.includes('artifacts.publishPublic')) {
+    throw new Error('manifest.contributes.artifactActions: requires artifacts.publishPublic permission')
+  }
+  for (const [index, action] of (artifactActions ?? []).entries()) {
+    if (!action.id.startsWith(`${text(raw.id, 'manifest.id')}.`)) {
+      throw new Error(`artifactActions[${index}].id: expected an id declared by the same extension`)
+    }
+  }
   for (const [index, command] of (commands ?? []).entries()) {
     if (
       command.panelId !== undefined
@@ -116,6 +245,13 @@ export function parseExtensionManifest(
     ) {
       throw new Error(`commands[${index}].panelId: expected a panel declared by the same extension`)
     }
+  }
+  for (const [index, action] of (machineActions ?? []).entries()) {
+    if (
+      !action.id.startsWith(`${text(raw.id, 'manifest.id')}.`)
+      || !action.command.startsWith(`${text(raw.id, 'manifest.id')}.`)
+      || !commands?.some((command) => command.id === action.command)
+    ) throw new Error(`machineActions[${index}].id/command: expected ids declared by the same extension`)
   }
   const settings = contributions.settings === undefined ? undefined : list(contributions.settings, 'settings').map((item, index) => {
     const source = record(item, `settings[${index}]`)
@@ -151,14 +287,25 @@ export function parseExtensionManifest(
       ...(localizations === undefined ? {} : { localizations }),
     }
   })
+  const contributionIds = [
+    ...(commands ?? []),
+    ...(settings ?? []),
+    ...(panels ?? []),
+    ...(projectTemplates ?? []),
+    ...(machineActions ?? []),
+    ...(artifactActions ?? []),
+  ].map((contribution) => contribution.id)
+  if (new Set(contributionIds).size !== contributionIds.length) {
+    throw new Error('manifest.contributes: duplicate contribution id')
+  }
   return {
     id: stableId(raw.id, 'manifest.id'),
     version,
-    apiVersion: options.supportedApiVersion,
+    apiVersion,
     engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
     activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates },
+    contributes: { commands, settings, panels, projectTemplates, machineActions, artifactActions },
   }
 }

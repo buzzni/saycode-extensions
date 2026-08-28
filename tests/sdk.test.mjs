@@ -74,6 +74,127 @@ test('manifest command panelId must name a panel declared by the same extension'
   }, { supportedApiVersion: 1 }), /panelId/)
 })
 
+test('manifest parser supports v2 machine actions while keeping v1 fail-closed', () => {
+  const manifest = {
+    id: 'buzzni.viewer', version: '1.0.0', apiVersion: 2,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js',
+    permissions: ['browserViewer.open'], activationEvents: ['onCommand:buzzni.viewer.open'],
+    contributes: {
+      commands: [{ id: 'buzzni.viewer.open', title: 'Open' }],
+      machineActions: [{
+        id: 'buzzni.viewer.action', title: 'Viewer', command: 'buzzni.viewer.open', when: { online: true },
+      }],
+    },
+  }
+  assert.deepEqual(
+    parseExtensionManifest(manifest, { supportedApiVersion: 2, minimumSupportedApiVersion: 1 }).contributes.machineActions,
+    manifest.contributes.machineActions,
+  )
+  assert.throws(() => parseExtensionManifest(
+    { ...manifest, apiVersion: 1 },
+    { supportedApiVersion: 2, minimumSupportedApiVersion: 1 },
+  ), /require.*Extension API version 2/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      ...manifest.contributes,
+      machineActions: [{
+        id: 'buzzni.viewer.open', title: 'Viewer', command: 'buzzni.viewer.open', when: { online: true },
+      }],
+    },
+  }, { supportedApiVersion: 2, minimumSupportedApiVersion: 1 }), /duplicate contribution id/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      ...manifest.contributes,
+      machineActions: [{
+        id: 'other.viewer.action', title: 'Viewer', command: 'buzzni.viewer.open', when: { online: true },
+      }],
+    },
+  }, { supportedApiVersion: 2, minimumSupportedApiVersion: 1 }), /machineActions.*id/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    permissions: ['browserViewer.open', 'browserViewer.open'],
+  }, { supportedApiVersion: 2, minimumSupportedApiVersion: 1 }), /duplicate permission/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      ...manifest.contributes,
+      machineActions: [{
+        ...manifest.contributes.machineActions[0],
+        platform: 'linux',
+      }],
+    },
+  }, { supportedApiVersion: 2, minimumSupportedApiVersion: 1 }), /machineActions.*unknown field/)
+})
+
+test('manifest parser supports v3 declarative artifact actions while keeping v2 fail-closed', () => {
+  const manifest = {
+    id: 'buzzni.artifact-publisher', version: '1.0.0', apiVersion: 3,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js',
+    permissions: ['artifacts.publishPublic'], activationEvents: [],
+    contributes: {
+      artifactActions: [{
+        id: 'buzzni.artifact-publisher.publish-public',
+        title: 'Create public link',
+        localizations: {
+          ko: { title: '공개 링크 만들기' },
+          ja: { title: '公開リンクを作成' },
+          zh: { title: '创建公开链接' },
+        },
+        operation: 'publishPublic',
+        when: {
+          sourceTypes: ['project-file', 'personal-chat-file'],
+          extensions: ['html', 'htm'],
+        },
+      }],
+    },
+  }
+  assert.deepEqual(
+    parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+      .contributes.artifactActions,
+    manifest.contributes.artifactActions,
+  )
+  assert.throws(() => parseExtensionManifest(
+    { ...manifest, apiVersion: 2 },
+    { supportedApiVersion: 3, minimumSupportedApiVersion: 2 },
+  ), /require.*Extension API version 3/)
+  assert.throws(() => parseExtensionManifest(
+    { ...manifest, permissions: [] },
+    { supportedApiVersion: 3, minimumSupportedApiVersion: 2 },
+  ), /artifacts\.publishPublic/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      artifactActions: [{
+        ...manifest.contributes.artifactActions[0],
+        when: { sourceTypes: ['project-file'], extensions: ['.html'] },
+      }],
+    },
+  }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /extensions/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      artifactActions: [{
+        ...manifest.contributes.artifactActions[0],
+        id: 'other.extension.publish-public',
+      }],
+    },
+  }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /artifactActions.*id/)
+  assert.throws(() => parseExtensionManifest({
+    ...manifest,
+    contributes: {
+      artifactActions: [{
+        ...manifest.contributes.artifactActions[0],
+        when: {
+          sourceTypes: ['project-file'],
+          extensions: Array.from({ length: 17 }, (_, index) => `html${index}`),
+        },
+      }],
+    },
+  }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /extensions/)
+})
+
 test('packed SDK installs and exposes only documented entrypoints', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'saycode-sdk-pack-'))
   try {
