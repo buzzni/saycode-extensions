@@ -6,7 +6,7 @@
 2. Verify the checksum before opening Saycode:
 
    ```bash
-   shasum -a 256 -c buzzni.hello-world-1.0.0.saycode-extension.sha256
+   shasum -a 256 -c buzzni.hello-world-1.0.1.saycode-extension.sha256
    ```
 
 3. In Saycode Desktop, open **Settings → Extensions → Install local file** and select the artifact.
