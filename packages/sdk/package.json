@@ -4,6 +4,14 @@
   "description": "Contracts and CLI for building Saycode Desktop extensions.",
   "license": "MIT",
   "keywords": ["saycode", "extension", "sdk", "desktop"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buzzni/saycode-extensions.git"
+  },
+  "homepage": "https://github.com/buzzni/saycode-extensions#readme",
+  "bugs": {
+    "url": "https://github.com/buzzni/saycode-extensions/issues"
+  },
   "type": "module",
   "engines": { "node": ">=22" },
   "publishConfig": { "access": "public" },

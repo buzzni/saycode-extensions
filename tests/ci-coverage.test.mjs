@@ -20,3 +20,22 @@ test('every test file runs in CI', async () => {
   const missing = testFiles.filter((file) => !workflow.includes(`tests/${file}`))
   assert.deepEqual(missing, [], 'add these to .github/workflows/ci.yml so pull requests run them')
 })
+
+test('workflows pin every external action to an immutable commit', async () => {
+  const workflowDirectory = join(root, '.github/workflows')
+  const workflows = (await readdir(workflowDirectory)).filter((entry) => entry.endsWith('.yml'))
+
+  for (const workflow of workflows) {
+    const source = await readFile(join(workflowDirectory, workflow), 'utf8')
+    const actions = [...source.matchAll(/^\s*- uses:\s*([^\s#]+)/gm)].map((match) => match[1])
+    const mutable = actions.filter((action) => !action.startsWith('./') && !/@[0-9a-f]{40}$/.test(action))
+    assert.deepEqual(mutable, [], `${workflow} must pin external actions to full commit SHAs`)
+  }
+})
+
+test('dependabot monitors both npm and GitHub Actions dependencies', async () => {
+  const source = await readFile(join(root, '.github/dependabot.yml'), 'utf8')
+
+  assert.match(source, /package-ecosystem:\s*npm/)
+  assert.match(source, /package-ecosystem:\s*github-actions/)
+})

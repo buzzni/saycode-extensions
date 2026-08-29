@@ -160,7 +160,7 @@ internals to work around that gate.
 - Do not add postinstall scripts, symlinks, absolute paths, path traversal, dynamic Node imports, or native binaries.
 - Keep network, file, machine, notification, and storage operations behind the smallest declared capability.
 - Report a suspected sandbox or capability bypass privately, never in a public forum. Use
-  https://github.com/buzzni/saycode-desktop-releases/security/advisories/new — any GitHub account can file there
+  https://github.com/buzzni/saycode-extensions/security/advisories/new — any GitHub account can file there
   and only the Saycode maintainers see it. Include the affected SDK and API version, a minimal extension package,
   and reproduction steps without real credentials.
 

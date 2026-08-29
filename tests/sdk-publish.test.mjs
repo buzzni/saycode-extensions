@@ -13,9 +13,8 @@ const sdk = join(root, 'packages/sdk')
 
 const readSdkManifest = async () => JSON.parse(await readFile(join(sdk, 'package.json'), 'utf8'))
 
-// The SDK is published to npmjs.org public while `buzzni/saycode-extensions` stays private (ADR-046).
-// Everything below guards the two things that publishing makes permanent: what ships in the tarball,
-// and what an outside reader can reach from the npm package page alone.
+// The SDK and its source repository are public. Everything below guards the two things publishing makes permanent:
+// what ships in the tarball, and what an outside reader can reach from the npm package page alone.
 
 test('sdk package declares the metadata a public scoped publish requires', async () => {
   const manifest = await readSdkManifest()
@@ -32,13 +31,29 @@ test('sdk package declares the metadata a public scoped publish requires', async
   assert.ok(Array.isArray(manifest.keywords) && manifest.keywords.length > 0)
 })
 
-test('sdk package omits repository metadata while the source repository is private', async () => {
+test('sdk package links npm readers to its public source and issue tracker', async () => {
   const manifest = await readSdkManifest()
 
-  // A `repository` pointing at a private repo renders as a 404 link on the npm package page.
-  // ADR-046 re-adds this when the repository becomes public.
-  assert.equal(manifest.repository, undefined)
-  assert.equal(manifest.homepage, undefined)
+  assert.deepEqual(manifest.repository, {
+    type: 'git',
+    url: 'git+https://github.com/buzzni/saycode-extensions.git',
+  })
+  assert.equal(manifest.homepage, 'https://github.com/buzzni/saycode-extensions#readme')
+  assert.deepEqual(manifest.bugs, {
+    url: 'https://github.com/buzzni/saycode-extensions/issues',
+  })
+})
+
+test('repository docs describe public installation and direct private vulnerability reporting', async () => {
+  const [readme, security] = await Promise.all([
+    readFile(join(root, 'README.md'), 'utf8'),
+    readFile(join(root, 'SECURITY.md'), 'utf8'),
+  ])
+
+  assert.match(readme, /npx @buzzni\/saycode-extension-sdk scaffold/)
+  assert.doesNotMatch(readme, /SDK is not published|does not imply public npm publication/i)
+  assert.doesNotMatch(security, /repository is private/i)
+  assert.match(security, /buzzni\/saycode-extensions\/security\/advisories\/new/)
 })
 
 test('sdk package stays on 0.x so the compatibility promise stays limited', async () => {
@@ -62,14 +77,14 @@ test('sdk ships a license file matching the repository license', async () => {
   assert.match(shipped, new RegExp(`^${manifest.license} License`, 'm'))
 })
 
-test('sdk readme is self-contained for readers who cannot open the repository', async () => {
+test('sdk readme is self-contained for readers on the npm package page', async () => {
   const readme = await readFile(join(sdk, 'README.md'), 'utf8')
 
-  // Any target that is not an absolute URL or an in-page anchor resolves inside the private repository,
-  // so it 404s for the npm readers this README exists for. `../x`, `./x`, and a bare `docs/x.md` all count.
+  // Any target that is not an absolute URL or an in-page anchor resolves against npmjs.com rather than the
+  // repository README. `../x`, `./x`, and a bare `docs/x.md` all count.
   const linkTargets = [...readme.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1].trim())
   const unreachable = linkTargets.filter((target) => !/^(https?:\/\/|mailto:|#)/.test(target))
-  assert.deepEqual(unreachable, [], 'links resolve inside the private repository only')
+  assert.deepEqual(unreachable, [], 'links must work from the npm package page')
 
   assert.doesNotMatch(readme, /not yet published/i)
   // The reader must be able to get from nothing to a packaged artifact using only what this file shows.

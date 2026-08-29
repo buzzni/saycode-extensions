@@ -37,8 +37,8 @@ npm run pack
 
 Replace the example repository and `/tmp` paths with local paths; do not commit the generated tarball.
 
-`packages/sdk/README.md` is the published, self-contained copy of the contracts below. It must stay free of links
-relative to this repository, which outside readers cannot open; `tests/sdk-publish.test.mjs` enforces that.
+`packages/sdk/README.md` is the published, self-contained copy of the contracts below. It stays free of repository-
+relative links so every link also works on npmjs.com; `tests/sdk-publish.test.mjs` enforces that.
 
 ## Public API
 
@@ -171,7 +171,7 @@ generates SHA-256 metadata, attaches both files to a GitHub release, and publish
 when its version is not already published. Marketplace listing, automatic update, artifact signing, and revocation are
 separate approvals and are not performed by this workflow.
 
-The release tag (`v0.3.4`) and the SDK version (`packages/sdk/package.json`) are independent. The job publishes
+The release tag (`v0.4.0`) and the SDK version (`packages/sdk/package.json`) are independent. The job publishes
 only when the SDK version is not already on the registry, so **an SDK change without a version bump is skipped
 silently** — the workflow logs `skipping publish: ... is already published` and still succeeds. Bump
 `packages/sdk/package.json` in the same PR as any change to `packages/sdk/`.
