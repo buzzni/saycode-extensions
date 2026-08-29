@@ -12,7 +12,8 @@
     "publish:sdk": "node scripts/publish-sdk.mjs",
     "package:project-templates": "npm run --workspace @buzzni/saycode-extension-project-templates pack",
     "package:plugin-manager": "npm run --workspace @buzzni/saycode-extension-plugin-manager pack",
-    "package:artifact-publisher": "npm run --workspace @buzzni/saycode-extension-artifact-publisher pack"
+    "package:artifact-publisher": "npm run --workspace @buzzni/saycode-extension-artifact-publisher pack",
+    "catalog:sign": "node scripts/sign-extension-catalog.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
