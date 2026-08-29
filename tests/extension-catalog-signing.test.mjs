@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { generateKeyPairSync, sign } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
 import {
   signCatalogWithOpenBao,
   validateCatalogPayload,
 } from '../scripts/lib/extensionCatalogSigning.mjs'
+
+const exec = promisify(execFile)
 
 const RELEASE = 'https://github.com/buzzni/saycode-extensions/releases/tag/v0.4.0'
 const ARCHIVE = 'https://github.com/buzzni/saycode-extensions/releases/download/v0.4.0/'
@@ -207,4 +211,23 @@ test('signing sources never inspect or print the ambient OpenBao token', async (
   ].join('\n')
 
   assert.doesNotMatch(source, /BAO_TOKEN|X-Vault-Token|process\.env/)
+})
+
+test('signing CLI cannot replace the OpenBao executable', async () => {
+  await assert.rejects(
+    exec(process.execPath, [
+      new URL('../scripts/sign-extension-catalog.mjs', import.meta.url).pathname,
+      '--payload', 'missing.json',
+      '--output', 'catalog.v2.json',
+      '--public-key-output', 'catalog-public-key.txt',
+      '--mount', 'catalog-transit',
+      '--key', 'extension-catalog-test',
+      '--first-catalog',
+      '--bao', '/tmp/operator-selected-binary',
+    ]),
+    (error) => {
+      assert.match(error.stderr, /unknown argument: --bao/)
+      return true
+    },
+  )
 })
