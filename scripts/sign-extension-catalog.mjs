@@ -15,7 +15,6 @@ function usage() {
     '  --public-key-output <catalog-public-key.txt>',
     '  --mount <transit-mount> --key <key-name>',
     '  (--first-catalog | --previous-generated-at <ISO instant>)',
-    '  [--bao <bao-cli-path>]',
   ].join('\n')
 }
 
@@ -34,7 +33,6 @@ function parseArguments(argv) {
       '--mount',
       '--key',
       '--previous-generated-at',
-      '--bao',
     ].includes(name)) throw new Error(`unknown argument: ${String(name)}\n${usage()}`)
     const value = argv[index + 1]
     if (!value || value.startsWith('--')) throw new Error(`missing value for ${name}\n${usage()}`)
@@ -57,7 +55,6 @@ function parseArguments(argv) {
     mount: options.mount,
     keyName: options.key,
     previousGeneratedAt: options['previous-generated-at'],
-    baoPath: options.bao ?? 'bao',
   }
 }
 
@@ -69,7 +66,7 @@ async function main() {
     mount: options.mount,
     keyName: options.keyName,
     previousGeneratedAt: options.previousGeneratedAt,
-    runBao: (args, stdin) => runBaoCommand(options.baoPath, args, stdin),
+    runBao: runBaoCommand,
   })
   await writeFile(options.output, `${JSON.stringify(signed.envelope, null, 2)}\n`, {
     encoding: 'utf8',

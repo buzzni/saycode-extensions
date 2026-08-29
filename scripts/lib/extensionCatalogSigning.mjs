@@ -237,9 +237,9 @@ export async function signCatalogWithOpenBao(input) {
   }
 }
 
-export function runBaoCommand(baoPath, args, stdin = '') {
+export function runBaoCommand(args, stdin = '') {
   return new Promise((resolve, reject) => {
-    const child = spawn(baoPath, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn('bao', args, { stdio: ['pipe', 'pipe', 'pipe'] })
     const stdout = []
     let stdoutBytes = 0
     let exceeded = false
