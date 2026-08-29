@@ -28,6 +28,7 @@ test('scaffold, validate, dev, and pack create an installable browser extension'
     assert.ok(zip.file('index.js'))
     const manifest = JSON.parse(await zip.file('extension.json').async('string'))
     assert.equal(manifest.id, 'buzzni.hello')
+    assert.equal(manifest.apiVersion, 3)
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
@@ -53,7 +54,7 @@ test('pack includes declared project-template asset trees', async () => {
     await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
     await writeFile(join(temporary, 'templates/dashboard/src/App.tsx'), 'export function App() {}')
     await writeFile(join(temporary, 'extension.json'), JSON.stringify({
-      id: 'buzzni.templates', version: '1.0.0', apiVersion: 1,
+      id: 'buzzni.templates', version: '1.0.0', apiVersion: 2,
       engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
       contributes: {
         projectTemplates: [{ id: 'buzzni.templates.dashboard', title: 'Dashboard', assetsRoot: 'templates/dashboard' }],
@@ -77,7 +78,7 @@ test('pack includes each declared panel entrypoint', async () => {
     await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
     await writeFile(join(temporary, 'panel.html'), '<h1>Panel</h1>')
     await writeFile(join(temporary, 'extension.json'), JSON.stringify({
-      id: 'buzzni.panel', version: '1.0.0', apiVersion: 1,
+      id: 'buzzni.panel', version: '1.0.0', apiVersion: 2,
       engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
       contributes: {
         panels: [{ id: 'buzzni.panel.main', title: 'Panel', entrypoint: 'panel.html' }],
@@ -101,7 +102,7 @@ test('pack writes byte-for-byte deterministic archives for the same inputs', asy
     await mkdir(join(temporary, 'src'), { recursive: true })
     await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
     await writeFile(join(temporary, 'extension.json'), JSON.stringify({
-      id: 'buzzni.deterministic', version: '1.0.0', apiVersion: 1,
+      id: 'buzzni.deterministic', version: '1.0.0', apiVersion: 2,
       engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
       contributes: {},
     }))

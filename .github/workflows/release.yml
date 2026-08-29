@@ -23,26 +23,32 @@ jobs:
       - run: npm run package:fixture
       - run: npm run package:project-templates
       - run: npm run package:plugin-manager
+      - run: npm run package:artifact-publisher
       - name: Create checksum
         working-directory: examples/hello-world
-        run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
       - name: Create project templates checksum
         working-directory: packages/project-templates
-        run: sha256sum *.saycode-extension > buzzni.project-templates-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.project-templates-1.0.1.saycode-extension.sha256
       - name: Create Plugin Manager checksum
         working-directory: packages/plugin-manager
-        run: sha256sum *.saycode-extension > buzzni.plugin-manager-1.0.2.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.plugin-manager-1.0.3.saycode-extension.sha256
+      - name: Create Artifact Publisher checksum
+        working-directory: packages/artifact-publisher
+        run: sha256sum *.saycode-extension > buzzni.artifact-publisher-1.0.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
-          examples/hello-world/buzzni.hello-world-1.0.0.saycode-extension
-          examples/hello-world/buzzni.hello-world-1.0.0.saycode-extension.sha256
-          packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension
-          packages/project-templates/buzzni.project-templates-1.0.0.saycode-extension.sha256
-          packages/plugin-manager/buzzni.plugin-manager-1.0.2.saycode-extension
-          packages/plugin-manager/buzzni.plugin-manager-1.0.2.saycode-extension.sha256
+          examples/hello-world/buzzni.hello-world-1.0.1.saycode-extension
+          examples/hello-world/buzzni.hello-world-1.0.1.saycode-extension.sha256
+          packages/project-templates/buzzni.project-templates-1.0.1.saycode-extension
+          packages/project-templates/buzzni.project-templates-1.0.1.saycode-extension.sha256
+          packages/plugin-manager/buzzni.plugin-manager-1.0.3.saycode-extension
+          packages/plugin-manager/buzzni.plugin-manager-1.0.3.saycode-extension.sha256
+          packages/artifact-publisher/buzzni.artifact-publisher-1.0.0.saycode-extension
+          packages/artifact-publisher/buzzni.artifact-publisher-1.0.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 

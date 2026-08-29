@@ -19,7 +19,7 @@ async function filesBelow(directory) {
 test('official project-templates package declares three namespaced asset trees without Desktop imports', async () => {
   const manifest = parseExtensionManifest(
     JSON.parse(await readFile(join(root, 'extension.json'), 'utf8')),
-    { supportedApiVersion: 1 },
+    { supportedApiVersion: 2 },
   )
 
   assert.equal(manifest.id, 'buzzni.project-templates')
@@ -61,7 +61,7 @@ test('official project-templates package declares three namespaced asset trees w
 test('project-template metadata and migrated asset contents match the approved Desktop parity snapshot', async () => {
   const manifest = parseExtensionManifest(
     JSON.parse(await readFile(join(root, 'extension.json'), 'utf8')),
-    { supportedApiVersion: 1 },
+    { supportedApiVersion: 2 },
   )
   const templates = manifest.contributes.projectTemplates
 

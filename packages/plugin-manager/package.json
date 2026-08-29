@@ -1,13 +1,13 @@
 {
   "name": "@buzzni/saycode-extension-plugin-manager",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "validate": "node ../sdk/dist/cli.js validate .",
     "pack": "node ../sdk/dist/cli.js pack ."
   },
   "dependencies": {
-    "@buzzni/saycode-extension-sdk": "0.1.0"
+    "@buzzni/saycode-extension-sdk": "0.3.0"
   }
 }

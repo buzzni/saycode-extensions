@@ -1,7 +1,7 @@
 {
-  "name": "@buzzni/saycode-extension-project-templates",
+  "name": "@buzzni/saycode-extension-artifact-publisher",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "validate": "node ../sdk/dist/cli.js validate .",

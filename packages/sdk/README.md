@@ -68,7 +68,7 @@ Importing undocumented package subpaths is rejected by package exports. Importin
 {
   "id": "com.example.hello",
   "version": "1.0.0",
-  "apiVersion": 1,
+  "apiVersion": 3,
   "engines": { "saycode": "^1.0.0" },
   "entrypoint": "index.js",
   "permissions": [],
@@ -81,7 +81,9 @@ Importing undocumented package subpaths is rejected by package exports. Importin
 
 Ids are lowercase stable namespaces. Versions use semantic versioning. Paths are relative, forward-slash paths without
 empty, `.`, or `..` segments. API versions and permissions are closed sets; an unknown value is rejected before
-execution. Supported v1 contributions are `commands`, typed `settings`, isolated `panels`, and `projectTemplates`.
+execution. API v2 supports `commands`, typed `settings`, isolated `panels`, `projectTemplates`, and contextual
+`machineActions`. API v3 additionally supports declarative `artifactActions`; the current SDK accepts only the
+Desktop support window `[2,3]`.
 
 A project template keeps the v1 `id`, `title`, and `assetsRoot` fields and may add UI metadata:
 
@@ -102,7 +104,7 @@ A project template keeps the v1 `id`, `title`, and `assetsRoot` fields and may a
 }
 ```
 
-`description`, `stack`, `firstPrompt`, and `devServerCommand` are optional for v1 compatibility, but Desktop lists only
+`description`, `stack`, `firstPrompt`, and `devServerCommand` remain optional for compatibility, but Desktop lists only
 templates that provide all four. `localizations` may override `title`, `description`, and `firstPrompt`; lookup falls
 back from an exact locale to its base language and then to the default fields. Asset paths stay relative to
 `assetsRoot`; Desktop reads them through bounded host APIs rather than exposing installation paths.

@@ -51,7 +51,7 @@ async function scaffold(projectPath: string): Promise<void> {
     'extension.json': JSON.stringify({
       id,
       version: '1.0.0',
-      apiVersion: 1,
+      apiVersion: 3,
       engines: { saycode: '^1.0.0' },
       entrypoint: 'index.js',
       permissions: [],
@@ -83,7 +83,7 @@ async function manifestAt(projectPath: string): Promise<ExtensionManifest> {
   try { value = JSON.parse(await readFile(path, 'utf8')) } catch (error) {
     throw new Error(`cannot read extension manifest: ${error instanceof Error ? error.message : String(error)}`)
   }
-  return parseExtensionManifest(value, { supportedApiVersion: 1 })
+  return parseExtensionManifest(value, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
 }
 
 async function bundle(projectPath: string, outfile: string, watch: boolean): Promise<void> {
