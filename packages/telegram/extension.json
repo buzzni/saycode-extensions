@@ -1,0 +1,15 @@
+{
+  "id": "buzzni.telegram",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "channelApiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": ["channels.receive", "channels.ack", "channels.send", "sessions.control"],
+  "activationEvents": ["onChannel:buzzni.telegram.bot"],
+  "contributes": {
+    "channels": [
+      { "id": "buzzni.telegram.bot", "provider": "telegram" }
+    ]
+  }
+}

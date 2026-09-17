@@ -88,3 +88,60 @@ test('failed deactivation still removes registered commands and allows a new act
   }))
   assert.equal(await host.invokeCommand('buzzni.test.fresh', []), 'fresh')
 })
+
+test('delivers non-secret connection lifecycle to a registered channel contribution', async () => {
+  const seen = []
+  const host = createTestHost('example.channel')
+  await host.activate({ activate(context) {
+    context.channels.register('example.channel.telegram', event => { seen.push(event) })
+  } })
+  const event = { apiVersion: 1, channelId: 'example.channel.telegram', state: 'start',
+    connectionId: 'c1', provider: 'telegram', connectionRevision: 1 }
+  await host.deliverChannelLifecycle(event)
+  await host.deliverChannelLifecycle({ ...event, state: 'stop' })
+  assert.deepEqual(seen, [event, { ...event, state: 'stop' }])
+  await host.deactivate()
+  await assert.rejects(host.deliverChannelLifecycle(event), /not active/)
+})
+
+test('registers a namespaced reply formatter without exposing destination or secrets', async () => {
+  const host = createTestHost('example.channel')
+  const input = { apiVersion: 1, channelId: 'example.channel.telegram', connectionId: 'c1',
+    provider: 'telegram', connectionRevision: 1, requestId: 'r1', kind: 'final',
+    text: '한😀글', maxChunkUtf16Units: 3, maxChunks: 2 }
+  await host.activate({ activate(context) {
+    context.channels.registerFormatter(input.channelId, request => {
+      assert.deepEqual(request, input)
+      return { chunks: ['한😀', '글'] }
+    })
+  } })
+  assert.deepEqual(await host.formatChannelReply(input), { chunks: ['한😀', '글'] })
+  await host.deactivate()
+  await assert.rejects(host.formatChannelReply(input), /not active/)
+  await assert.rejects(host.activate({ activate(context) {
+    context.channels.registerFormatter('other.channel.telegram', () => ({ chunks: [] }))
+  } }), /namespaced/)
+})
+
+test('passes only Core-supplied approval presentation to the formatter', async () => {
+  const host = createTestHost('example.channel')
+  const input = { apiVersion: 1, channelId: 'example.channel.slack', connectionId: 'c1',
+    provider: 'slack', connectionRevision: 1, requestId: 'r1', kind: 'approval',
+    text: 'A decision is required.', maxChunkUtf16Units: 3000, maxChunks: 1,
+    approval: { approvalHandle: 'approval-1', approveLabel: 'Approve once', denyLabel: 'Deny' } }
+  const result = { chunks: [input.text], blocks: [
+    { type: 'section', text: { type: 'plain_text', text: input.text } },
+    { type: 'actions', elements: ['approve', 'deny'].map(decision => ({ type: 'button',
+      action_id: `saycode:${decision}:${input.approval.approvalHandle}`,
+      text: { type: 'plain_text', text: decision === 'approve' ? input.approval.approveLabel : input.approval.denyLabel },
+    })) },
+  ] }
+  await host.activate({ activate(context) {
+    context.channels.registerFormatter(input.channelId, request => {
+      assert.deepEqual(request, input)
+      return result
+    })
+  } })
+  assert.deepEqual(await host.formatChannelReply(input), result)
+  await host.deactivate()
+})
