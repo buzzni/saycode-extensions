@@ -1,0 +1,15 @@
+{
+  "id": "buzzni.slack",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "channelApiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": ["channels.receive", "channels.ack", "channels.send", "sessions.control", "sessions.approveOnce"],
+  "activationEvents": ["onChannel:buzzni.slack.bot"],
+  "contributes": {
+    "channels": [
+      { "id": "buzzni.slack.bot", "provider": "slack" }
+    ]
+  }
+}

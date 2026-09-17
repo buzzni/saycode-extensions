@@ -1,0 +1,54 @@
+{
+  "id": "buzzni.discord",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "channelApiVersion": 1,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": ["channels.receive", "channels.ack", "channels.send", "sessions.control", "sessions.approveOnce"],
+  "activationEvents": ["onChannel:buzzni.discord.bot"],
+  "contributes": {
+    "channels": [
+      {
+        "id": "buzzni.discord.bot",
+        "provider": "discord",
+        "commands": [
+          {
+            "id": "pair",
+            "description": "Claim a pairing code",
+            "options": [
+              { "name": "code", "description": "Pairing code", "required": true }
+            ]
+          },
+          { "id": "projects", "description": "List accessible Saycode projects" },
+          {
+            "id": "new",
+            "description": "Start a new session",
+            "options": [
+              { "name": "project", "description": "Project id or name", "required": true },
+              { "name": "agent", "description": "Agent override", "required": false },
+              { "name": "model", "description": "Model override", "required": false },
+              { "name": "effort", "description": "Effort override", "required": false }
+            ]
+          },
+          {
+            "id": "use",
+            "description": "Select an existing session",
+            "options": [
+              { "name": "session_id", "description": "Session id", "required": true }
+            ]
+          },
+          { "id": "status", "description": "Show current session status" },
+          { "id": "stop", "description": "Stop the running turn" },
+          {
+            "id": "prompt",
+            "description": "Continue the selected session",
+            "options": [
+              { "name": "text", "description": "Prompt text", "required": true }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
