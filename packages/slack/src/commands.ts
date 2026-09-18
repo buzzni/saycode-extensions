@@ -14,7 +14,7 @@
  */
 
 export interface SlackCommand {
-  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select'
+  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear'
   sessionRef?: string
   text?: string
 }
@@ -91,6 +91,22 @@ export function parseSlackCommand(rawText: string): SlackCommand {
       return { operation: 'stop' }
     case 'projects':
       return { operation: 'projects' }
+/**
+ * `/clear` and its alias `/reset` (Core's `CHANNEL_COMMANDS`).
+ *
+ * Core refuses any proposal that disagrees with its own classification of the recorded text
+ * (`OPERATION_NOT_FROM_SOURCE`), so a word Core classifies and this package does not is refused
+ * for every sender — it does not fall through as an ordinary prompt. Before this, `/clear` hit the
+ * `default` arm, was proposed as `prompt`, and Core refused it: the command was unusable.
+ *
+ * No `text` is sent, the same as `/status` and `/stop`: `clear` takes no argument, and Core's
+ * binder only checks text when a proposal carries some. An argument after the word is ignored
+ * here for the same reason Core ignores it — `/clear anything` still classifies as `clear`, so
+ * proposing anything else would be the mismatch this arm exists to avoid.
+ */
+    case 'clear':
+    case 'reset':
+      return { operation: 'clear' }
     // `use` is Core's own alias for `select`, same source rules and all. A bare `/select` or
     // `/use` proposes `prompt` here, but that is only a proposal: Core's `classifyChannelIntent`
     // still reads the bare command word as `select` and refuses the mismatch — it does not fall

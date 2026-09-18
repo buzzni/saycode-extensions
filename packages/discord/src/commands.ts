@@ -14,14 +14,14 @@
  */
 
 export interface DiscordCommand {
-  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select'
+  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear'
   sessionRef?: string
   text?: string
 }
 
-/** The exact seven commands declared in `extension.json`'s `channels[0].commands`. */
+/** The exact commands declared in `extension.json`'s `channels[0].commands`. */
 export interface DiscordStructuredCommand {
-  name: 'pair' | 'new' | 'use' | 'projects' | 'status' | 'stop' | 'prompt'
+  name: 'pair' | 'new' | 'use' | 'projects' | 'status' | 'stop' | 'clear' | 'prompt'
   args: Readonly<Record<string, string>>
 }
 
@@ -29,7 +29,7 @@ export type DiscordControlProposal =
   | { operation: 'create' }
   | { operation: 'select'; sessionRef: string }
   | { operation: 'prompt'; text: string }
-  | { operation: 'projects' | 'status' | 'stop' }
+  | { operation: 'projects' | 'status' | 'stop' | 'clear' }
 
 /**
  * A Core-normalized Application Command interaction, mapped without re-tokenizing anything.
@@ -67,6 +67,11 @@ export function mapDiscordStructuredCommand(command: DiscordStructuredCommand): 
       return { operation: 'status' }
     case 'stop':
       return { operation: 'stop' }
+    // Declared as an Application Command as well as a text word, because that is how Discord
+    // users reach commands. `reset` is not declared: Core lists it as an unlisted alias, and a
+    // second identical entry in Discord's own command picker would be a menu of synonyms.
+    case 'clear':
+      return { operation: 'clear' }
     default:
       return null
   }
@@ -105,6 +110,20 @@ export function parseDiscordCommand(rawText: string): DiscordCommand {
       return { operation: 'stop' }
     case 'projects':
       return { operation: 'projects' }
+    /**
+     * `/clear` and its alias `/reset` (Core's `CHANNEL_COMMANDS`).
+     *
+     * Core refuses a proposal that disagrees with its own classification of the recorded text
+     * (`OPERATION_NOT_FROM_SOURCE`), so a word Core classifies and this package does not is
+     * refused for every sender — it does not fall through as an ordinary prompt. Before this,
+     * `/clear` reached `default`, was proposed as `prompt`, and Core refused it.
+     *
+     * No `text`, the same as `/status` and `/stop`. An argument after the word is ignored for the
+     * reason Core ignores it: `/clear anything` still classifies as `clear`.
+     */
+    case 'clear':
+    case 'reset':
+      return { operation: 'clear' }
     // `use` is Core's own alias for `select`, same source rules and all. A bare `/select` or
     // `/use` proposes `prompt` here, but that is only a proposal: Core's `classifyChannelIntent`
     // still reads the bare command word as `select` and refuses the mismatch — it does not fall

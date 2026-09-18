@@ -73,13 +73,16 @@ test('Discord manifest declares exactly the channel it uses and nothing wider', 
   assert.equal(manifest.contributes.channels[0].provider, 'discord')
 })
 
-test('Discord declares exactly the seven P3 Application Commands, each with the exact contracted options', async () => {
+test('Discord declares exactly the contracted Application Commands, each with the exact contracted options', async () => {
   const manifest = parseExtensionManifest(
     JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8')),
     { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 },
   )
   const commands = manifest.contributes.channels[0].commands
-  assert.deepEqual(commands.map((command) => command.id).sort(), ['new', 'pair', 'projects', 'prompt', 'status', 'stop', 'use'])
+  // `clear` joined the P3 seven when Core gained the command (specs/desktop-channel-personal-chat
+  // R6). `reset` is deliberately absent: Core carries it as an unlisted alias, and a second
+  // identical entry in Discord's own command picker would be a menu of synonyms.
+  assert.deepEqual(commands.map((command) => command.id).sort(), ['clear', 'new', 'pair', 'projects', 'prompt', 'status', 'stop', 'use'])
   const byId = Object.fromEntries(commands.map((command) => [command.id, command]))
   assert.deepEqual(byId.new.options.map((option) => option.name), ['project', 'agent', 'model', 'effort'])
   assert.equal(byId.new.options[0].required, true)
@@ -92,6 +95,7 @@ test('Discord declares exactly the seven P3 Application Commands, each with the 
   assert.equal(byId.projects.options, undefined)
   assert.equal(byId.status.options, undefined)
   assert.equal(byId.stop.options, undefined)
+  assert.equal(byId.clear.options, undefined)
 })
 
 test('Discord never actually calls channels.send despite declaring it', async () => {
@@ -945,4 +949,26 @@ test('a stop for a connection this host never started is a no-op', async () => {
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
   }
+})
+
+/**
+ * specs/desktop-channel-personal-chat R6 — `/clear` leaves the session this conversation follows.
+ *
+ * Core refuses a proposal that disagrees with its own classification of the recorded text, so
+ * before this word was mapped here it reached the `default` arm as `prompt` and Core refused it
+ * with `OPERATION_NOT_FROM_SOURCE`: `/clear` did not work for anyone. The word list is a contract
+ * with a separately released Core, not an internal detail of this package.
+ */
+test('/clear and /reset map to the clear operation Core classifies', async () => {
+  const { parseDiscordCommand } = await bundleModule('src/commands.ts')
+  // No `text`, exactly like /status and /stop: the operation takes no argument.
+  assert.deepEqual(parseDiscordCommand('/clear'), { operation: 'clear' })
+  // Unlisted alias, same as Core's catalogue.
+  assert.deepEqual(parseDiscordCommand('/reset'), { operation: 'clear' })
+  // An argument does not change the classification — Core reads `/clear anything` as `clear`, so
+  // proposing anything else here would be the mismatch this mapping exists to avoid.
+  assert.deepEqual(parseDiscordCommand('/clear now'), { operation: 'clear' })
+  assert.deepEqual(parseDiscordCommand('/CLEAR'), { operation: 'clear' })
+  // Still plain text when it is not the command word.
+  assert.deepEqual(parseDiscordCommand('clear the cache please'), { operation: 'prompt', text: 'clear the cache please' })
 })

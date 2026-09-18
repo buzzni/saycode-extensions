@@ -1,6 +1,6 @@
 {
   "id": "buzzni.telegram",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 3,
   "channelApiVersion": 1,
   "engines": { "saycode": "^1.0.0" },
