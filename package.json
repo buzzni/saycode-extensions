@@ -18,7 +18,7 @@
     "package:discord": "npm run --workspace @buzzni/saycode-extension-discord pack"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.5.1",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   }
