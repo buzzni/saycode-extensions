@@ -3,6 +3,13 @@ export const EXTENSION_PERMISSIONS = [
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
   'artifacts.publishPublic',
+  // One permission per channel wire method, deliberately not a single `channels.adapter`.
+  // A transport adapter needs to receive and ack; being able to *control a session* or to
+  // *approve a tool call once* is a different and much larger authority, and a blanket grant
+  // would hand both to anything that could merely read messages. The host still enforces each
+  // one against the live grant at call time — declaring it here only makes it askable.
+  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  'sessions.read', 'sessions.control', 'sessions.approveOnce',
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
@@ -40,6 +47,35 @@ export interface ExtensionProjectTemplateContribution {
   devServerCommand?: string
   localizations?: Record<string, ExtensionProjectTemplateLocalization>
 }
+/**
+ * One provider-native command this adapter wants registered (Discord Application Commands today).
+ * Purely declarative: Core reads this at install/enable time and performs the actual registration
+ * call itself with its own stored credential — the extension never sees the endpoint or the token.
+ * Every option is a string; there is no `type` field because none of the current commands need
+ * anything else, and adding one is a version-gated decision for later, not a default to leave open.
+ */
+export interface ExtensionChannelCommandOption {
+  name: string
+  description: string
+  required: boolean
+}
+export interface ExtensionChannelCommandContribution {
+  id: string
+  description: string
+  options?: ExtensionChannelCommandOption[]
+}
+
+/**
+ * One provider adapter. Deliberately just an id, a provider and its optional command list: no
+ * endpoint, no selector, no display string. Everything else about a connection — its name, its
+ * credentials, its scope — is Core's, and a field here would be adapter-supplied data reaching a
+ * settings screen that the user reads as Core's own.
+ */
+export interface ExtensionChannelContribution {
+  id: string
+  provider: 'telegram' | 'slack' | 'discord'
+  commands?: ExtensionChannelCommandContribution[]
+}
 export interface ExtensionContributions {
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
@@ -47,11 +83,18 @@ export interface ExtensionContributions {
   projectTemplates?: ExtensionProjectTemplateContribution[]
   machineActions?: ExtensionMachineActionContribution[]
   artifactActions?: ExtensionArtifactActionContribution[]
+  channels?: ExtensionChannelContribution[]
 }
 export interface ExtensionManifest {
   id: string
   version: string
   apiVersion: number
+  /**
+   * The channel wire contract this extension speaks, independent of `apiVersion`. Absent means
+   * the extension declares no channel capability at all — which is every manifest written before
+   * this field existed, and they must keep parsing exactly as they did.
+   */
+  channelApiVersion?: number
   engines: { saycode: string }
   entrypoint: string
   permissions: ExtensionPermission[]
@@ -60,6 +103,12 @@ export interface ExtensionManifest {
 }
 
 const ID = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/
+/**
+ * Discord's own command/option name charset (lowercase, digits, underscore; no dots) is narrower
+ * than `ID` above, which allows dots for namespaced extension ids. Reusing `ID` here would accept
+ * a name the real registration call rejects.
+ */
+const COMMAND_WORD = /^[a-z][a-z0-9_]{0,31}$/
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const LOCALE = /^[a-z]{2,3}(?:-[A-Z]{2})?$/
 const PERMISSIONS = new Set<string>(EXTENSION_PERMISSIONS)
@@ -77,6 +126,23 @@ function text(value: unknown, path: string): string {
 
 function optionalText(value: unknown, path: string): string | undefined {
   return value === undefined ? undefined : text(value, path)
+}
+
+function bool(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${path}: expected boolean`)
+  return value
+}
+
+function boundedText(value: unknown, path: string, max: number): string {
+  const parsed = text(value, path)
+  if ([...parsed].length > max) throw new Error(`${path}: exceeds ${max} characters`)
+  return parsed
+}
+
+function commandWord(value: unknown, path: string): string {
+  const parsed = text(value, path)
+  if (!COMMAND_WORD.test(parsed)) throw new Error(`${path}: invalid identifier`)
+  return parsed
 }
 
 function stableId(value: unknown, path: string): string {
@@ -109,6 +175,102 @@ function uniqueStrings(value: unknown, path: string, parse: (item: unknown, item
     throw new Error(`${path}: expected a non-empty unique list`)
   }
   return values
+}
+
+const CHANNEL_PROVIDERS = new Set(['telegram', 'slack', 'discord'])
+/** Channel-scoped permissions, in the order the wire contract defines them. */
+const CHANNEL_PERMISSIONS = new Set<string>([
+  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  'sessions.read', 'sessions.control', 'sessions.approveOnce',
+])
+
+/**
+ * Discord's own documented limits (25 options, 100-char description) are reused as the bounds
+ * here rather than invented ones: a manifest this parser accepts must still be one the real
+ * registration call accepts.
+ */
+function parseChannelCommandOptions(value: unknown, path: string): ExtensionChannelCommandOption[] {
+  const entries = list(value, path)
+  if (entries.length > 25) throw new Error(`${path}: expected at most 25 options`)
+  const names = new Set<string>()
+  // Discord's registration call itself rejects a required option declared after an optional one
+  // (its options array must be required-first). Refusing that order here, at declaration time,
+  // means an accepted manifest is always one Core can actually register — never a shape Core would
+  // have to silently reorder (which would let the declared order stop matching what registers).
+  let sawOptional = false
+  return entries.map((item, index) => {
+    const optionPath = `${path}[${index}]`
+    const source = record(item, optionPath)
+    const allowed = new Set(['name', 'description', 'required'])
+    const extra = Object.keys(source).find((key) => !allowed.has(key))
+    if (extra) throw new Error(`${optionPath}: unknown field ${extra}`)
+    const name = commandWord(source.name, `${optionPath}.name`)
+    if (names.has(name)) throw new Error(`${path}: duplicate option name ${name}`)
+    names.add(name)
+    const required = bool(source.required, `${optionPath}.required`)
+    if (required && sawOptional) {
+      throw new Error(`${optionPath}: a required option must not follow an optional one`)
+    }
+    if (!required) sawOptional = true
+    return {
+      name,
+      description: boundedText(source.description, `${optionPath}.description`, 100),
+      required,
+    }
+  })
+}
+
+function parseChannelCommands(value: unknown, path: string): ExtensionChannelCommandContribution[] {
+  const entries = list(value, path)
+  if (entries.length > 20) throw new Error(`${path}: expected at most 20 commands`)
+  const ids = new Set<string>()
+  return entries.map((item, index) => {
+    const commandPath = `${path}[${index}]`
+    const source = record(item, commandPath)
+    const allowed = new Set(['id', 'description', 'options'])
+    const extra = Object.keys(source).find((key) => !allowed.has(key))
+    if (extra) throw new Error(`${commandPath}: unknown field ${extra}`)
+    const id = commandWord(source.id, `${commandPath}.id`)
+    if (ids.has(id)) throw new Error(`${path}: duplicate command id ${id}`)
+    ids.add(id)
+    const options = source.options === undefined
+      ? undefined
+      : parseChannelCommandOptions(source.options, `${commandPath}.options`)
+    return {
+      id,
+      description: boundedText(source.description, `${commandPath}.description`, 100),
+      ...(options ? { options } : {}),
+    }
+  })
+}
+
+function parseChannels(value: unknown): ExtensionChannelContribution[] {
+  const entries = list(value, 'channels')
+  if (entries.length === 0 || entries.length > 8) {
+    throw new Error('channels: expected between 1 and 8 adapters')
+  }
+  const providers = new Set<string>()
+  return entries.map((item, index) => {
+    const path = `channels[${index}]`
+    const source = record(item, path)
+    const allowed = new Set(['id', 'provider', 'commands'])
+    const extra = Object.keys(source).find((key) => !allowed.has(key))
+    if (extra) throw new Error(`${path}: unknown field ${extra}`)
+    const provider = text(source.provider, `${path}.provider`)
+    if (!CHANNEL_PROVIDERS.has(provider)) throw new Error(`${path}.provider: unsupported`)
+    // One adapter per provider: two entries claiming `telegram` leave the host with no way to say
+    // which one a received message belongs to.
+    if (providers.has(provider)) throw new Error('channels: duplicate provider')
+    providers.add(provider)
+    const commands = source.commands === undefined
+      ? undefined
+      : parseChannelCommands(source.commands, `${path}.commands`)
+    return {
+      id: stableId(source.id, `${path}.id`),
+      provider: provider as ExtensionChannelContribution['provider'],
+      ...(commands ? { commands } : {}),
+    }
+  })
 }
 
 function parseArtifactActions(value: unknown): ExtensionArtifactActionContribution[] {
@@ -160,9 +322,40 @@ function parseArtifactActions(value: unknown): ExtensionArtifactActionContributi
   })
 }
 
+/**
+ * Parsed on its own axis, with the same one-version window `apiVersion` uses: a host may accept at
+ * most the current channel contract and the one before it, so a manifest can never be written
+ * against a contract two steps away from what the host actually implements.
+ */
+function parseChannelApiVersion(
+  value: unknown,
+  apiVersion: number,
+  options: { supportedChannelApiVersion?: number; minimumSupportedChannelApiVersion?: number },
+): number | undefined {
+  const supported = options.supportedChannelApiVersion ?? 1
+  const minimum = options.minimumSupportedChannelApiVersion ?? supported
+  if (supported - minimum > 1) throw new Error('manifest.channelApiVersion: unsupported host window')
+  if (value === undefined) return undefined
+  // Gated on the declaration itself, not only on what it unlocks: accepting it under API 2 while
+  // refusing every use would let a manifest claim a contract the host would never let it speak.
+  if (apiVersion < 3) throw new Error('manifest.channelApiVersion: requires Extension API version 3')
+  if (
+    typeof value !== 'number'
+    || !Number.isInteger(value)
+    || value < minimum
+    || value > supported
+  ) throw new Error(`manifest.channelApiVersion: unsupported ${String(value)}`)
+  return value
+}
+
 export function parseExtensionManifest(
   value: unknown,
-  options: { supportedApiVersion: number; minimumSupportedApiVersion?: number },
+  options: {
+    supportedApiVersion: number
+    minimumSupportedApiVersion?: number
+    supportedChannelApiVersion?: number
+    minimumSupportedChannelApiVersion?: number
+  },
 ): ExtensionManifest {
   const raw = record(value, 'manifest')
   const minimum = options.minimumSupportedApiVersion ?? options.supportedApiVersion
@@ -174,6 +367,7 @@ export function parseExtensionManifest(
     || options.supportedApiVersion - minimum > 1
   ) throw new Error(`manifest.apiVersion: unsupported ${String(raw.apiVersion)}`)
   const apiVersion = raw.apiVersion
+  const channelApiVersion = parseChannelApiVersion(raw.channelApiVersion, apiVersion, options)
   const version = text(raw.version, 'manifest.version')
   if (!SEMVER.test(version)) throw new Error('manifest.version: expected semantic version')
   const engines = record(raw.engines, 'manifest.engines')
@@ -185,6 +379,16 @@ export function parseExtensionManifest(
     }
     if (apiVersion < 3 && permission === 'artifacts.publishPublic') {
       throw new Error('manifest.permissions: artifacts.publishPublic requires Extension API version 3')
+    }
+    if (CHANNEL_PERMISSIONS.has(permission)) {
+      if (apiVersion < 3) {
+        throw new Error(`manifest.permissions: ${permission} requires Extension API version 3`)
+      }
+      // Both gates, not either: the channel wire contract moves on its own version, so an API 3
+      // manifest that never declared which channel contract it speaks cannot hold one of these.
+      if (channelApiVersion === undefined) {
+        throw new Error(`manifest.permissions: ${permission} requires manifest.channelApiVersion`)
+      }
     }
     return permission as ExtensionPermission
   })
@@ -198,6 +402,25 @@ export function parseExtensionManifest(
   if (apiVersion < 3 && contributions.artifactActions !== undefined) {
     throw new Error('manifest.contributes.artifactActions: requires Extension API version 3')
   }
+  if (contributions.channels !== undefined) {
+    if (apiVersion < 3) throw new Error('manifest.contributes.channels: requires Extension API version 3')
+    if (channelApiVersion === undefined) {
+      throw new Error('manifest.contributes.channels: requires manifest.channelApiVersion')
+    }
+    // An adapter that cannot receive contributes nothing a channel connection can use, so this is
+    // the one permission the contribution itself implies rather than a capability to ask for.
+    if (!permissions.includes('channels.receive')) {
+      throw new Error('manifest.contributes.channels: requires the channels.receive permission')
+    }
+  }
+  // And the converse, which is the half that matters for authority: a channel or session
+  // permission with no adapter to exercise it is a grant looking for a caller. Refused, so the
+  // permission set a user approves always corresponds to something this extension declared.
+  const declaredChannelPermission = permissions.find((permission) => CHANNEL_PERMISSIONS.has(permission))
+  if (declaredChannelPermission !== undefined && contributions.channels === undefined) {
+    throw new Error(`manifest.permissions: ${declaredChannelPermission} requires a channels contribution`)
+  }
+  const channels = contributions.channels === undefined ? undefined : parseChannels(contributions.channels)
   const commands = contributions.commands === undefined ? undefined : list(contributions.commands, 'commands').map((item, index) => {
     const path = `commands[${index}]`
     const source = record(item, path)
@@ -287,6 +510,19 @@ export function parseExtensionManifest(
       ...(localizations === undefined ? {} : { localizations }),
     }
   })
+  const extensionId = stableId(raw.id, 'manifest.id')
+  for (const [index, channel] of (channels ?? []).entries()) {
+    // A contribution may only name ids inside its own extension's namespace; without this an
+    // artifact could declare `someone.else.adapter` and claim another extension's provider slot.
+    if (!channel.id.startsWith(`${extensionId}.`)) {
+      throw new Error(`channels[${index}].id: expected an id declared by the same extension`)
+    }
+  }
+  for (const [index, action] of (artifactActions ?? []).entries()) {
+    if (!action.id.startsWith(`${extensionId}.`)) {
+      throw new Error(`artifactActions[${index}].id: expected an id declared by the same extension`)
+    }
+  }
   const contributionIds = [
     ...(commands ?? []),
     ...(settings ?? []),
@@ -294,18 +530,20 @@ export function parseExtensionManifest(
     ...(projectTemplates ?? []),
     ...(machineActions ?? []),
     ...(artifactActions ?? []),
+    ...(channels ?? []),
   ].map((contribution) => contribution.id)
   if (new Set(contributionIds).size !== contributionIds.length) {
     throw new Error('manifest.contributes: duplicate contribution id')
   }
   return {
-    id: stableId(raw.id, 'manifest.id'),
+    id: extensionId,
     version,
     apiVersion,
+    ...(channelApiVersion === undefined ? {} : { channelApiVersion }),
     engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
     activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, artifactActions },
+    contributes: { commands, settings, panels, projectTemplates, machineActions, artifactActions, channels },
   }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "@buzzni/saycode-extension-discord",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "validate": "node ../sdk/dist/cli.js validate .",
+    "pack": "node ../sdk/dist/cli.js pack ."
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.3.0"
+  }
+}
