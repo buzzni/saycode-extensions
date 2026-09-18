@@ -41,13 +41,13 @@ jobs:
         run: sha256sum *.saycode-extension > buzzni.artifact-publisher-1.0.0.saycode-extension.sha256
       - name: Create Telegram checksum
         working-directory: packages/telegram
-        run: sha256sum *.saycode-extension > buzzni.telegram-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.telegram-1.1.0.saycode-extension.sha256
       - name: Create Slack checksum
         working-directory: packages/slack
-        run: sha256sum *.saycode-extension > buzzni.slack-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.slack-1.1.0.saycode-extension.sha256
       - name: Create Discord checksum
         working-directory: packages/discord
-        run: sha256sum *.saycode-extension > buzzni.discord-1.0.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.discord-1.1.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,12 +61,12 @@ jobs:
           packages/plugin-manager/buzzni.plugin-manager-1.0.3.saycode-extension.sha256
           packages/artifact-publisher/buzzni.artifact-publisher-1.0.0.saycode-extension
           packages/artifact-publisher/buzzni.artifact-publisher-1.0.0.saycode-extension.sha256
-          packages/telegram/buzzni.telegram-1.0.0.saycode-extension
-          packages/telegram/buzzni.telegram-1.0.0.saycode-extension.sha256
-          packages/slack/buzzni.slack-1.0.0.saycode-extension
-          packages/slack/buzzni.slack-1.0.0.saycode-extension.sha256
-          packages/discord/buzzni.discord-1.0.0.saycode-extension
-          packages/discord/buzzni.discord-1.0.0.saycode-extension.sha256
+          packages/telegram/buzzni.telegram-1.1.0.saycode-extension
+          packages/telegram/buzzni.telegram-1.1.0.saycode-extension.sha256
+          packages/slack/buzzni.slack-1.1.0.saycode-extension
+          packages/slack/buzzni.slack-1.1.0.saycode-extension.sha256
+          packages/discord/buzzni.discord-1.1.0.saycode-extension
+          packages/discord/buzzni.discord-1.1.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 

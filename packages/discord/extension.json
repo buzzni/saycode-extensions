@@ -1,6 +1,6 @@
 {
   "id": "buzzni.discord",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 3,
   "channelApiVersion": 1,
   "engines": { "saycode": "^1.0.0" },
@@ -40,6 +40,7 @@
           },
           { "id": "status", "description": "Show current session status" },
           { "id": "stop", "description": "Stop the running turn" },
+          { "id": "clear", "description": "Stop following that session here (it keeps running)" },
           {
             "id": "prompt",
             "description": "Continue the selected session",

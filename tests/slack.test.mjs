@@ -780,3 +780,25 @@ test('a stop for a connection this host never started is a no-op', async () => {
     await rm(packed.temporary, { recursive: true, force: true })
   }
 })
+
+/**
+ * specs/desktop-channel-personal-chat R6 — `/clear` leaves the session this conversation follows.
+ *
+ * Core refuses a proposal that disagrees with its own classification of the recorded text, so
+ * before this word was mapped here it reached the `default` arm as `prompt` and Core refused it
+ * with `OPERATION_NOT_FROM_SOURCE`: `/clear` did not work for anyone. The word list is a contract
+ * with a separately released Core, not an internal detail of this package.
+ */
+test('/clear and /reset map to the clear operation Core classifies', async () => {
+  const { parseSlackCommand } = await bundleModule('src/commands.ts')
+  // No `text`, exactly like /status and /stop: the operation takes no argument.
+  assert.deepEqual(parseSlackCommand('/clear'), { operation: 'clear' })
+  // Unlisted alias, same as Core's catalogue.
+  assert.deepEqual(parseSlackCommand('/reset'), { operation: 'clear' })
+  // An argument does not change the classification — Core reads `/clear anything` as `clear`, so
+  // proposing anything else here would be the mismatch this mapping exists to avoid.
+  assert.deepEqual(parseSlackCommand('/clear now'), { operation: 'clear' })
+  assert.deepEqual(parseSlackCommand('/CLEAR'), { operation: 'clear' })
+  // Still plain text when it is not the command word.
+  assert.deepEqual(parseSlackCommand('clear the cache please'), { operation: 'prompt', text: 'clear the cache please' })
+})
