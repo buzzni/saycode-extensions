@@ -27,6 +27,6 @@
   },
   "dependencies": {
     "esbuild": "^0.28.2",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.2"
   }
 }
