@@ -15,7 +15,8 @@
     "package:artifact-publisher": "npm run --workspace @buzzni/saycode-extension-artifact-publisher pack",
     "package:telegram": "npm run --workspace @buzzni/saycode-extension-telegram pack",
     "package:slack": "npm run --workspace @buzzni/saycode-extension-slack pack",
-    "package:discord": "npm run --workspace @buzzni/saycode-extension-discord pack"
+    "package:discord": "npm run --workspace @buzzni/saycode-extension-discord pack",
+    "catalog:sign": "node scripts/sign-extension-catalog.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",
