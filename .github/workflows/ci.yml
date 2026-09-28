@@ -34,9 +34,9 @@ jobs:
       - run: npm run build -w @buzzni/saycode-extension-sdk
       - run: npm run build -w @buzzni/saycode-extension-test-host
       - run: npm run typecheck -w @buzzni/saycode-extension-test-host
-      - run: npm run typecheck -w @buzzni/saycode-extension-telegram -w @buzzni/saycode-extension-slack -w @buzzni/saycode-extension-discord
+      - run: npm run typecheck -w @buzzni/saycode-extension-telegram -w @buzzni/saycode-extension-slack -w @buzzni/saycode-extension-discord -w @buzzni/saycode-extension-document-templates
       # Packaged adapters exercise the SDK contract inside the test host.
-      - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs
+      - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs tests/document-templates.test.mjs
 
   cli-and-package:
     runs-on: ubuntu-latest

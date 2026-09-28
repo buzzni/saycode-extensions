@@ -1,0 +1,39 @@
+{
+  "id": "buzzni.document-templates",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "engines": {
+    "saycode": "^1.1.0"
+  },
+  "entrypoint": "index.js",
+  "permissions": [
+    "assets.read",
+    "assets.write",
+    "files.select",
+    "drafts.prepare"
+  ],
+  "activationEvents": [
+    "onCommand:buzzni.document-templates.open",
+    "onCommand:buzzni.document-templates.execute"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "buzzni.document-templates.open",
+        "title": "Document templates",
+        "panelId": "buzzni.document-templates.panel"
+      },
+      {
+        "id": "buzzni.document-templates.execute",
+        "title": "Document template operation"
+      }
+    ],
+    "panels": [
+      {
+        "id": "buzzni.document-templates.panel",
+        "title": "Document templates",
+        "entrypoint": "panel.html"
+      }
+    ]
+  }
+}

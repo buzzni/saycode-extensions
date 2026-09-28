@@ -1,0 +1,14 @@
+{
+  "name": "@buzzni/saycode-extension-document-templates",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node ../sdk/dist/cli.js validate .",
+    "pack": "node ../sdk/dist/cli.js pack .",
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext src/index.ts"
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.4.1"
+  }
+}
