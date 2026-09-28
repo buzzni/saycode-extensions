@@ -181,3 +181,19 @@ test('editing shows and sends only the user-owned instructions; the server re-at
     assert.equal(written, '# 개인 문서 템플릿\n기존 지침\n\n예전에 끝에 붙인 지침\n\n## 추가 지침\n로고 유지')
   } finally { dom.window.close() }
 })
+test('editing keeps prose written under the analysis heading when no JSON line follows it', async () => {
+  const stored = '기존 지침\n\n## 원본 구조 분석 (JSON 참고 데이터; 전체 원본은 위 경로에서 읽을 것)\n제목 아래에 직접 쓴 문장\n'
+  const dom = await panel(async request => {
+    if (request.action === 'list') return { templates: [{ id: 'personal-example', name: 'Private', format: 'docx' }], cursor: null }
+    if (request.action === 'describe') return { revision: 'r1' }
+    if (request.action === 'open') return { handle: request.args.role ?? 'h' }
+    if (request.action === 'readChunk') return { contentBase64: Buffer.from(request.args.handle === 'instructions' ? stored : 'png').toString('base64'), nextOffset: 1, done: true }
+    return {}
+  }, 'ko')
+  try {
+    const document = dom.window.document
+    document.querySelectorAll('.card')[1].click(); await flush()
+    document.getElementById('edit').click(); await flush()
+    assert.equal(document.getElementById('instructions').value, stored.trimEnd())
+  } finally { dom.window.close() }
+})
