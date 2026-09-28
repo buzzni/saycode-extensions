@@ -50,8 +50,8 @@ test('packed template extension owns all 8 references and uses only declared pub
   } finally { await rm(temporary, { recursive: true, force: true }) }
 })
 async function panel(invoke, language='en') {
-  const html = await readFile(join(packageRoot, 'panel.html'), 'utf8')
-  const dom = new JSDOM(html, { runScripts: 'dangerously', url: `https://panel.invalid/?language=${language}`, beforeParse(window) {
+  // Load the packaged panel straight from disk: the test never builds markup from strings.
+  const dom = await JSDOM.fromFile(join(packageRoot, 'panel.html'), { runScripts: 'dangerously', url: `https://panel.invalid/?language=${encodeURIComponent(language)}`, beforeParse(window) {
     window.TextEncoder = TextEncoder; window.TextDecoder = TextDecoder
     // The real panel runs in an opaque-origin iframe: not a secure context, so no crypto.subtle.
     assert.equal(window.crypto?.subtle, undefined)
