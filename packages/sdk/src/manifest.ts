@@ -1,4 +1,5 @@
 export const EXTENSION_PERMISSIONS = [
+  'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
@@ -377,8 +378,8 @@ export function parseExtensionManifest(
     if (apiVersion < 2 && permission.startsWith('browserViewer.')) {
       throw new Error('manifest.permissions: browserViewer permissions require Extension API version 2')
     }
-    if (apiVersion < 3 && permission === 'artifacts.publishPublic') {
-      throw new Error('manifest.permissions: artifacts.publishPublic requires Extension API version 3')
+    if (apiVersion < 3 && ['artifacts.publishPublic', 'assets.read', 'assets.write', 'files.select', 'drafts.prepare'].includes(permission)) {
+      throw new Error(`manifest.permissions: ${permission} requires Extension API version 3`)
     }
     if (CHANNEL_PERMISSIONS.has(permission)) {
       if (apiVersion < 3) {
