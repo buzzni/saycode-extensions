@@ -27,6 +27,7 @@ jobs:
       - run: npm run package:telegram
       - run: npm run package:slack
       - run: npm run package:discord
+      - run: npm run package:document-templates
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
@@ -48,6 +49,9 @@ jobs:
       - name: Create Discord checksum
         working-directory: packages/discord
         run: sha256sum *.saycode-extension > buzzni.discord-1.1.0.saycode-extension.sha256
+      - name: Create Document Templates checksum
+        working-directory: packages/document-templates
+        run: sha256sum *.saycode-extension > buzzni.document-templates-1.0.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,6 +71,8 @@ jobs:
           packages/slack/buzzni.slack-1.1.0.saycode-extension.sha256
           packages/discord/buzzni.discord-1.1.0.saycode-extension
           packages/discord/buzzni.discord-1.1.0.saycode-extension.sha256
+          packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension
+          packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 
