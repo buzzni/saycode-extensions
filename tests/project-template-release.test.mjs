@@ -73,3 +73,23 @@ test('release gate packs, checksums, and publishes the official Artifact Publish
   assert.match(workflow, new RegExp(`${archive.replaceAll('.', '\\.')}\\.sha256`))
   assert.match(workflow, new RegExp(`packages/artifact-publisher/${archive.replaceAll('.', '\\.')}`))
 })
+
+test('release gate packs, checksums, and publishes the official Document Templates extension', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const templatesPackage = JSON.parse(
+    await readFile(new URL('packages/document-templates/package.json', root), 'utf8'),
+  )
+  const manifest = JSON.parse(
+    await readFile(new URL('packages/document-templates/extension.json', root), 'utf8'),
+  )
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+
+  assert.match(packageJson.scripts['package:document-templates'], /document-templates.*pack/)
+  assert.equal(templatesPackage.version, manifest.version)
+  assert.equal(manifest.apiVersion, 3)
+  assert.match(workflow, /npm run package:document-templates/)
+  // Plain substring checks: the archive name comes from the manifest, so no regular expression is built from it.
+  assert.ok(workflow.includes(`${archive}.sha256`))
+  assert.ok(workflow.includes(`packages/document-templates/${archive}`))
+})
