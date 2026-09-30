@@ -141,6 +141,7 @@ async function pack(projectPath: string): Promise<void> {
     addFile(zip, 'extension.json', JSON.stringify({ ...manifest, entrypoint: 'index.js' }, null, 2))
     addFile(zip, 'index.js', await readFile(entrypoint))
     const assetRoots = new Set((manifest.contributes.projectTemplates ?? []).map((template) => template.assetsRoot))
+    if (await exists(join(root, 'assets'))) assetRoots.add('assets')
     for (const assetsRoot of assetRoots) await addDirectoryToZip(zip, root, assetsRoot)
     for (const panel of manifest.contributes.panels ?? []) {
       const panelPath = join(root, panel.entrypoint)
