@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -46,7 +47,8 @@ test('provider verifies an unverifiable AX click through a fresh snapshot instea
     const commands = new Map(); const calls = []; let snapshots = 0
     await provider.activate({ commands: { register: (name, handler) => commands.set(name, handler) }, invokeCapability: async (_permission, action, input) => {
       calls.push({ action, input })
-      if (action === 'management' || action === 'cancel') return { version: 1, state: 'cancelled', remoteMayContinue: false }
+      if (action === 'management') return { version: 1, state: 'manual-required', extensionDirectory: '/active-cli/browser-extension' }
+      if (action === 'cancel') return { version: 1, state: 'cancelled', remoteMayContinue: false }
       const operation = input.operation
       if (operation === 'windows') return { state: 'succeeded', output: JSON.stringify({ windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] }) }
       if (operation === 'snapshot') return { state: 'succeeded', output: JSON.stringify({ elements: ++snapshots === 1
@@ -54,9 +56,50 @@ test('provider verifies an unverifiable AX click through a fresh snapshot instea
         : [{ label: 'Load unpacked', role: 'AXButton', actions: ['AXPress'], element_token: 'load' }] }) }
       return { state: 'succeeded', output: JSON.stringify({ route: 'accessibility', effect: 'unverifiable' }) }
     } })
-    assert.equal((await commands.get('buzzni.computer-control.automate')({ version: 1, machineId: 'M1', profile: 'Default' })).reason, 'choose-extension-directory')
+    const handoff = await commands.get('buzzni.computer-control.automate')({ version: 1, machineId: 'M1', profile: 'Default' })
+    assert.equal(handoff.reason, 'choose-extension-directory')
+    assert.equal(handoff.extensionDirectory, '/active-cli/browser-extension')
     assert.equal(snapshots, 2)
     assert.deepEqual(calls.filter(call => call.input.operation === 'click').map(call => call.input.parameters.elementToken), ['toggle', 'load'])
     assert.equal(calls.at(-1).action, 'cancel')
   } finally { await rm(temporary, { recursive: true, force: true }) }
+})
+
+async function panelFixture() {
+  const html = await readFile(new URL('../packages/computer-control/panel.html', import.meta.url), 'utf8')
+  const elements = Object.fromEntries(['machine', 'profile', 'profiles', 'actions', 'cancel', 'result'].map(id => [id, { value: '', disabled: false, hidden: false, replaceChildren() {}, append() {} }]))
+  const buttons = ['pair', 'status'].map(action => ({ dataset: { action } }))
+  const calls = [], releases = []
+  runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], {
+    document: { getElementById: id => elements[id], querySelectorAll: () => buttons, createElement: () => ({}) },
+    window: { saycodePanel: { invokeCommand: (command, args) => { calls.push({ command, args }); return new Promise(resolve => releases.push(resolve)) } } },
+  })
+  elements.machine.value = 'M1'; elements.profile.value = 'Default'
+  return { elements, buttons, calls, releases }
+}
+test('panel locks its target and cancels the original machine despite input changes', async () => {
+  const { elements, buttons, calls, releases } = await panelFixture()
+  const pairing = buttons[0].onclick()
+  assert.equal(elements.machine.disabled, true)
+  assert.equal(elements.profile.disabled, true)
+  assert.equal(elements.profiles.disabled, true)
+  elements.machine.value = 'M2'
+  const cancel = elements.cancel.onclick()
+  assert.equal(calls[1].args[0].machineId, 'M1')
+  releases[1]({ state: 'cancelled' }); await cancel
+  releases[0]({ state: 'connected' }); await pairing
+})
+test('panel ignores a cancelled operation response and its finalizer during a new operation', async () => {
+  const { elements, buttons, releases } = await panelFixture()
+  const pairing = buttons[0].onclick()
+  const cancel = elements.cancel.onclick()
+  releases[1]({ state: 'cancelled' }); await cancel
+  const checking = buttons[1].onclick()
+  releases[0]({ state: 'connected' }); await pairing
+  assert.match(elements.result.textContent, /cancelled/)
+  assert.equal(elements.actions.disabled, true)
+  assert.equal(elements.cancel.hidden, false)
+  releases[2]({ state: 'idle' }); await checking
+  assert.match(elements.result.textContent, /idle/)
+  assert.equal(elements.machine.disabled, false)
 })

@@ -40,15 +40,17 @@ export default defineExtension({
       if (active) throw new Error('BUSY')
       active = input
       try {
-        await browser('management', input)
-        return await prepareUnpackedChrome(async (operation, parameters = {}) => {
+        const metadata = result(await browser('management', input))
+        if (typeof metadata.extensionDirectory !== 'string' || !metadata.extensionDirectory) throw new Error('INVALID_RESPONSE')
+        const handoff = result(await prepareUnpackedChrome(async (operation, parameters = {}) => {
           if (active !== input) throw new Error('CANCELLED')
           const response = await tool('run', { version: 1, machineId: input.machineId!, operation, parameters }, true)
           if (typeof response.output !== 'string') throw new Error('DRIVER_EXECUTION_FAILED')
           const parsed = JSON.parse(response.output)
           if (parsed.isError === true || parsed.ok === false || (parsed.effect === 'unverifiable' && operation !== 'click') || parsed.suspected_noop === true) throw new Error('DRIVER_MANUAL_REQUIRED')
           return result(parsed.structuredContent ?? parsed)
-        })
+        }))
+        return { ...metadata, ...handoff }
       } finally {
         active = null
         await tool('cancel', { version: 1, machineId: input.machineId! }, true)
