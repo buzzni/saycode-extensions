@@ -10,7 +10,7 @@ function result(value: JsonValue): Record<string, JsonValue> {
 }
 export default defineExtension({
   activate(context) {
-    let active: JsonValue | null = null
+    let active: { machineId: JsonValue; cancelled: boolean; remoteMayContinue: boolean; finished: Promise<void> } | null = null
     const browser = (action: string, args: JsonValue) => context.invokeCapability('localBrowser.setup', action, args)
     const tool = async (action: string, args: JsonValue, control = false) => {
       const response = result(await context.invokeCapability(action === 'install' ? 'localTools.install' : control ? 'localTools.control' : 'localTools.inspect', action, args))
@@ -38,29 +38,42 @@ export default defineExtension({
     context.commands.register('buzzni.computer-control.automate', async args => {
       const input = request(args)
       if (active) throw new Error('BUSY')
-      active = input
+      let finish!: () => void
+      const work = { machineId: input.machineId!, cancelled: false, remoteMayContinue: false, finished: new Promise<void>(resolve => { finish = resolve }) }
+      active = work
+      let outcome: Record<string, JsonValue>
       try {
         const metadata = result(await browser('management', input))
         if (typeof metadata.extensionDirectory !== 'string' || !metadata.extensionDirectory) throw new Error('INVALID_RESPONSE')
         const handoff = result(await prepareUnpackedChrome(async (operation, parameters = {}) => {
-          if (active !== input) throw new Error('CANCELLED')
+          if (work.cancelled) throw new Error('CANCELLED')
           const response = await tool('run', { version: 1, machineId: input.machineId!, operation, parameters }, true)
+          if (work.cancelled) throw new Error('CANCELLED')
           if (typeof response.output !== 'string') throw new Error('DRIVER_EXECUTION_FAILED')
           const parsed = JSON.parse(response.output)
           if (parsed.isError === true || parsed.ok === false || (parsed.effect === 'unverifiable' && operation !== 'click') || parsed.suspected_noop === true) throw new Error('DRIVER_MANUAL_REQUIRED')
           return result(parsed.structuredContent ?? parsed)
         }))
-        return { ...metadata, ...handoff }
+        outcome = { ...metadata, ...handoff }
+        if (work.cancelled) throw new Error('CANCELLED')
       } finally {
-        active = null
-        await tool('cancel', { version: 1, machineId: input.machineId! }, true)
+        try {
+          const cleanup = await tool('cancel', { version: 1, machineId: input.machineId! }, true)
+          work.remoteMayContinue = cleanup.remoteMayContinue === true
+        } catch (error) { work.remoteMayContinue = true; throw error }
+        finally { if (active === work) active = null; finish() }
       }
+      if (work.cancelled) throw new Error('CANCELLED')
+      return { ...outcome, remoteMayContinue: work.remoteMayContinue }
     })
     context.commands.register('buzzni.computer-control.cancel', async args => {
-      const input = request(args); active = null
+      const input = request(args), work = active
+      if (work && work.machineId !== input.machineId) throw new Error('NOT_OWNED')
+      if (work) work.cancelled = true
       const local = await tool('cancel', { version: 1, machineId: input.machineId! }, true).catch(() => ({ remoteMayContinue: true }))
-      await browser('cancel', { version: 1, machineId: input.machineId! })
-      return { version: 1, state: 'cancelled', remoteMayContinue: local.remoteMayContinue ?? false }
+      try { await browser('cancel', { version: 1, machineId: input.machineId! }) }
+      finally { await work?.finished }
+      return { version: 1, state: 'cancelled', remoteMayContinue: local.remoteMayContinue === true || work?.remoteMayContinue === true }
     })
   },
 })

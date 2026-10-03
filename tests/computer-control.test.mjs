@@ -103,3 +103,57 @@ test('panel ignores a cancelled operation response and its finalizer during a ne
   assert.match(elements.result.textContent, /idle/)
   assert.equal(elements.machine.disabled, false)
 })
+
+test('provider keeps its automation gate until cancelled native work and final cleanup settle', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'cua-provider-cancel-'))
+  try {
+    const output = join(temporary, 'provider.mjs')
+    await build({ entryPoints: ['packages/computer-control/src/index.ts'], outfile: output, bundle: true, format: 'esm', platform: 'node' })
+    const provider = (await import(pathToFileURL(output).href)).default
+    const commands = new Map(), calls = []
+    let releaseWindows, releaseCleanup, cleanups = 0
+    await provider.activate({ commands: { register: (name, handler) => commands.set(name, handler) }, invokeCapability: async (_permission, action, input) => {
+      calls.push({ action, input })
+      if (action === 'management') return { version: 1, state: 'manual-required', extensionDirectory: '/active-cli/browser-extension' }
+      if (action === 'cancel') {
+        if (input.operation === undefined && _permission === 'localTools.control' && ++cleanups === 2) return new Promise(resolve => { releaseCleanup = resolve })
+        return { version: 1, state: 'cancelled', remoteMayContinue: false }
+      }
+      return new Promise(resolve => { releaseWindows = resolve })
+    } })
+    const input = { version: 1, machineId: 'M1', profile: 'Default' }
+    const command = name => commands.get('buzzni.computer-control.' + name)
+    const original = command('automate')(input).catch(error => error)
+    while (!releaseWindows) await new Promise(resolve => setImmediate(resolve))
+    await assert.rejects(command('cancel')({ version: 1, machineId: 'M2' }), /NOT_OWNED/)
+    let cancelled = false
+    const cancellation = command('cancel')({ version: 1, machineId: 'M1' }).then(value => { cancelled = true; return value })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(cancelled, false)
+    await assert.rejects(command('automate')(input), /BUSY/)
+    releaseWindows({ state: 'succeeded', output: JSON.stringify({ windows: [] }) })
+    while (!releaseCleanup) await new Promise(resolve => setImmediate(resolve))
+    await assert.rejects(command('automate')(input), /BUSY/)
+    releaseCleanup({ version: 1, state: 'cancelled', remoteMayContinue: false })
+    assert.match(String(await original), /CANCELLED/)
+    assert.equal((await cancellation).state, 'cancelled')
+    assert.equal(calls.filter(call => call.action === 'management').length, 1)
+  } finally { await rm(temporary, { recursive: true, force: true }) }
+})
+
+test('provider exposes unconfirmed Driver cleanup instead of reporting an ordinary manual handoff', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'cua-provider-cleanup-'))
+  try {
+    const output = join(temporary, 'provider.mjs')
+    await build({ entryPoints: ['packages/computer-control/src/index.ts'], outfile: output, bundle: true, format: 'esm', platform: 'node' })
+    const provider = (await import(pathToFileURL(output).href)).default
+    const commands = new Map()
+    await provider.activate({ commands: { register: (name, handler) => commands.set(name, handler) }, invokeCapability: async (_permission, action) => {
+      if (action === 'management') return { version: 1, state: 'manual-required', extensionDirectory: '/active-cli/browser-extension' }
+      if (action === 'cancel') return { version: 1, state: 'cancelled', remoteMayContinue: true }
+      return { state: 'succeeded', output: JSON.stringify({ windows: [] }) }
+    } })
+    const handoff = await commands.get('buzzni.computer-control.automate')({ version: 1, machineId: 'M1', profile: 'Default' })
+    assert.equal(handoff.remoteMayContinue, true)
+  } finally { await rm(temporary, { recursive: true, force: true }) }
+})
