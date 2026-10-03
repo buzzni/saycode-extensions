@@ -87,3 +87,5 @@ export type {
   ExtensionProjectTemplateContribution,
   ExtensionSettingContribution,
 } from './manifest.js'
+
+export type { ManagedLocalTool, ManagedToolArtifact, ManagedToolOperation } from './managedLocalTool.js'

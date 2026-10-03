@@ -1,0 +1,14 @@
+{
+  "name": "@buzzni/saycode-extension-computer-control",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node ../sdk/dist/cli.js validate .",
+    "pack": "node ../sdk/dist/cli.js pack .",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.3.0"
+  }
+}

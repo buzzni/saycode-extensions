@@ -1,3 +1,4 @@
+import { parseManagedLocalTool, type ManagedLocalTool } from './managedLocalTool.js'
 export const EXTENSION_PERMISSIONS = [
   'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute',
@@ -11,6 +12,7 @@ export const EXTENSION_PERMISSIONS = [
   // one against the live grant at call time — declaring it here only makes it askable.
   'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
+  'localTools.inspect', 'localTools.install', 'localTools.control', 'localBrowser.setup',
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
@@ -96,6 +98,7 @@ export interface ExtensionManifest {
    * this field existed, and they must keep parsing exactly as they did.
    */
   channelApiVersion?: number
+  managedLocalTool?: ManagedLocalTool
   engines: { saycode: string }
   entrypoint: string
   permissions: ExtensionPermission[]
@@ -378,7 +381,7 @@ export function parseExtensionManifest(
     if (apiVersion < 2 && permission.startsWith('browserViewer.')) {
       throw new Error('manifest.permissions: browserViewer permissions require Extension API version 2')
     }
-    if (apiVersion < 3 && ['artifacts.publishPublic', 'assets.read', 'assets.write', 'files.select', 'drafts.prepare'].includes(permission)) {
+    if (apiVersion < 3 && (['artifacts.publishPublic', 'assets.read', 'assets.write', 'files.select', 'drafts.prepare'].includes(permission) || permission.startsWith('local'))) {
       throw new Error(`manifest.permissions: ${permission} requires Extension API version 3`)
     }
     if (CHANNEL_PERMISSIONS.has(permission)) {
@@ -396,6 +399,8 @@ export function parseExtensionManifest(
   if (new Set(permissions).size !== permissions.length) {
     throw new Error('manifest.permissions: duplicate permission')
   }
+  const managedLocalTool = raw.managedLocalTool === undefined ? undefined : parseManagedLocalTool(raw.managedLocalTool, String(raw.id))
+  if (permissions.some(permission => permission.startsWith('localTools.')) && !managedLocalTool) throw new Error('manifest.managedLocalTool: metadata required')
   const contributions = record(raw.contributes, 'manifest.contributes')
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
@@ -541,6 +546,7 @@ export function parseExtensionManifest(
     version,
     apiVersion,
     ...(channelApiVersion === undefined ? {} : { channelApiVersion }),
+    ...(managedLocalTool ? { managedLocalTool } : {}),
     engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
