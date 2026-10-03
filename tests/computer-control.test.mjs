@@ -16,7 +16,7 @@ test('CUA package declares exact pinned artifacts and cannot request control wit
   assert.throws(() => parseExtensionManifest({ ...raw, managedLocalTool: undefined }, { supportedApiVersion: 3 }), /metadata required/)
   assert.throws(() => parseExtensionManifest({ ...raw, apiVersion: 2 }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /API version 3/)
 })
-test('Chrome recipe hands off ambiguity, verifies developer mode after action and never guesses file-picker targets', async () => {
+test('Chrome recipe hands off ambiguity, verifies developer mode after action and never guesses file-picker targets', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'cua-recipe-'))
   try {
     const output = join(temporary, 'recipe.mjs')
@@ -35,6 +35,21 @@ test('Chrome recipe hands off ambiguity, verifies developer mode after action an
     assert.equal((await prepareUnpackedChrome(async () => ({ windows: [] }))).state, 'manual-required')
     const unchanged = await prepareUnpackedChrome(async operation => operation === 'windows' ? { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] } : { elements: [{ label: 'Developer mode', role: 'AXCheckBox', element_token: 'unchanged', actions: ['AXPress'] }] })
     assert.equal(unchanged.reason, 'load-unpacked')
+    for (const unavailable of [{ truncated: true }, { degraded_reason: 'accessibility permission lost' }]) {
+      await t.test(`rejects refreshed snapshot: ${JSON.stringify(unavailable)}`, async () => {
+        const clicked = []; let reads = 0
+        const handoff = await prepareUnpackedChrome(async (operation, parameters) => {
+          if (operation === 'windows') return { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] }
+          if (operation === 'snapshot') return ++reads === 1
+            ? { elements: [{ label: 'Developer mode', role: 'AXCheckBox', element_token: 'toggle', actions: ['AXPress'] }] }
+            : { ...unavailable, elements: [{ label: 'Load unpacked', role: 'AXButton', element_token: 'load', actions: ['AXPress'] }] }
+          if (operation === 'click') clicked.push(parameters.elementToken)
+          return {}
+        })
+        assert.equal(handoff.reason, 'accessibility-unavailable')
+        assert.deepEqual(clicked, ['toggle'])
+      })
+    }
   } finally { await rm(temporary, { recursive: true, force: true }) }
 })
 

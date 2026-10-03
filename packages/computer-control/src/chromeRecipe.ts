@@ -19,6 +19,7 @@ export async function prepareUnpackedChrome(invoke: Invoke): Promise<JsonValue> 
     if (toggles.length !== 1 || typeof toggles[0]!.element_token !== 'string') return { version: 1, state: 'manual-required', reason: 'developer-mode' }
     await invoke('click', { ...target, elementToken: toggles[0]!.element_token! })
     state = await snapshot()
+    if (state.degraded_reason || state.truncated === true) return { version: 1, state: 'manual-required', reason: 'accessibility-unavailable' }
   }
   const load = find(LOAD, ['AXButton', 'Button'])
   if (load.length !== 1 || typeof load[0]!.element_token !== 'string') return { version: 1, state: 'manual-required', reason: 'load-unpacked' }
