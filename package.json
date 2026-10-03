@@ -20,7 +20,7 @@
     "catalog:sign": "node scripts/sign-extension-catalog.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.3",
     "esbuild": "^0.28.2",
     "jsdom": "^25.0.1",
     "typescript": "^7.0.2"
