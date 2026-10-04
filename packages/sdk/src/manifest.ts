@@ -400,6 +400,7 @@ export function parseExtensionManifest(
     throw new Error('manifest.permissions: duplicate permission')
   }
   const managedLocalTool = raw.managedLocalTool === undefined ? undefined : parseManagedLocalTool(raw.managedLocalTool, String(raw.id))
+  if (managedLocalTool && apiVersion < 3) throw new Error('manifest.managedLocalTool: requires Extension API version 3')
   if (permissions.some(permission => permission.startsWith('localTools.')) && !managedLocalTool) throw new Error('manifest.managedLocalTool: metadata required')
   const contributions = record(raw.contributes, 'manifest.contributes')
   if (apiVersion < 2 && contributions.machineActions !== undefined) {

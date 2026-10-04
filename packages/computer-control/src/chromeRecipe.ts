@@ -6,7 +6,7 @@ function rows(value: JsonValue | undefined): Array<Record<string, JsonValue>> { 
 /** Bounded AX recipe. Any ambiguous/unknown postcondition hands control back to the user. */
 export async function prepareUnpackedChrome(invoke: Invoke): Promise<JsonValue> {
   const listed = await invoke('windows')
-  const windows = rows(listed.windows).filter(window => window.app_name === 'Google Chrome' && /^(Extensions|확장 프로그램|拡張機能|扩展程序)/.test(String(window.title)))
+  const windows = rows(listed.windows).filter(window => window.app_name === 'Google Chrome' && /^(Extensions|확장 프로그램|拡張機能|扩展程序)(\s[-–]\s(Google\s)?Chrome)?$/.test(String(window.title)))
   if (windows.length !== 1) return { version: 1, state: 'manual-required', reason: 'select-chrome-window' }
   const window = windows[0]!, target = { pid: window.pid!, windowId: window.window_id! }
   const snapshot = () => invoke('snapshot', target)
@@ -17,6 +17,10 @@ export async function prepareUnpackedChrome(invoke: Invoke): Promise<JsonValue> 
   if (!find(LOAD, ['AXButton', 'Button']).length) {
     const toggles = find(DEVELOPER, ['AXCheckBox', 'AXSwitch', 'CheckBox', 'Switch'])
     if (toggles.length !== 1 || typeof toggles[0]!.element_token !== 'string') return { version: 1, state: 'manual-required', reason: 'developer-mode' }
+    // Only switch Developer mode on. If it is already on, the missing button is a manual handoff.
+    const on = String(toggles[0]!.value)
+    if (on === '1' || on === 'true') return { version: 1, state: 'manual-required', reason: 'load-unpacked' }
+    if (on !== '0' && on !== 'false') return { version: 1, state: 'manual-required', reason: 'developer-mode' }
     await invoke('click', { ...target, elementToken: toggles[0]!.element_token! })
     state = await snapshot()
     if (state.degraded_reason || state.truncated === true) return { version: 1, state: 'manual-required', reason: 'accessibility-unavailable' }

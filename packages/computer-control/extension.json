@@ -72,7 +72,6 @@
           "{{json}}"
         ],
         "payload": {
-          "session": "{{session}}",
           "prompt": false
         },
         "inputs": {}

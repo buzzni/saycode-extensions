@@ -11,7 +11,12 @@ function result(value: JsonValue): Record<string, JsonValue> {
 export default defineExtension({
   activate(context) {
     let active: { machineId: JsonValue; cancelled: boolean; remoteMayContinue: boolean; finished: Promise<void> } | null = null
-    const browser = (action: string, args: JsonValue) => context.invokeCapability('localBrowser.setup', action, args)
+    // The host treats a browser cancel as revoke; send it only while a browser setup call is actually in flight.
+    let browserInFlight = 0
+    const browser = async (action: string, args: JsonValue) => {
+      browserInFlight++
+      try { return await context.invokeCapability('localBrowser.setup', action, args) } finally { browserInFlight-- }
+    }
     const tool = async (action: string, args: JsonValue, control = false) => {
       const response = result(await context.invokeCapability(action === 'install' ? 'localTools.install' : control ? 'localTools.control' : 'localTools.inspect', action, args))
       if ((response.state === 'cancelled' && action !== 'cancel') || response.state === 'unsupported-platform') throw new Error(String(response.state))
@@ -60,7 +65,7 @@ export default defineExtension({
         try {
           const cleanup = await tool('cancel', { version: 1, machineId: input.machineId! }, true)
           work.remoteMayContinue = cleanup.remoteMayContinue === true
-        } catch (error) { work.remoteMayContinue = true; throw error }
+        } catch { work.remoteMayContinue = true }
         finally { if (active === work) active = null; finish() }
       }
       if (work.cancelled) throw new Error('CANCELLED')
@@ -71,7 +76,7 @@ export default defineExtension({
       if (work && work.machineId !== input.machineId) throw new Error('NOT_OWNED')
       if (work) work.cancelled = true
       const local = await tool('cancel', { version: 1, machineId: input.machineId! }, true).catch(() => ({ remoteMayContinue: true }))
-      try { await browser('cancel', { version: 1, machineId: input.machineId! }) }
+      try { if (browserInFlight > 0) await context.invokeCapability('localBrowser.setup', 'cancel', { version: 1, machineId: input.machineId! }) }
       finally { await work?.finished }
       return { version: 1, state: 'cancelled', remoteMayContinue: local.remoteMayContinue === true || work?.remoteMayContinue === true }
     })

@@ -28,6 +28,15 @@ function path(value: unknown): string {
   if (parsed.startsWith('/') || parsed.includes('\\') || parsed.includes(':') || parsed.split('/').some(part => !part || part === '..' || part === '.')) fail()
   return parsed
 }
+// Payload templates are small fixed JSON; bound depth/size so a hostile manifest cannot exhaust the stack.
+function boundedPayload(value: unknown, depth: number): boolean {
+  if (depth > 8) return false
+  if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return typeof value !== 'string' || (value as string).length <= 4096
+  if (Array.isArray(value)) return value.length <= 64 && value.every(item => boundedPayload(item, depth + 1))
+  if (typeof value !== 'object') return false
+  const entries = Object.entries(value as Record<string, unknown>)
+  return entries.length <= 64 && entries.every(([, item]) => boundedPayload(item, depth + 1))
+}
 export function parseManagedLocalTool(value: unknown, extensionId: string): ManagedLocalTool {
   const root = row(value)
   keys(root, ['version', 'id', 'toolVersion', 'platforms', 'operations'])
@@ -38,7 +47,8 @@ export function parseManagedLocalTool(value: unknown, extensionId: string): Mana
     if (!/^(darwin|win32)-(arm64|x64)$/.test(platform)) fail()
     const source = row(raw)
     keys(source, ['url', 'sha256', 'archiveRoot', 'executable', 'executableSha256', 'appBundle', 'signingTeamId', 'existingExecutables'])
-    const url = new URL(text(source.url))
+    let url: URL
+    try { url = new URL(text(source.url)) } catch { fail() }
     if (url.protocol !== 'https:' || url.username || url.password || !/\.(tar\.gz|zip)$/.test(url.pathname)
       || !HASH.test(text(source.sha256)) || !HASH.test(text(source.executableSha256))) fail()
     if (!Array.isArray(source.existingExecutables) || source.existingExecutables.length > 4
@@ -61,7 +71,9 @@ export function parseManagedLocalTool(value: unknown, extensionId: string): Mana
       return value
     })
     const inputs: Record<string, ManagedToolInput> = {}
-    for (const [name, raw] of Object.entries(source.inputs === undefined ? {} : row(source.inputs))) {
+    const declared = Object.entries(source.inputs === undefined ? {} : row(source.inputs))
+    if (declared.length > 32 || (source.payload !== undefined && !boundedPayload(source.payload, 0))) fail()
+    for (const [name, raw] of declared) {
       if (!NAME.test(name) || /^(session|token|secret|password|command|argv|env)$/i.test(name)) fail()
       const input = row(raw)
       if (input.type === 'integer') {
@@ -71,7 +83,8 @@ export function parseManagedLocalTool(value: unknown, extensionId: string): Mana
       } else if (input.type === 'string') {
         keys(input, ['type', 'maxLength', 'values'])
         if (!Number.isInteger(input.maxLength) || Number(input.maxLength) < 1 || Number(input.maxLength) > 4096
-          || (input.values !== undefined && (!Array.isArray(input.values) || input.values.some(item => typeof item !== 'string')))) fail()
+          || (input.values !== undefined && (!Array.isArray(input.values) || !input.values.length || input.values.length > 64
+            || input.values.some(item => typeof item !== 'string' || !item || item.length > Number(input.maxLength) || /[\x00-\x1f]/.test(item))))) fail()
         inputs[name] = { type: 'string', maxLength: Number(input.maxLength), ...(input.values ? { values: input.values as string[] } : {}) }
       } else fail()
     }
@@ -79,7 +92,7 @@ export function parseManagedLocalTool(value: unknown, extensionId: string): Mana
       ...(source.payload === undefined ? {} : { payload: source.payload as JsonValue }) }
     if (argv.includes('{{json}}') !== (source.payload !== undefined)) fail()
     // Validate all templates against declared input names before accepting metadata.
-    managedToolArguments(operation, Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.type === 'integer' ? input.min : input.values?.[0] ?? 'test'])), 'validated')
+    managedToolArguments(operation, Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.type === 'integer' ? input.min : input.values?.[0] ?? 'x'])), 'validated')
     operations[name] = operation
   }
   if (!Object.keys(platforms).length || !Object.keys(operations).length || Object.keys(operations).length > 32) fail()

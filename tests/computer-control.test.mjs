@@ -27,13 +27,13 @@ test('Chrome recipe hands off ambiguity, verifies developer mode after action an
     const invoke = async (operation, parameters) => {
       calls.push({ operation, parameters })
       if (operation === 'windows') return { windows: [{ app_name: 'Google Chrome', title: '확장 프로그램', pid: 12, window_id: 34 }] }
-      if (operation === 'snapshot') return ++snapshots === 1 ? { elements: [{ label: '개발자 모드', role: 'AXStaticText', element_token: 'snapshot1-label', actions: [] }, { label: '개발자 모드', role: 'AXCheckBox', element_token: 'snapshot1-toggle', actions: ['AXPress'] }] } : { elements: [{ label: '압축해제된 확장 프로그램 로드', role: 'AXButton', element_token: 'snapshot2-load', actions: ['AXPress'] }] }
+      if (operation === 'snapshot') return ++snapshots === 1 ? { elements: [{ label: '개발자 모드', role: 'AXStaticText', element_token: 'snapshot1-label', actions: [] }, { label: '개발자 모드', role: 'AXCheckBox', value: '0', element_token: 'snapshot1-toggle', actions: ['AXPress'] }] } : { elements: [{ label: '압축해제된 확장 프로그램 로드', role: 'AXButton', element_token: 'snapshot2-load', actions: ['AXPress'] }] }
       return {}
     }
     assert.equal((await prepareUnpackedChrome(invoke)).reason, 'choose-extension-directory')
     assert.deepEqual(calls.filter(call => call.operation === 'click').map(call => call.parameters.elementToken), ['snapshot1-toggle', 'snapshot2-load'])
     assert.equal((await prepareUnpackedChrome(async () => ({ windows: [] }))).state, 'manual-required')
-    const unchanged = await prepareUnpackedChrome(async operation => operation === 'windows' ? { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] } : { elements: [{ label: 'Developer mode', role: 'AXCheckBox', element_token: 'unchanged', actions: ['AXPress'] }] })
+    const unchanged = await prepareUnpackedChrome(async operation => operation === 'windows' ? { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] } : { elements: [{ label: 'Developer mode', role: 'AXCheckBox', value: '0', element_token: 'unchanged', actions: ['AXPress'] }] })
     assert.equal(unchanged.reason, 'load-unpacked')
     for (const unavailable of [{ truncated: true }, { degraded_reason: 'accessibility permission lost' }]) {
       await t.test(`rejects refreshed snapshot: ${JSON.stringify(unavailable)}`, async () => {
@@ -41,7 +41,7 @@ test('Chrome recipe hands off ambiguity, verifies developer mode after action an
         const handoff = await prepareUnpackedChrome(async (operation, parameters) => {
           if (operation === 'windows') return { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] }
           if (operation === 'snapshot') return ++reads === 1
-            ? { elements: [{ label: 'Developer mode', role: 'AXCheckBox', element_token: 'toggle', actions: ['AXPress'] }] }
+            ? { elements: [{ label: 'Developer mode', role: 'AXCheckBox', value: '0', element_token: 'toggle', actions: ['AXPress'] }] }
             : { ...unavailable, elements: [{ label: 'Load unpacked', role: 'AXButton', element_token: 'load', actions: ['AXPress'] }] }
           if (operation === 'click') clicked.push(parameters.elementToken)
           return {}
@@ -67,7 +67,7 @@ test('provider verifies an unverifiable AX click through a fresh snapshot instea
       const operation = input.operation
       if (operation === 'windows') return { state: 'succeeded', output: JSON.stringify({ windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] }) }
       if (operation === 'snapshot') return { state: 'succeeded', output: JSON.stringify({ elements: ++snapshots === 1
-        ? [{ label: 'Developer mode', role: 'AXCheckBox', actions: ['AXPress'], element_token: 'toggle' }]
+        ? [{ label: 'Developer mode', role: 'AXCheckBox', value: '0', actions: ['AXPress'], element_token: 'toggle' }]
         : [{ label: 'Load unpacked', role: 'AXButton', actions: ['AXPress'], element_token: 'load' }] }) }
       return { state: 'succeeded', output: JSON.stringify({ route: 'accessibility', effect: 'unverifiable' }) }
     } })
@@ -171,4 +171,104 @@ test('provider exposes unconfirmed Driver cleanup instead of reporting an ordina
     const handoff = await commands.get('buzzni.computer-control.automate')({ version: 1, machineId: 'M1', profile: 'Default' })
     assert.equal(handoff.remoteMayContinue, true)
   } finally { await rm(temporary, { recursive: true, force: true }) }
+})
+
+async function loadProvider(invokeCapability) {
+  const temporary = await mkdtemp(join(tmpdir(), 'cua-provider-review-'))
+  const output = join(temporary, 'provider.mjs')
+  await build({ entryPoints: ['packages/computer-control/src/index.ts'], outfile: output, bundle: true, format: 'esm', platform: 'node' })
+  const provider = (await import(pathToFileURL(output).href)).default
+  const commands = new Map()
+  await provider.activate({ commands: { register: (name, handler) => commands.set(name, handler) }, invokeCapability })
+  return { command: name => commands.get('buzzni.computer-control.' + name), cleanup: () => rm(temporary, { recursive: true, force: true }) }
+}
+
+test('Stop during a Driver-only action never revokes an existing browser pairing', async () => {
+  const calls = []
+  let releaseInstall
+  const provider = await loadProvider(async (permission, action) => {
+    calls.push({ permission, action })
+    if (action === 'install') return new Promise(resolve => { releaseInstall = resolve })
+    return { version: 1, state: 'cancelled', remoteMayContinue: false }
+  })
+  try {
+    const install = provider.command('install')({ version: 1, machineId: 'M1' }).catch(error => error)
+    while (!releaseInstall) await new Promise(resolve => setImmediate(resolve))
+    const stopped = await provider.command('cancel')({ version: 1, machineId: 'M1' })
+    releaseInstall({ version: 1, state: 'cancelled' })
+    await install
+    assert.equal(stopped.state, 'cancelled')
+    assert.deepEqual(calls.filter(call => call.permission === 'localBrowser.setup'), [])
+  } finally { await provider.cleanup() }
+})
+
+test('Stop during browser pairing still cancels the in-flight setup', async () => {
+  const calls = []
+  let releasePair
+  const provider = await loadProvider(async (permission, action) => {
+    calls.push({ permission, action })
+    if (action === 'pair') return new Promise(resolve => { releasePair = resolve })
+    return { version: 1, state: 'cancelled', remoteMayContinue: false }
+  })
+  try {
+    const pair = provider.command('pair')({ version: 1, machineId: 'M1', profile: 'Default' })
+    while (!releasePair) await new Promise(resolve => setImmediate(resolve))
+    await provider.command('cancel')({ version: 1, machineId: 'M1' })
+    releasePair({ version: 1, state: 'revoked' })
+    await pair
+    assert.ok(calls.some(call => call.permission === 'localBrowser.setup' && call.action === 'cancel'))
+  } finally { await provider.cleanup() }
+})
+
+test('provider returns the handoff with remoteMayContinue when only the final Driver cleanup fails', async () => {
+  const provider = await loadProvider(async (_permission, action) => {
+    if (action === 'management') return { version: 1, state: 'manual-required', extensionDirectory: '/active-cli/browser-extension' }
+    if (action === 'cancel') throw new Error('TOOL_REVOCATION_UNCONFIRMED')
+    return { state: 'succeeded', output: JSON.stringify({ windows: [] }) }
+  })
+  try {
+    const handoff = await provider.command('automate')({ version: 1, machineId: 'M1', profile: 'Default' })
+    assert.equal(handoff.extensionDirectory, '/active-cli/browser-extension')
+    assert.equal(handoff.remoteMayContinue, true)
+  } finally { await provider.cleanup() }
+})
+
+test('Chrome recipe never switches Developer mode off and ignores pages that only start with the Extensions title', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'cua-recipe-review-'))
+  try {
+    const output = join(temporary, 'recipe.mjs')
+    await build({ entryPoints: ['packages/computer-control/src/chromeRecipe.ts'], outfile: output, bundle: true, format: 'esm', platform: 'node' })
+    const { prepareUnpackedChrome } = await import(pathToFileURL(output).href)
+    const clicks = []
+    const enabled = await prepareUnpackedChrome(async (operation, parameters) => {
+      if (operation === 'windows') return { windows: [{ app_name: 'Google Chrome', title: 'Extensions', pid: 1, window_id: 2 }] }
+      if (operation === 'click') { clicks.push(parameters.elementToken); return {} }
+      return { elements: [{ label: 'Developer mode', role: 'AXCheckBox', value: '1', element_token: 'toggle', actions: ['AXPress'] }] }
+    })
+    assert.equal(enabled.reason, 'load-unpacked')
+    assert.deepEqual(clicks, [])
+    const lookalike = await prepareUnpackedChrome(async operation => operation === 'windows'
+      ? { windows: [{ app_name: 'Google Chrome', title: 'Extensions guide - Chrome for Developers', pid: 1, window_id: 2 }] } : { elements: [] })
+    assert.equal(lookalike.reason, 'select-chrome-window')
+  } finally { await rm(temporary, { recursive: true, force: true }) }
+})
+
+test('managed tool metadata requires API 3 and rejects malformed URLs, values and oversized payloads', async () => {
+  const { parseManagedLocalTool } = await import('../packages/sdk/dist/managedLocalTool.js')
+  const raw = JSON.parse(await readFile(new URL('../packages/computer-control/extension.json', import.meta.url)))
+  const tool = raw.managedLocalTool
+  const id = raw.id
+  assert.throws(() => parseExtensionManifest({ ...raw, apiVersion: 2, permissions: raw.permissions.filter(p => !p.startsWith('local')) }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /API version 3/)
+  const clone = () => structuredClone(tool)
+  const badUrl = clone(); badUrl.platforms['darwin-arm64'].url = 'not a url'
+  assert.throws(() => parseManagedLocalTool(badUrl, id), /INVALID_TOOL_DESCRIPTOR/)
+  const short = clone(); short.operations.snapshot.inputs.extra = { type: 'string', maxLength: 2 }
+  short.operations.snapshot.payload.extra = '{{extra}}'
+  assert.doesNotThrow(() => parseManagedLocalTool(short, id))
+  const badValues = clone(); badValues.operations.snapshot.inputs.extra = { type: 'string', maxLength: 2, values: ['toolong'] }
+  badValues.operations.snapshot.payload.extra = '{{extra}}'
+  assert.throws(() => parseManagedLocalTool(badValues, id), /INVALID_TOOL_DESCRIPTOR/)
+  let deep = {}; for (let i = 0; i < 64; i++) deep = { nested: deep }
+  const nested = clone(); nested.operations.snapshot.payload.deep = deep
+  assert.throws(() => parseManagedLocalTool(nested, id), /INVALID_TOOL_DESCRIPTOR/)
 })
