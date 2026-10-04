@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Computer & browser</title>
+<style>body{font:14px/1.6 system-ui;color:var(--saycode-fg,#27272a);background:var(--saycode-bg,#fafafa);margin:24px;max-width:640px}label{display:block;margin:12px 0}input,select,button{font:inherit;padding:8px;border-radius:8px}button{border:0;background:#e4e4e7;margin:4px;cursor:pointer}button:focus-visible{outline:2px solid #6060dd}pre{white-space:pre-wrap;overflow-wrap:anywhere}button:disabled{opacity:.5}fieldset{border:0;padding:0}</style>
+<h2 id="title">Computer & browser</h2><p id="body">Use the Desktop onboarding settings to choose this registered computer and Chrome profile. This panel is also available from the computer action menu.</p>
+<label>Registered local computer ID <input id="machine" autocomplete="off"></label><button id="profiles">Load Chrome profiles</button>
+<label>Chrome profile <select id="profile"></select></label>
+<p>Screen observation and input need your explicit control permission and OS Accessibility/Screen Recording grants. Revoking access leaves your Chrome and pre-existing Driver installed.</p>
+<fieldset id="actions"><button data-action="inspect">Check Driver</button><button data-action="install">Install Driver 0.32.0</button><button data-action="doctor">Check OS permissions</button><button data-action="management">Open extension settings</button><button data-action="automate">Prepare extension installation with CUA</button><button data-action="pair">Connect this profile</button><button data-action="status">Verify connection</button><button data-action="revoke">Disconnect</button></fieldset><button id="cancel" hidden>Stop</button><pre id="result" role="status"></pre>
+<script>
+const $=id=>document.getElementById(id);let busy=false,generation=0,activeMachine=null;
+function lock(value){busy=value;for(const id of ['actions','machine','profile','profiles'])$(id).disabled=value}
+async function run(action){
+  if(busy&&action!=='cancel')return;
+  if(action==='cancel'&&!busy)return;
+  const args={version:1,machineId:action==='cancel'?activeMachine:$('machine').value};
+  if(['management','automate','pair'].includes(action))args.profile=$('profile').value;
+  const request=++generation;activeMachine=args.machineId;lock(true);$('cancel').hidden=action==='cancel';
+  try{
+    const result=await window.saycodePanel.invokeCommand('buzzni.computer-control.'+action,[args]);
+    if(request!==generation)return;
+    if(action==='profiles'){$('profile').replaceChildren();for(const item of result.profiles){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('profile').append(option)}}
+    $('result').textContent=JSON.stringify(result,null,2)
+  }catch(error){if(request===generation)$('result').textContent=String(error)}
+  finally{if(request===generation){lock(false);activeMachine=null;$('cancel').hidden=true}}
+}
+$('profiles').onclick=()=>run('profiles');$('cancel').onclick=()=>run('cancel');document.querySelectorAll('[data-action]').forEach(button=>button.onclick=()=>run(button.dataset.action));
+</script></html>

@@ -1,0 +1,278 @@
+{
+  "id": "buzzni.computer-control",
+  "version": "0.1.0",
+  "apiVersion": 3,
+  "engines": {
+    "saycode": "^1.1.0"
+  },
+  "entrypoint": "index.js",
+  "permissions": [
+    "localTools.inspect",
+    "localTools.install",
+    "localTools.control",
+    "localBrowser.setup"
+  ],
+  "managedLocalTool": {
+    "version": 1,
+    "id": "buzzni.computer-control.driver",
+    "toolVersion": "0.32.0",
+    "platforms": {
+      "darwin-x64": {
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-darwin-x86_64.tar.gz",
+        "sha256": "0322e9316d81fbe34cbe8efe2eae83a32cf4dd86b9f34639cc0a4b3a6ed74868",
+        "archiveRoot": "cua-driver-rs-0.32.0-darwin-x86_64",
+        "executable": "CuaDriver.app/Contents/MacOS/cua-driver",
+        "executableSha256": "656ff1c1aea1ee063d7735bcd8eb4491346971d4fb3199c6d2260b40aae83c66",
+        "existingExecutables": [
+          "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+        ],
+        "appBundle": "CuaDriver.app",
+        "signingTeamId": "YCK386LBJ7"
+      },
+      "win32-x64": {
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-windows-x86_64.zip",
+        "sha256": "6d70b45c8c901db773010dd720c8bb9d58c59bb301e9891c58ca1d3860e75652",
+        "archiveRoot": "cua-driver-rs-0.32.0-windows-x86_64",
+        "executable": "cua-driver.exe",
+        "executableSha256": "d2477595e8b5ae850d119b48c8bbe5c16a1f229f3e99e706bd84622c2d7d98ae",
+        "existingExecutables": []
+      },
+      "darwin-arm64": {
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-darwin-arm64.tar.gz",
+        "sha256": "31f278f38015616a02142ccbb396721897cee4892927db103a31b297f60035a9",
+        "archiveRoot": "cua-driver-rs-0.32.0-darwin-arm64",
+        "executable": "CuaDriver.app/Contents/MacOS/cua-driver",
+        "executableSha256": "656ff1c1aea1ee063d7735bcd8eb4491346971d4fb3199c6d2260b40aae83c66",
+        "existingExecutables": [
+          "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+        ],
+        "appBundle": "CuaDriver.app",
+        "signingTeamId": "YCK386LBJ7"
+      }
+    },
+    "operations": {
+      "version": {
+        "permission": "inspect",
+        "argv": [
+          "--version"
+        ]
+      },
+      "doctor": {
+        "permission": "inspect",
+        "argv": [
+          "doctor",
+          "--json"
+        ]
+      },
+      "permissions": {
+        "permission": "inspect",
+        "argv": [
+          "call",
+          "check_permissions",
+          "{{json}}"
+        ],
+        "payload": {
+          "prompt": false
+        },
+        "inputs": {}
+      },
+      "windows": {
+        "permission": "control",
+        "argv": [
+          "call",
+          "list_windows",
+          "{{json}}"
+        ],
+        "payload": {
+          "session": "{{session}}"
+        },
+        "inputs": {}
+      },
+      "snapshot": {
+        "permission": "control",
+        "argv": [
+          "call",
+          "get_window_state",
+          "{{json}}"
+        ],
+        "payload": {
+          "session": "{{session}}",
+          "pid": "{{pid}}",
+          "window_id": "{{windowId}}",
+          "include_screenshot": false,
+          "max_elements": 500
+        },
+        "inputs": {
+          "pid": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          },
+          "windowId": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          }
+        }
+      },
+      "click": {
+        "permission": "control",
+        "argv": [
+          "call",
+          "click",
+          "{{json}}"
+        ],
+        "payload": {
+          "session": "{{session}}",
+          "pid": "{{pid}}",
+          "window_id": "{{windowId}}",
+          "element_token": "{{elementToken}}",
+          "delivery_mode": "background"
+        },
+        "inputs": {
+          "pid": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          },
+          "windowId": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          },
+          "elementToken": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "typeText": {
+        "permission": "control",
+        "argv": [
+          "call",
+          "type_text",
+          "{{json}}"
+        ],
+        "payload": {
+          "session": "{{session}}",
+          "pid": "{{pid}}",
+          "window_id": "{{windowId}}",
+          "element_token": "{{elementToken}}",
+          "text": "{{text}}",
+          "delivery_mode": "background"
+        },
+        "inputs": {
+          "pid": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          },
+          "windowId": {
+            "type": "integer",
+            "min": 1,
+            "max": 2147483647
+          },
+          "elementToken": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "endSession": {
+        "permission": "control",
+        "argv": [
+          "call",
+          "end_session",
+          "{{json}}"
+        ],
+        "payload": {
+          "session": "{{session}}"
+        },
+        "inputs": {}
+      }
+    }
+  },
+  "activationEvents": [
+    "onCommand:buzzni.computer-control.open",
+    "onCommand:buzzni.computer-control.inspect",
+    "onCommand:buzzni.computer-control.install",
+    "onCommand:buzzni.computer-control.doctor",
+    "onCommand:buzzni.computer-control.profiles",
+    "onCommand:buzzni.computer-control.management",
+    "onCommand:buzzni.computer-control.automate",
+    "onCommand:buzzni.computer-control.pair",
+    "onCommand:buzzni.computer-control.status",
+    "onCommand:buzzni.computer-control.cancel",
+    "onCommand:buzzni.computer-control.revoke"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "buzzni.computer-control.open",
+        "title": "Open computer/browser setup",
+        "panelId": "buzzni.computer-control.panel"
+      },
+      {
+        "id": "buzzni.computer-control.inspect",
+        "title": "Inspect computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.install",
+        "title": "Install computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.doctor",
+        "title": "Doctor computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.profiles",
+        "title": "Profiles computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.management",
+        "title": "Management computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.automate",
+        "title": "Automate computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.pair",
+        "title": "Pair computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.status",
+        "title": "Status computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.cancel",
+        "title": "Cancel computer/browser setup"
+      },
+      {
+        "id": "buzzni.computer-control.revoke",
+        "title": "Revoke computer/browser setup"
+      }
+    ],
+    "panels": [
+      {
+        "id": "buzzni.computer-control.panel",
+        "title": "Computer & browser",
+        "entrypoint": "panel.html"
+      }
+    ],
+    "machineActions": [
+      {
+        "id": "buzzni.computer-control.machine",
+        "title": "Computer & browser",
+        "command": "buzzni.computer-control.open",
+        "when": {
+          "online": true
+        }
+      }
+    ]
+  }
+}
