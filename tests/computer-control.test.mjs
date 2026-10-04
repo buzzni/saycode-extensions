@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { runInNewContext } from 'node:vm'
+import { JSDOM } from 'jsdom'
 import { build } from 'esbuild'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
 
 test('CUA package declares exact pinned artifacts and cannot request control without managed metadata', async () => {
@@ -81,14 +81,15 @@ test('provider verifies an unverifiable AX click through a fresh snapshot instea
 })
 
 async function panelFixture() {
-  const html = await readFile(new URL('../packages/computer-control/panel.html', import.meta.url), 'utf8')
-  const elements = Object.fromEntries(['machine', 'profile', 'profiles', 'actions', 'cancel', 'result'].map(id => [id, { value: '', disabled: false, hidden: false, replaceChildren() {}, append() {} }]))
-  const buttons = ['pair', 'status'].map(action => ({ dataset: { action } }))
   const calls = [], releases = []
-  runInNewContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], {
-    document: { getElementById: id => elements[id], querySelectorAll: () => buttons, createElement: () => ({}) },
-    window: { saycodePanel: { invokeCommand: (command, args) => { calls.push({ command, args }); return new Promise(resolve => releases.push(resolve)) } } },
-  })
+  // Load the packaged panel straight from disk into a real DOM, as the Core iframe would.
+  const dom = await JSDOM.fromFile(fileURLToPath(new URL('../packages/computer-control/panel.html', import.meta.url)), { runScripts: 'dangerously', beforeParse(window) {
+    window.saycodePanel = { ready: Promise.resolve(), invokeCommand: (command, args) => { calls.push({ command, args }); return new Promise(resolve => releases.push(resolve)) } }
+  } })
+  const document = dom.window.document
+  const elements = Object.fromEntries(['machine', 'profile', 'profiles', 'actions', 'cancel', 'result'].map(id => [id, document.getElementById(id)]))
+  const buttons = ['pair', 'status'].map(action => document.querySelector(`[data-action="${action}"]`))
+  const option = document.createElement('option'); option.value = 'Default'; option.textContent = 'Default'; elements.profile.append(option)
   elements.machine.value = 'M1'; elements.profile.value = 'Default'
   return { elements, buttons, calls, releases }
 }
