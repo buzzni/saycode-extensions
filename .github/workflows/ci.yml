@@ -48,6 +48,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build -w @buzzni/saycode-extension-sdk
+      - run: npm run typecheck -w @buzzni/saycode-extension-computer-control
       - run: node --test tests/cli.test.mjs tests/artifact-publisher.test.mjs tests/computer-control.test.mjs tests/extension-catalog-signing.test.mjs
       - run: npm run package:fixture
 

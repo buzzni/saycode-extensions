@@ -182,6 +182,6 @@ The panel must use `window.saycodePanel.ready` and `invokeCommand`, not install 
 
 Panels run in an opaque-origin iframe framed with `sandbox="allow-scripts"`: forms never submit and `crypto.subtle` is unavailable. Save from button click handlers and hash in plain JavaScript; test panels in a harness that removes both.
 
-## Managed local tools and browser setup (source candidate)
+## Managed local tools and browser setup (SDK 0.5.0)
 
 `managedLocalTool` declares exact HTTPS artifacts, archive/executable hashes, platform-specific signing checks and fixed argv operations with bounded typed JSON inputs. `localTools.inspect/install/control` are separate grants; installation never grants ongoing control. `localBrowser.setup` accepts profiles/management/pair/status/cancel/revoke and never accepts caller identity, viewerKey or tokens from extension code. Core resolves the local personal machine and authenticated caller. Cancellation reports remote uncertainty instead of promising that a shared native service stopped. `computer-control` owns the CUA metadata/recipe; Desktop owns admission, process lifetime and package smoke. These contracts require the matching unreleased host/Happy sources and are not a statement of current release availability.
