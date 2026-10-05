@@ -93,3 +93,19 @@ test('release gate packs, checksums, and publishes the official Document Templat
   assert.ok(workflow.includes(`${archive}.sha256`))
   assert.ok(workflow.includes(`packages/document-templates/${archive}`))
 })
+
+test('release gate packs, checksums, and publishes the official Computer Control extension', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const controlPackage = JSON.parse(await readFile(new URL('packages/computer-control/package.json', root), 'utf8'))
+  const manifest = JSON.parse(await readFile(new URL('packages/computer-control/extension.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+
+  assert.match(packageJson.scripts['package:computer-control'], /computer-control.*pack/)
+  assert.equal(controlPackage.version, manifest.version)
+  assert.equal(manifest.apiVersion, 3)
+  assert.match(workflow, /npm run package:computer-control/)
+  // Plain substring checks: the archive name comes from the manifest, so no regular expression is built from it.
+  assert.ok(workflow.includes(`${archive}.sha256`))
+  assert.ok(workflow.includes(`packages/computer-control/${archive}`))
+})
