@@ -321,3 +321,31 @@ test('CUA package declares the grant and permission status operations it needs o
   assert.deepEqual(operations.grant.argv, ['permissions', 'grant'])
   assert.deepEqual(operations.permissionStatus.argv, ['permissions', 'status', '--json'])
 })
+test('OS permission check falls back to doctor when permission status is not JSON (no macOS permissions command)', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(input.operation)
+    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'permissionStatus') return runResult('permissions options (macOS):\n  cua-driver permissions status ...')
+    if (input.operation === 'doctor') return runResult({ ok: true })
+    if (input.operation === 'permissions') return runResult({ accessibility: true, screen_recording: true })
+    throw new Error('unexpected ' + input.operation)
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'permissionStatus', 'doctor', 'permissions'])
+  } finally { await provider.cleanup() }
+})
+test('Stop during the macOS grant ends the OS permission check instead of carrying on', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(input.operation)
+    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'grant') return { version: 1, state: 'cancelled', remoteMayContinue: false }
+    return runResult({ daemon_running: false, status: 'unknown' })
+  })
+  try {
+    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /cancelled/)
+    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant'])
+  } finally { await provider.cleanup() }
+})
