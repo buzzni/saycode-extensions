@@ -1,6 +1,6 @@
 {
   "id": "buzzni.computer-control",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": 3,
   "engines": {
     "saycode": "^1.1.0"
@@ -75,6 +75,21 @@
           "prompt": false
         },
         "inputs": {}
+      },
+      "permissionStatus": {
+        "permission": "inspect",
+        "argv": [
+          "permissions",
+          "status",
+          "--json"
+        ]
+      },
+      "grant": {
+        "permission": "inspect",
+        "argv": [
+          "permissions",
+          "grant"
+        ]
       },
       "windows": {
         "permission": "control",
