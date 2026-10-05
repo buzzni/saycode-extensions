@@ -17,6 +17,7 @@
     "package:slack": "npm run --workspace @buzzni/saycode-extension-slack pack",
     "package:discord": "npm run --workspace @buzzni/saycode-extension-discord pack",
     "package:document-templates": "npm run --workspace @buzzni/saycode-extension-document-templates pack",
+    "package:computer-control": "npm run --workspace @buzzni/saycode-extension-computer-control pack",
     "catalog:sign": "node scripts/sign-extension-catalog.mjs"
   },
   "devDependencies": {
