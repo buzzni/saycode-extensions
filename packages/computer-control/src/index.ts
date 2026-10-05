@@ -34,6 +34,24 @@ export default defineExtension({
       }
       const version = await run('version')
       if (!version.includes('0.32.0')) throw new Error('DRIVER_VERSION_MISMATCH')
+      // macOS: grants belong to the CuaDriver daemon's own identity, which nothing else starts on a fresh
+      // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
+      const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
+      // Stop always ends the check; any other failure (no `permissions` command, non-JSON, unreachable) is just no reading.
+      const passCancel = (error: unknown) => { if (error instanceof Error && error.message === 'cancelled') throw error }
+      const reading = async (): Promise<Record<string, unknown> | null> => {
+        try {
+          const value: unknown = JSON.parse(await run('permissionStatus'))
+          return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+        } catch (error) { passCancel(error); return null }
+      }
+      const macStatus = await reading()
+      if (macStatus) {
+        if (granted(macStatus)) return { version: 1, state: 'ready' }
+        await run('grant').catch(passCancel) // pending approval or timeout: the status below decides
+        const after = await reading()
+        return { version: 1, state: after && granted(after) ? 'ready' : 'permissions-required' }
+      }
       const doctor = JSON.parse(await run('doctor'))
       const permissions = JSON.parse(await run('permissions'))
       if (doctor.ok !== true || permissions.isError === true) return { version: 1, state: 'permissions-required' }

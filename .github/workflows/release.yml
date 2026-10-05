@@ -55,7 +55,7 @@ jobs:
         run: sha256sum *.saycode-extension > buzzni.document-templates-1.0.0.saycode-extension.sha256
       - name: Create Computer Control checksum
         working-directory: packages/computer-control
-        run: sha256sum *.saycode-extension > buzzni.computer-control-0.1.0.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.computer-control-0.2.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,8 +77,8 @@ jobs:
           packages/discord/buzzni.discord-1.1.0.saycode-extension.sha256
           packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension
           packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension.sha256
-          packages/computer-control/buzzni.computer-control-0.1.0.saycode-extension
-          packages/computer-control/buzzni.computer-control-0.1.0.saycode-extension.sha256
+          packages/computer-control/buzzni.computer-control-0.2.0.saycode-extension
+          packages/computer-control/buzzni.computer-control-0.2.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 
