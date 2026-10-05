@@ -34,6 +34,16 @@ export default defineExtension({
       }
       const version = await run('version')
       if (!version.includes('0.32.0')) throw new Error('DRIVER_VERSION_MISMATCH')
+      // macOS: grants belong to the CuaDriver daemon's own identity, which nothing else starts on a fresh
+      // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
+      const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
+      const macStatus = await run('permissionStatus').then(output => JSON.parse(output) as Record<string, unknown>, () => null)
+      if (macStatus) {
+        if (granted(macStatus)) return { version: 1, state: 'ready' }
+        await run('grant').catch(() => { /* pending approval or timeout: the status below decides */ })
+        const after = await run('permissionStatus').then(output => JSON.parse(output) as Record<string, unknown>, () => ({}))
+        return { version: 1, state: granted(after) ? 'ready' : 'permissions-required' }
+      }
       const doctor = JSON.parse(await run('doctor'))
       const permissions = JSON.parse(await run('permissions'))
       if (doctor.ok !== true || permissions.isError === true) return { version: 1, state: 'permissions-required' }

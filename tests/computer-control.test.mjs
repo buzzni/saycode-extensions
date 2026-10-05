@@ -273,3 +273,51 @@ test('managed tool metadata requires API 3 and rejects malformed URLs, values an
   const nested = clone(); nested.operations.snapshot.payload.deep = deep
   assert.throws(() => parseManagedLocalTool(nested, id), /INVALID_TOOL_DESCRIPTOR/)
 })
+
+const runResult = output => ({ version: 1, state: 'succeeded', output: typeof output === 'string' ? output : JSON.stringify(output) })
+test('OS permission check starts the CuaDriver daemon and requests grants when it is not running', async () => {
+  const operations = []
+  let granted = false
+  const provider = await loadProvider(async (permission, action, input) => {
+    if (action !== 'run') return { version: 1, state: 'installed' }
+    operations.push(input.operation)
+    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'grant') { granted = true; return runResult('Accessibility and Screen Recording are granted.') }
+    if (input.operation === 'permissionStatus') return runResult(granted
+      ? { accessibility: true, screen_recording: true, source: { attribution: 'driver-daemon' } }
+      : { daemon_running: false, status: 'unknown' })
+    throw new Error('unexpected ' + input.operation)
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant', 'permissionStatus'])
+  } finally { await provider.cleanup() }
+})
+test('OS permission check does not prompt again when the daemon already has both grants', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(input.operation)
+    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'permissionStatus'])
+  } finally { await provider.cleanup() }
+})
+test('OS permission check reports pending grants when macOS approval is still outstanding', async () => {
+  const provider = await loadProvider(async (permission, action, input) => {
+    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'grant') throw new Error('TOOL_EXECUTION_FAILED')
+    return runResult({ accessibility: false, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'permissions-required' })
+  } finally { await provider.cleanup() }
+})
+test('CUA package declares the grant and permission status operations it needs on a fresh machine', async () => {
+  const raw = JSON.parse(await readFile(new URL('../packages/computer-control/extension.json', import.meta.url)))
+  const { operations } = parseExtensionManifest(raw, { supportedApiVersion: 3 }).managedLocalTool
+  assert.deepEqual(operations.grant.argv, ['permissions', 'grant'])
+  assert.deepEqual(operations.permissionStatus.argv, ['permissions', 'status', '--json'])
+})
