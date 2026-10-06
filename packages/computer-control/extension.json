@@ -76,6 +76,29 @@
         },
         "inputs": {}
       },
+      "status": {
+        "permission": "inspect",
+        "argv": [
+          "status"
+        ],
+        "inputs": {}
+      },
+      "autostartEnable": {
+        "permission": "control",
+        "argv": [
+          "autostart",
+          "enable"
+        ],
+        "inputs": {}
+      },
+      "autostartKick": {
+        "permission": "control",
+        "argv": [
+          "autostart",
+          "kick"
+        ],
+        "inputs": {}
+      },
       "permissionStatus": {
         "permission": "inspect",
         "argv": [

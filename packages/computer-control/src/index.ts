@@ -2,11 +2,23 @@ import { defineExtension, type JsonValue } from '@buzzni/saycode-extension-sdk'
 import { prepareUnpackedChrome } from './chromeRecipe.js'
 function request(value: JsonValue | undefined): Record<string, JsonValue> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.version !== 1 || typeof value.machineId !== 'string' || !value.machineId) throw new Error('INVALID_REQUEST')
+  if (value.platform !== undefined && !['darwin', 'win32', 'linux'].includes(String(value.platform))) throw new Error('INVALID_PLATFORM')
   return value
 }
 function result(value: JsonValue): Record<string, JsonValue> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_RESPONSE')
   return value
+}
+function daemonIsRunning(output: string): boolean {
+  const text = output.trim().toLowerCase()
+  if (!text) return false
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    if (parsed.running === false || parsed.ready === false || parsed.state === 'stopped' || parsed.state === 'dead') return false
+    if (parsed.running === true || parsed.ready === true || parsed.state === 'running' || parsed.state === 'ready' || parsed.state === 'active') return true
+  } catch { /* status is also emitted as human-readable text by cua-driver */ }
+  if (/\b(?:not|isn't|isnt|never)\s+running\b|\bstopped\b|\bdead\b|\bnot\s+found\b/.test(text)) return false
+  return /\b(?:running|ready|started|active)\b/.test(text)
 }
 export default defineExtension({
   activate(context) {
@@ -34,6 +46,21 @@ export default defineExtension({
       }
       const version = await run('version')
       if (!version.includes('0.32.0')) throw new Error('DRIVER_VERSION_MISMATCH')
+      const windows = input.platform === 'win32'
+      if (windows) {
+        const status = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
+        const running = status.state === 'succeeded' && typeof status.output === 'string' && daemonIsRunning(status.output)
+        if (!running) {
+          const enabled = await tool('run', { ...input, operation: 'autostartEnable', parameters: {} }, true)
+          if (enabled.state !== 'succeeded') throw new Error('LOCAL_DAEMON_REQUIRED')
+          const kicked = await tool('run', { ...input, operation: 'autostartKick', parameters: {} }, true)
+          if (kicked.state !== 'succeeded') throw new Error('LOCAL_DAEMON_REQUIRED')
+        }
+        const after = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
+        if (after.state !== 'succeeded' || typeof after.output !== 'string' || !daemonIsRunning(after.output)) throw new Error('LOCAL_DAEMON_REQUIRED')
+        const doctor = JSON.parse(await run('doctor'))
+        return { version: 1, state: doctor.ok === true ? 'ready' : 'daemon-required' }
+      }
       // macOS: grants belong to the CuaDriver daemon's own identity, which nothing else starts on a fresh
       // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
       const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
