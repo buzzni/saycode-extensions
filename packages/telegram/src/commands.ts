@@ -8,7 +8,7 @@
  */
 
 export interface TelegramCommand {
-  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear'
+  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear' | 'configure'
   sessionRef?: string
   text?: string
 }
@@ -34,6 +34,8 @@ export function parseTelegramCommand(rawText: string): TelegramCommand {
       return { operation: 'stop' }
     case 'projects':
       return { operation: 'projects' }
+    case 'settings':
+      return { operation: 'configure', text: rawText }
 /**
  * `/clear` and its alias `/reset` (Core's `CHANNEL_COMMANDS`).
  *

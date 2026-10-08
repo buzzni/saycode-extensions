@@ -14,7 +14,7 @@
  */
 
 export interface SlackCommand {
-  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear'
+  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear' | 'configure'
   sessionRef?: string
   text?: string
 }
@@ -91,6 +91,8 @@ export function parseSlackCommand(rawText: string): SlackCommand {
       return { operation: 'stop' }
     case 'projects':
       return { operation: 'projects' }
+    case 'settings':
+      return { operation: 'configure', text: trimmed }
 /**
  * `/clear` and its alias `/reset` (Core's `CHANNEL_COMMANDS`).
  *

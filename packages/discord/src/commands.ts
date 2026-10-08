@@ -14,14 +14,14 @@
  */
 
 export interface DiscordCommand {
-  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear'
+  operation: 'create' | 'prompt' | 'stop' | 'status' | 'projects' | 'select' | 'clear' | 'configure'
   sessionRef?: string
   text?: string
 }
 
 /** The exact commands declared in `extension.json`'s `channels[0].commands`. */
 export interface DiscordStructuredCommand {
-  name: 'pair' | 'new' | 'use' | 'projects' | 'status' | 'stop' | 'clear' | 'prompt'
+  name: 'pair' | 'new' | 'use' | 'projects' | 'status' | 'stop' | 'clear' | 'settings' | 'prompt'
   args: Readonly<Record<string, string>>
 }
 
@@ -29,7 +29,7 @@ export type DiscordControlProposal =
   | { operation: 'create' }
   | { operation: 'select'; sessionRef: string }
   | { operation: 'prompt'; text: string }
-  | { operation: 'projects' | 'status' | 'stop' | 'clear' }
+  | { operation: 'projects' | 'status' | 'stop' | 'clear' | 'configure' }
 
 /**
  * A Core-normalized Application Command interaction, mapped without re-tokenizing anything.
@@ -72,6 +72,8 @@ export function mapDiscordStructuredCommand(command: DiscordStructuredCommand): 
     // second identical entry in Discord's own command picker would be a menu of synonyms.
     case 'clear':
       return { operation: 'clear' }
+    case 'settings':
+      return { operation: 'configure' }
     default:
       return null
   }
@@ -110,6 +112,8 @@ export function parseDiscordCommand(rawText: string): DiscordCommand {
       return { operation: 'stop' }
     case 'projects':
       return { operation: 'projects' }
+    case 'settings':
+      return { operation: 'configure', text: trimmed }
     /**
      * `/clear` and its alias `/reset` (Core's `CHANNEL_COMMANDS`).
      *
