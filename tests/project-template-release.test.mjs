@@ -126,3 +126,17 @@ test('release gate packs, checksums, and publishes the official Moai extension',
   assert.ok(workflow.includes(`packages/moai/${archive}`))
 })
 
+
+test('every checksummed release package publishes the archive its manifest version produces', async () => {
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const dirs = [...workflow.matchAll(/working-directory: (\S+)\n\s+run: sha256sum/g)].map((match) => match[1])
+  assert.ok(dirs.length >= 10)
+  for (const dir of dirs) {
+    const manifest = JSON.parse(await readFile(new URL(`${dir}/extension.json`, root), 'utf8'))
+    const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+    // A version bump without the matching workflow edit makes `gh release create` fail on a missing file.
+    assert.ok(workflow.includes(`sha256sum *.saycode-extension > ${archive}.sha256`), `${dir} checksum names ${archive}`)
+    assert.ok(workflow.includes(`${dir}/${archive}\n`), `${dir} publishes ${archive}`)
+    assert.ok(workflow.includes(`${dir}/${archive}.sha256\n`), `${dir} publishes ${archive}.sha256`)
+  }
+})
