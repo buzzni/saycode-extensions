@@ -29,6 +29,7 @@ jobs:
       - run: npm run package:discord
       - run: npm run package:document-templates
       - run: npm run package:computer-control
+      - run: npm run package:moai
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
@@ -56,6 +57,9 @@ jobs:
       - name: Create Computer Control checksum
         working-directory: packages/computer-control
         run: sha256sum *.saycode-extension > buzzni.computer-control-0.2.1.saycode-extension.sha256
+      - name: Create Moai checksum
+        working-directory: packages/moai
+        run: sha256sum *.saycode-extension > buzzni.moai-1.0.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,6 +83,8 @@ jobs:
           packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension.sha256
           packages/computer-control/buzzni.computer-control-0.2.1.saycode-extension
           packages/computer-control/buzzni.computer-control-0.2.1.saycode-extension.sha256
+          packages/moai/buzzni.moai-1.0.0.saycode-extension
+          packages/moai/buzzni.moai-1.0.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 
