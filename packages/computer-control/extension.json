@@ -1,6 +1,6 @@
 {
   "id": "buzzni.computer-control",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": 3,
   "engines": {
     "saycode": "^1.1.0"
@@ -88,6 +88,14 @@
         "argv": [
           "autostart",
           "enable"
+        ],
+        "inputs": {}
+      },
+      "autostartStatus": {
+        "permission": "inspect",
+        "argv": [
+          "autostart",
+          "status"
         ],
         "inputs": {}
       },

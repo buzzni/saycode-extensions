@@ -46,18 +46,31 @@ export default defineExtension({
       }
       const version = await run('version')
       if (!version.includes('0.32.0')) throw new Error('DRIVER_VERSION_MISMATCH')
+      // Stop always ends the check; other failures are read as the state they leave behind.
+      const passCancel = (error: unknown) => { if (error instanceof Error && error.message === 'cancelled') throw error }
       const windows = input.platform === 'win32'
       if (windows) {
-        const status = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
-        const running = status.state === 'succeeded' && typeof status.output === 'string' && daemonIsRunning(status.output)
-        if (!running) {
-          const enabled = await tool('run', { ...input, operation: 'autostartEnable', parameters: {} }, true)
-          if (enabled.state !== 'succeeded') throw new Error('LOCAL_DAEMON_REQUIRED')
-          const kicked = await tool('run', { ...input, operation: 'autostartKick', parameters: {} }, true)
-          if (kicked.state !== 'succeeded') throw new Error('LOCAL_DAEMON_REQUIRED')
+        // Desktop's broker rejects when the driver exits non-zero: `status` exits 1 while the daemon is stopped.
+        const running = async () => {
+          try {
+            const status = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
+            return status.state === 'succeeded' && typeof status.output === 'string' && daemonIsRunning(status.output)
+          } catch (error) { passCancel(error); return false }
         }
-        const after = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
-        if (after.state !== 'succeeded' || typeof after.output !== 'string' || !daemonIsRunning(after.output)) throw new Error('LOCAL_DAEMON_REQUIRED')
+        if (!await running()) {
+          // `autostart enable` registers an elevated logon task and asks for administrator approval (UAC).
+          // It reports on stderr, so judge it by `autostart status` rather than by its own result.
+          await tool('run', { ...input, operation: 'autostartEnable', parameters: {} }, true).catch(passCancel)
+          const registered = await tool('run', { ...input, operation: 'autostartStatus', parameters: {} }).catch(error => { passCancel(error); return null })
+          if (typeof registered?.output !== 'string' || !/^registered\b/.test(registered.output.trim().toLowerCase())) throw new Error('DRIVER_AUTOSTART_REQUIRED')
+          await tool('run', { ...input, operation: 'autostartKick', parameters: {} }, true).catch(passCancel)
+          let started = false
+          for (let attempt = 0; attempt < 6 && !started; attempt++) {
+            if (attempt) await new Promise(resolve => setTimeout(resolve, 1000))
+            started = await running()
+          }
+          if (!started) throw new Error('LOCAL_DAEMON_REQUIRED')
+        }
         const doctor = JSON.parse(await run('doctor'))
         return { version: 1, state: doctor.ok === true ? 'ready' : 'daemon-required' }
       }
@@ -65,7 +78,6 @@ export default defineExtension({
       // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
       const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
       // Stop always ends the check; any other failure (no `permissions` command, non-JSON, unreachable) is just no reading.
-      const passCancel = (error: unknown) => { if (error instanceof Error && error.message === 'cancelled') throw error }
       const reading = async (): Promise<Record<string, unknown> | null> => {
         try {
           const value: unknown = JSON.parse(await run('permissionStatus'))
