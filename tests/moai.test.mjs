@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import JSZip from 'jszip'
 
 import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
 import { createTestHost } from '../packages/test-host/dist/index.js'
-import extension from '../packages/moai/dist/index.js'
 
 const exec = promisify(execFile)
 const root = new URL('..', import.meta.url).pathname
@@ -17,6 +17,29 @@ const cli = join(root, 'packages/sdk/dist/cli.js')
 
 const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
 const lifecycle = JSON.parse(await readFile(new URL('./fixtures/moai/lifecycle.json', import.meta.url)))
+
+/**
+ * The extension as shipped: packed by the CLI (which compiles src/index.ts), then read back out of the
+ * archive. Nothing here depends on a prior workspace build, so a clean release checkout behaves the same.
+ */
+async function packMoai() {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-moai-'))
+  try {
+    const archivePath = join(temporary, 'moai.saycode-extension')
+    await exec('node', [cli, 'pack', join(root, 'packages/moai'), '--output', archivePath])
+    const zip = await JSZip.loadAsync(await readFile(archivePath))
+    const modulePath = join(temporary, 'index.mjs')
+    await writeFile(modulePath, await zip.file('index.js').async('nodebuffer'))
+    const extension = (await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`)).default
+    return { extension, panelHtml: await zip.file('panel.html').async('string') }
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+}
+
+const packed = await packMoai()
+const extension = packed.extension
+const packedPanelHtml = async () => packed.panelHtml
 
 test('Moai fixture covers install, approval, and rollback lifecycle expectations', () => {
   assert.equal(lifecycle.install.initialState, 'disabled')
@@ -78,21 +101,6 @@ class FakeElement {
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const PANEL_IDS = ['title', 'hint', 'check', 'task', 'add', 'cancel', 'status', 'error', 'result']
 
-let packedPanel
-/** The panel as shipped: packed by the CLI, then read back out of the archive. */
-async function packedPanelHtml() {
-  if (!packedPanel) {
-    const temporary = await mkdtemp(join(tmpdir(), 'saycode-moai-'))
-    try {
-      const archivePath = join(temporary, 'moai.saycode-extension')
-      await exec('node', [cli, 'pack', join(root, 'packages/moai'), '--output', archivePath])
-      packedPanel = await (await JSZip.loadAsync(await readFile(archivePath))).file('panel.html').async('string')
-    } finally {
-      await rm(temporary, { recursive: true, force: true })
-    }
-  }
-  return packedPanel
-}
 
 function inlineScript(html) {
   const start = html.lastIndexOf('<script>')
