@@ -483,3 +483,32 @@ test('each of pair/use/prompt/new declares exactly the option set the P3 contrac
   assert.equal(byId.status.options, undefined)
   assert.equal(byId.stop.options, undefined)
 })
+
+test('API 3 machine.run manifests parse fixed profiles and reject unsafe fields', async () => {
+  const { parseExtensionManifest } = await import('../packages/sdk/dist/manifest.js')
+  const manifest = {
+    id: 'buzzni.moai', version: '1.0.0', apiVersion: 3,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js',
+    permissions: ['machine.run'], activationEvents: [], contributes: {},
+    machineCommands: {
+      version: 1,
+      profiles: [{
+        id: 'buzzni.moai.add', executable: 'moai', argv: ['--json', '-C', '{{workspaceRoot}}', 'add', '{{title}}'],
+        parameters: { title: { type: 'string', maxLength: 512 } }, cwd: 'workspaceRoot', envAllowlist: ['HOME'],
+        timeoutMs: 120_000, outputLimitBytes: 1_048_576, stdin: 'none', writeScope: 'moai', descendantAllowlist: ['git'],
+      }],
+    },
+  }
+  const options = { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }
+  const profile = manifest.machineCommands.profiles[0]
+  assert.deepEqual(parseExtensionManifest(manifest, options).machineCommands, manifest.machineCommands)
+  const withProfile = (patch) => ({ ...manifest, machineCommands: { version: 1, profiles: [{ ...profile, ...patch }] } })
+  assert.throws(() => parseExtensionManifest(withProfile({ executable: 'bash' }), options), /unsupported executable/)
+  assert.throws(() => parseExtensionManifest(withProfile({ argv: ['--wake'] }), options), /unsafe argument/)
+  assert.throws(() => parseExtensionManifest(withProfile({ envAllowlist: ['PATH'] }), options), /dangerous environment key/)
+  assert.throws(() => parseExtensionManifest(withProfile({ descendantAllowlist: [] }), options), /write profiles must declare descendants/)
+  assert.throws(() => parseExtensionManifest(withProfile({ extra: true }), options), /unknown field extra/)
+  assert.throws(() => parseExtensionManifest({ ...manifest, permissions: [] }, options), /declared together/)
+  assert.throws(() => parseExtensionManifest({ ...manifest, apiVersion: 2 }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /requires Extension API version 3/)
+})
+
