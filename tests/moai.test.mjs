@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
+import JSZip from 'jszip'
 
 import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
 import { createTestHost } from '../packages/test-host/dist/index.js'
 import extension from '../packages/moai/dist/index.js'
+
+const exec = promisify(execFile)
+const root = new URL('..', import.meta.url).pathname
+const cli = join(root, 'packages/sdk/dist/cli.js')
 
 const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
 const lifecycle = JSON.parse(await readFile(new URL('./fixtures/moai/lifecycle.json', import.meta.url)))
@@ -69,10 +78,31 @@ class FakeElement {
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const PANEL_IDS = ['title', 'hint', 'check', 'task', 'add', 'cancel', 'status', 'error', 'result']
 
+let packedPanel
+/** The panel as shipped: packed by the CLI, then read back out of the archive. */
+async function packedPanelHtml() {
+  if (!packedPanel) {
+    const temporary = await mkdtemp(join(tmpdir(), 'saycode-moai-'))
+    try {
+      const archivePath = join(temporary, 'moai.saycode-extension')
+      await exec('node', [cli, 'pack', join(root, 'packages/moai'), '--output', archivePath])
+      packedPanel = await (await JSZip.loadAsync(await readFile(archivePath))).file('panel.html').async('string')
+    } finally {
+      await rm(temporary, { recursive: true, force: true })
+    }
+  }
+  return packedPanel
+}
+
+function inlineScript(html) {
+  const start = html.lastIndexOf('<script>')
+  const end = html.indexOf('</script>', start)
+  assert.ok(start >= 0 && end > start, 'panel.html keeps one inline script')
+  return html.slice(start + '<script>'.length, end)
+}
+
 async function runPanel(invokeCommand, language = 'en') {
-  const html = await readFile(new URL('../packages/moai/panel.html', import.meta.url), 'utf8')
-  const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)?.[1]
-  assert.ok(script)
+  const script = inlineScript(await packedPanelHtml())
   const ids = Object.fromEntries(PANEL_IDS.map((id) => [id, new FakeElement()]))
   const document = { documentElement: { lang: language }, getElementById: (id) => ids[id], createElement: () => new FakeElement() }
   Function('window', 'document', 'navigator', script)({ saycodePanel: { ready: Promise.resolve(), invokeCommand } }, document, { language: 'en' })
@@ -155,7 +185,7 @@ test('a failed run shows the reason Moai gave', async () => {
 test('the board follows the host document language and only talks to its own commands', async () => {
   const elements = await runPanel(async () => null, 'ja')
   assert.equal(elements.title.textContent, 'Moai 作業ボード')
-  const html = await readFile(new URL('../packages/moai/panel.html', import.meta.url), 'utf8')
+  const html = await packedPanelHtml()
   for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
   assert.doesNotMatch(html, /electron|ipcRenderer|innerHTML/)
 })
