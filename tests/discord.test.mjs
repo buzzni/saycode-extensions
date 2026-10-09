@@ -79,10 +79,10 @@ test('Discord declares exactly the contracted Application Commands, each with th
     { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 },
   )
   const commands = manifest.contributes.channels[0].commands
-  // `clear` joined the P3 seven when Core gained the command (specs/desktop-channel-personal-chat
+  // `clear` and `settings` joined the P3 commands when Core gained them (specs/desktop-channel-personal-chat
   // R6). `reset` is deliberately absent: Core carries it as an unlisted alias, and a second
   // identical entry in Discord's own command picker would be a menu of synonyms.
-  assert.deepEqual(commands.map((command) => command.id).sort(), ['clear', 'new', 'pair', 'projects', 'prompt', 'status', 'stop', 'use'])
+  assert.deepEqual(commands.map((command) => command.id).sort(), ['clear', 'new', 'pair', 'projects', 'prompt', 'settings', 'status', 'stop', 'use'])
   const byId = Object.fromEntries(commands.map((command) => [command.id, command]))
   assert.deepEqual(byId.new.options.map((option) => option.name), ['project', 'agent', 'model', 'effort'])
   assert.equal(byId.new.options[0].required, true)
@@ -92,6 +92,8 @@ test('Discord declares exactly the contracted Application Commands, each with th
   // Regression: `pair` originally shipped with zero options, leaving a Discord user nowhere to
   // type the pairing code — root caught this in review.
   assert.deepEqual(byId.pair.options, [{ name: 'code', description: 'Pairing code', required: true }])
+  assert.deepEqual(byId.settings.options.map((option) => option.name), ['agent', 'model', 'effort'])
+  assert.ok(byId.settings.options.every((option) => option.required === false))
   assert.equal(byId.projects.options, undefined)
   assert.equal(byId.status.options, undefined)
   assert.equal(byId.stop.options, undefined)
@@ -177,6 +179,7 @@ test('mapDiscordStructuredCommand maps each of the seven declared commands witho
   assert.deepEqual(mapDiscordStructuredCommand({ name: 'projects', args: {} }), { operation: 'projects' })
   assert.deepEqual(mapDiscordStructuredCommand({ name: 'status', args: {} }), { operation: 'status' })
   assert.deepEqual(mapDiscordStructuredCommand({ name: 'stop', args: {} }), { operation: 'stop' })
+  assert.deepEqual(mapDiscordStructuredCommand({ name: 'settings', args: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'low' } }), { operation: 'configure' })
 })
 
 test('mapDiscordStructuredCommand never forwards new\'s project/agent/model/effort onto the wire (Core derives them from its own event record)', async () => {

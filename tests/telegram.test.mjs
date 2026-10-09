@@ -105,6 +105,10 @@ test('Telegram packs as an installable API v3 archive', async () => {
 test('Telegram command text maps to the exact sessions.control operations Core parses', async () => {
   const { parseTelegramCommand } = await bundleModule('src/commands.ts')
   assert.deepEqual(parseTelegramCommand('/projects'), { operation: 'projects' })
+  assert.deepEqual(parseTelegramCommand('/settings --agent codex --model gpt-6.1-sol --effort low'), {
+    operation: 'configure',
+    text: '/settings --agent codex --model gpt-6.1-sol --effort low',
+  })
   assert.deepEqual(parseTelegramCommand('/status'), { operation: 'status' })
   assert.deepEqual(parseTelegramCommand('/stop'), { operation: 'stop' })
   assert.deepEqual(parseTelegramCommand('/new build a landing page'), { operation: 'create', text: 'build a landing page' })

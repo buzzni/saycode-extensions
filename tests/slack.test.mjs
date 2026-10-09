@@ -98,6 +98,10 @@ test('Slack packs as an installable API v3 archive', async () => {
 test('Slack command text maps to the exact sessions.control operations Core parses', async () => {
   const { parseSlackCommand } = await bundleModule('src/commands.ts')
   assert.deepEqual(parseSlackCommand('/projects'), { operation: 'projects' })
+  assert.deepEqual(parseSlackCommand('/settings --agent codex --model gpt-6.1-sol --effort low'), {
+    operation: 'configure',
+    text: '/settings --agent codex --model gpt-6.1-sol --effort low',
+  })
   assert.deepEqual(parseSlackCommand('/status'), { operation: 'status' })
   assert.deepEqual(parseSlackCommand('/stop'), { operation: 'stop' })
   assert.deepEqual(parseSlackCommand('/new build a landing page'), { operation: 'create', text: 'build a landing page' })
