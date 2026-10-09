@@ -1,0 +1,161 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { test } from 'node:test'
+
+import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
+import { createTestHost } from '../packages/test-host/dist/index.js'
+import extension from '../packages/moai/dist/index.js'
+
+const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
+const lifecycle = JSON.parse(await readFile(new URL('./fixtures/moai/lifecycle.json', import.meta.url)))
+
+test('Moai fixture covers install, approval, and rollback lifecycle expectations', () => {
+  assert.equal(lifecycle.install.initialState, 'disabled')
+  assert.deepEqual(lifecycle.approval, { permission: 'machine.run', required: true })
+  assert.equal(lifecycle.rollback.preservesLastKnownGood, true)
+})
+
+test('Moai manifest declares only bounded v0.8.0 managed profiles', () => {
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  assert.deepEqual(parsed.machineCommands.profiles.map((profile) => profile.id), lifecycle.run.profiles)
+  for (const profile of parsed.machineCommands.profiles) {
+    assert.equal(profile.executable, 'moai')
+    // Mirrors the Happy daemon's host-owned Moai v0.8.0 catalog verbatim: the daemon runs a
+    // profile only when this declaration hashes to the digest it ships.
+    assert.deepEqual(profile.envAllowlist, ['HOME'])
+    assert.deepEqual(profile.descendantAllowlist, ['git'])
+    assert.equal(profile.timeoutMs, 120000)
+    assert.equal(profile.outputLimitBytes, 1048576)
+    assert.equal(profile.stdin, 'none')
+    assert.ok(profile.argv.includes('--json'))
+    assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
+  }
+})
+
+test('Moai extension forwards approved run, status, and cancel calls', async () => {
+  const calls = []
+  const host = createTestHost('buzzni.moai', {
+    async invokeCapability(permission, action, args) {
+      calls.push({ permission, action, args })
+      if (action === 'start') return { action, operationId: 'moai-op-1', state: 'accepted' }
+      if (action === 'status') return { action, operationId: args.operationId, state: 'running' }
+      return { action, operationId: args.operationId, state: 'cancelled' }
+    },
+  })
+  await host.activate(extension)
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), { action: 'start', operationId: 'moai-op-1', state: 'accepted' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.status', ['moai-op-1']), { action: 'status', operationId: 'moai-op-1', state: 'running' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.cancel', ['moai-op-1']), { action: 'cancel', operationId: 'moai-op-1', state: 'cancelled' })
+  assert.deepEqual(calls, [
+    { permission: 'machine.run', action: 'start', args: { profileId: 'buzzni.moai.status', parameters: {} } },
+    { permission: 'machine.run', action: 'status', args: { operationId: 'moai-op-1' } },
+    { permission: 'machine.run', action: 'cancel', args: { operationId: 'moai-op-1' } },
+  ])
+})
+
+class FakeElement {
+  textContent = ''
+  value = ''
+  disabled = false
+  hidden = false
+  children = []
+  listeners = new Map()
+  append(...children) { this.children.push(...children) }
+  replaceChildren(...children) { this.children = children }
+  addEventListener(type, listener) { this.listeners.set(type, listener) }
+  dispatch(type) { this.listeners.get(type)?.({ target: this, preventDefault() {} }) }
+}
+
+const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
+const PANEL_IDS = ['title', 'hint', 'check', 'task', 'add', 'cancel', 'status', 'error', 'result']
+
+async function runPanel(invokeCommand, language = 'en') {
+  const html = await readFile(new URL('../packages/moai/panel.html', import.meta.url), 'utf8')
+  const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)?.[1]
+  assert.ok(script)
+  const ids = Object.fromEntries(PANEL_IDS.map((id) => [id, new FakeElement()]))
+  const document = { documentElement: { lang: language }, getElementById: (id) => ids[id], createElement: () => new FakeElement() }
+  Function('window', 'document', 'navigator', script)({ saycodePanel: { ready: Promise.resolve(), invokeCommand } }, document, { language: 'en' })
+  await flush()
+  return ids
+}
+
+test('a machine action opens the Moai board panel through a command declared by the extension', async () => {
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
+  assert.equal(open?.panelId, 'buzzni.moai.panel')
+  assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'panel.html' }])
+  assert.deepEqual(parsed.contributes.machineActions, [{ id: 'buzzni.moai.board', title: 'Moai', command: 'buzzni.moai.open', when: { online: true } }])
+  assert.ok(parsed.activationEvents.includes('onCommand:buzzni.moai.open'))
+  const host = createTestHost('buzzni.moai', { async invokeCapability() { throw new Error('not expected') } })
+  await host.activate(extension)
+  assert.equal(await host.invokeCommand('buzzni.moai.open', [{ version: 1, machine: { id: 'm1', online: true } }]), null)
+})
+
+test('the board shows task counts from a status run, polling until it finishes', async () => {
+  const calls = []
+  let polls = 0
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-1', state: 'accepted' }
+    polls += 1
+    return polls < 2
+      ? { action: 'status', operationId: 'op-1', state: 'running' }
+      : { action: 'status', operationId: 'op-1', state: 'passed', stdout: JSON.stringify({ counts: { todo: 3, in_progress: 1, review: 0, done: 5 }, total: 9 }), exitCode: 0 }
+  })
+  elements.check.dispatch('click')
+  await flush()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.status']])
+  assert.deepEqual(calls.slice(1).map(([command, args]) => [command, args]), [['buzzni.moai.status', ['op-1']], ['buzzni.moai.status', ['op-1']]])
+  assert.equal(elements.result.textContent, 'To do 3 · In progress 1 · Review 0 · Done 5')
+  assert.equal(elements.error.textContent, '')
+  assert.equal(elements.check.disabled, false)
+})
+
+test('adding a task needs a title and reports the created task', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-2', state: 'accepted' }
+    return { action: 'status', operationId: 'op-2', state: 'passed', stdout: JSON.stringify({ id: 'shop-7', title: 'Fix checkout', status: 'todo' }), exitCode: 0 }
+  }, 'ko')
+  elements.add.dispatch('click')
+  await flush()
+  assert.equal(calls.length, 0)
+  assert.equal(elements.error.textContent, '할 일 제목을 입력하세요.')
+  elements.task.value = '  Fix checkout  '
+  elements.add.dispatch('click')
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.add', 'Fix checkout']])
+  assert.equal(elements.result.textContent, '추가했습니다: Fix checkout (shop-7)')
+  assert.equal(elements.task.value, '')
+})
+
+test('a refused or unsupported start is explained and leaves the board usable', async () => {
+  const elements = await runPanel(async () => { throw new Error('capability.invoke machine.run/start failed: binding-mismatch') })
+  elements.check.dispatch('click')
+  await flush()
+  assert.equal(elements.error.textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
+  assert.equal(elements.check.disabled, false)
+  assert.equal(elements.add.disabled, false)
+})
+
+test('a failed run shows the reason Moai gave', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-3', state: 'accepted' }
+    : { action: 'status', operationId: 'op-3', state: 'failed', stdout: JSON.stringify({ code: 'no_actor', error: 'the git user details are not there' }), exitCode: 1 })
+  elements.task.value = 'Write docs'
+  elements.add.dispatch('click')
+  await flush()
+  assert.equal(elements.error.textContent, 'Moai reported an error: the git user details are not there')
+})
+
+test('the board follows the host document language and only talks to its own commands', async () => {
+  const elements = await runPanel(async () => null, 'ja')
+  assert.equal(elements.title.textContent, 'Moai 作業ボード')
+  const html = await readFile(new URL('../packages/moai/panel.html', import.meta.url), 'utf8')
+  for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
+  assert.doesNotMatch(html, /electron|ipcRenderer|innerHTML/)
+})
