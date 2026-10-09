@@ -68,6 +68,26 @@ export interface SaycodeExtension {
   deactivate?(): void | Promise<void>
 }
 
+export type MachineRunStartRequest = {
+  action: 'start'
+  profileId: string
+  parameters: Record<string, JsonValue>
+}
+export type MachineRunStatusRequest = { action: 'status'; operationId: string }
+export type MachineRunCancelRequest = { action: 'cancel'; operationId: string }
+export type MachineRunRequest = MachineRunStartRequest | MachineRunStatusRequest | MachineRunCancelRequest
+export type MachineRunResult =
+  | { action: 'start'; operationId: string; state: 'accepted' }
+  | { action: 'status'; operationId: string; state: 'running' | 'passed' | 'failed' | 'cancelled'; stdout?: string; stderr?: string; truncated?: boolean; exitCode?: number | null; timedOut?: boolean; remoteMayContinue?: boolean; descendantsReaped?: boolean; signal?: string; durationMs?: number }
+  | { action: 'cancel'; operationId: string; state: 'cancelled' | 'already-terminal'; remoteMayContinue?: boolean; descendantsReaped?: boolean }
+
+export async function machineRun(context: ExtensionContext, request: MachineRunRequest): Promise<MachineRunResult> {
+  const args: JsonValue = request.action === 'start'
+    ? { profileId: request.profileId, parameters: request.parameters }
+    : { operationId: request.operationId }
+  return await context.invokeCapability('machine.run', request.action, args) as MachineRunResult
+}
+
 export function defineExtension(extension: SaycodeExtension): SaycodeExtension {
   return extension
 }
@@ -86,6 +106,9 @@ export type {
   ExtensionProjectTemplateLocalization,
   ExtensionProjectTemplateContribution,
   ExtensionSettingContribution,
+  MachineCommandParameter,
+  MachineCommandProfile,
+  MachineCommandsDeclaration,
 } from './manifest.js'
 
 export type { ManagedLocalTool, ManagedToolArtifact, ManagedToolOperation } from './managedLocalTool.js'

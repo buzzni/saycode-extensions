@@ -1,7 +1,7 @@
 import { parseManagedLocalTool, type ManagedLocalTool } from './managedLocalTool.js'
 export const EXTENSION_PERMISSIONS = [
   'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
-  'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute',
+  'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
   'artifacts.publishPublic',
@@ -88,6 +88,29 @@ export interface ExtensionContributions {
   artifactActions?: ExtensionArtifactActionContribution[]
   channels?: ExtensionChannelContribution[]
 }
+export type MachineCommandParameter = { type: 'string'; maxLength: number; values?: string[] }
+  | { type: 'integer'; min: number; max: number }
+export type MachineCommandWriteScope = 'none' | 'moai' | 'project'
+
+export interface MachineCommandProfile {
+  id: string
+  executable: string
+  argv: string[]
+  parameters: Record<string, MachineCommandParameter>
+  cwd: 'workspaceRoot' | 'extensionData' | 'temp'
+  envAllowlist: string[]
+  timeoutMs: number
+  outputLimitBytes: number
+  stdin: 'none'
+  writeScope?: MachineCommandWriteScope
+  descendantAllowlist?: string[]
+}
+
+export interface MachineCommandsDeclaration {
+  version: 1
+  profiles: MachineCommandProfile[]
+}
+
 export interface ExtensionManifest {
   id: string
   version: string
@@ -99,6 +122,8 @@ export interface ExtensionManifest {
    */
   channelApiVersion?: number
   managedLocalTool?: ManagedLocalTool
+  /** Typed remote command profiles; paired with the machine.run permission (API 3). */
+  machineCommands?: MachineCommandsDeclaration
   engines: { saycode: string }
   entrypoint: string
   permissions: ExtensionPermission[]
@@ -326,6 +351,90 @@ function parseArtifactActions(value: unknown): ExtensionArtifactActionContributi
   })
 }
 
+function onlyKnownFields(value: Record<string, unknown>, allowed: readonly string[], path: string): void {
+  const unknown = Object.keys(value).find((key) => !allowed.includes(key))
+  if (unknown) throw new Error(`${path}: unknown field ${unknown}`)
+}
+
+function parseMachineCommands(value: unknown, extensionId: string, apiVersion: number): MachineCommandsDeclaration {
+  if (apiVersion < 3) throw new Error('manifest.machineCommands: requires Extension API version 3')
+  const root = record(value, 'manifest.machineCommands')
+  onlyKnownFields(root, ['version', 'profiles'], 'manifest.machineCommands')
+  if (root.version !== 1) throw new Error('manifest.machineCommands.version: unsupported version')
+  const profiles = list(root.profiles, 'manifest.machineCommands.profiles').map((raw, index) => {
+    const path = 'manifest.machineCommands.profiles[' + index + ']'
+    const source = record(raw, path)
+    onlyKnownFields(source, ['id', 'executable', 'argv', 'parameters', 'cwd', 'envAllowlist', 'timeoutMs', 'outputLimitBytes', 'stdin', 'writeScope', 'descendantAllowlist'], path)
+    const profileId = stableId(source.id, path + '.id')
+    if (!profileId.startsWith(extensionId + '.')) throw new Error(path + '.id: expected an id declared by the same extension')
+    const executable = text(source.executable, path + '.executable')
+    if (!/^[a-z][a-z0-9._-]*$/.test(executable) || /^(sh|bash|zsh|fish|cmd|powershell|pwsh|node|python|python3|npm|npx|env|xargs|ssh|tmux)$/i.test(executable)) {
+      throw new Error(path + '.executable: unsupported executable')
+    }
+    const argv = list(source.argv, path + '.argv').map((item, itemIndex) => {
+      const arg = text(item, path + '.argv[' + itemIndex + ']')
+      if (/^(?:--from|--wake|--interactive|--tty|--tui|-i)$/.test(arg) || arg.includes('/') || arg.includes('\\') || arg.includes('..')) {
+        throw new Error(path + '.argv[' + itemIndex + ']: unsafe argument template')
+      }
+      return arg
+    })
+    if (argv.length === 0 || argv.length > 32) throw new Error(path + '.argv: expected 1-32 arguments')
+    const parameters: Record<string, MachineCommandParameter> = {}
+    for (const [name, rawParameter] of Object.entries(record(source.parameters, path + '.parameters'))) {
+      if (!/^[a-z][a-zA-Z0-9_]{0,63}$/.test(name)) throw new Error(path + '.parameters: invalid parameter name')
+      const parameter = record(rawParameter, path + '.parameters.' + name)
+      if (parameter.type === 'string') {
+        onlyKnownFields(parameter, ['type', 'maxLength', 'values'], path + '.parameters.' + name)
+        if (!Number.isSafeInteger(parameter.maxLength) || Number(parameter.maxLength) < 1 || Number(parameter.maxLength) > 4096) {
+          throw new Error(path + '.parameters.' + name + '.maxLength: invalid')
+        }
+        const values = parameter.values === undefined ? undefined : list(parameter.values, path + '.parameters.' + name + '.values').map((item, itemIndex) => text(item, path + '.parameters.' + name + '.values[' + itemIndex + ']'))
+        parameters[name] = { type: 'string', maxLength: Number(parameter.maxLength), ...(values ? { values } : {}) }
+      } else if (parameter.type === 'integer') {
+        onlyKnownFields(parameter, ['type', 'min', 'max'], path + '.parameters.' + name)
+        if (!Number.isSafeInteger(parameter.min) || !Number.isSafeInteger(parameter.max) || Number(parameter.min) > Number(parameter.max)) {
+          throw new Error(path + '.parameters.' + name + ': invalid integer bounds')
+        }
+        parameters[name] = { type: 'integer', min: Number(parameter.min), max: Number(parameter.max) }
+      } else {
+        throw new Error(path + '.parameters.' + name + '.type: unsupported parameter type')
+      }
+    }
+    const cwd = text(source.cwd, path + '.cwd')
+    if (cwd !== 'workspaceRoot' && cwd !== 'extensionData' && cwd !== 'temp') throw new Error(path + '.cwd: unsupported cwd root')
+    const envAllowlist = list(source.envAllowlist, path + '.envAllowlist').map((item, itemIndex) => {
+      const name = text(item, path + '.envAllowlist[' + itemIndex + ']')
+      if (!/^[A-Z][A-Z0-9_]*$/.test(name) || /^(PATH|LD_PRELOAD|DYLD_|NODE_OPTIONS|BASH_ENV|GIT_SSH_COMMAND|PYTHONSTARTUP)/.test(name)) {
+        throw new Error(path + '.envAllowlist[' + itemIndex + ']: dangerous environment key')
+      }
+      return name
+    })
+    if (!Number.isSafeInteger(source.timeoutMs) || Number(source.timeoutMs) < 1 || Number(source.timeoutMs) > 300000) throw new Error(path + '.timeoutMs: invalid')
+    if (!Number.isSafeInteger(source.outputLimitBytes) || Number(source.outputLimitBytes) < 1 || Number(source.outputLimitBytes) > 1048576) throw new Error(path + '.outputLimitBytes: invalid')
+    if (source.stdin !== 'none') throw new Error(path + '.stdin: stdin must be none')
+    const writeScope = source.writeScope === undefined ? 'none' : source.writeScope
+    if (writeScope !== 'none' && writeScope !== 'moai' && writeScope !== 'project') throw new Error(`${path}.writeScope: unsupported write scope`)
+    const descendantAllowlist = source.descendantAllowlist === undefined ? [] : list(source.descendantAllowlist, `${path}.descendantAllowlist`).map((item, itemIndex) => {
+      const name = text(item, `${path}.descendantAllowlist[${itemIndex}]`)
+      if (!/^[a-z][a-z0-9._-]{0,63}$/i.test(name) || /^(?:sh|bash|zsh|fish|cmd|powershell|node|python|npm|npx|env|xargs|ssh|tmux|vi|vim|nvim|nano|less|more)$/i.test(name)) throw new Error(`${path}.descendantAllowlist[${itemIndex}]: unsupported descendant`)
+      return name
+    })
+    if (descendantAllowlist.length > 8) throw new Error(`${path}.descendantAllowlist: expected at most 8 descendants`)
+    if (writeScope !== 'none' && descendantAllowlist.length === 0) throw new Error(`${path}.descendantAllowlist: write profiles must declare descendants`)
+    return {
+      id: profileId, executable, argv, parameters,
+      cwd: cwd as MachineCommandProfile['cwd'],
+      envAllowlist, timeoutMs: Number(source.timeoutMs), outputLimitBytes: Number(source.outputLimitBytes), stdin: 'none' as const,
+      ...(source.writeScope === undefined ? {} : { writeScope: writeScope as MachineCommandWriteScope }),
+      ...(source.descendantAllowlist === undefined ? {} : { descendantAllowlist }),
+    }
+  })
+  if (profiles.length === 0 || new Set(profiles.map((profile) => profile.id)).size !== profiles.length) {
+    throw new Error('manifest.machineCommands.profiles: duplicate profile id')
+  }
+  return { version: 1, profiles }
+}
+
 /**
  * Parsed on its own axis, with the same one-version window `apiVersion` uses: a host may accept at
  * most the current channel contract and the one before it, so a manifest can never be written
@@ -381,7 +490,7 @@ export function parseExtensionManifest(
     if (apiVersion < 2 && permission.startsWith('browserViewer.')) {
       throw new Error('manifest.permissions: browserViewer permissions require Extension API version 2')
     }
-    if (apiVersion < 3 && (['artifacts.publishPublic', 'assets.read', 'assets.write', 'files.select', 'drafts.prepare'].includes(permission) || permission.startsWith('local'))) {
+    if (apiVersion < 3 && (['artifacts.publishPublic', 'assets.read', 'assets.write', 'files.select', 'drafts.prepare', 'machine.run'].includes(permission) || permission.startsWith('local'))) {
       throw new Error(`manifest.permissions: ${permission} requires Extension API version 3`)
     }
     if (CHANNEL_PERMISSIONS.has(permission)) {
@@ -402,6 +511,10 @@ export function parseExtensionManifest(
   const managedLocalTool = raw.managedLocalTool === undefined ? undefined : parseManagedLocalTool(raw.managedLocalTool, String(raw.id))
   if (managedLocalTool && apiVersion < 3) throw new Error('manifest.managedLocalTool: requires Extension API version 3')
   if (permissions.some(permission => permission.startsWith('localTools.')) && !managedLocalTool) throw new Error('manifest.managedLocalTool: metadata required')
+  const machineCommands = raw.machineCommands === undefined ? undefined : parseMachineCommands(raw.machineCommands, String(raw.id), apiVersion)
+  if ((machineCommands !== undefined) !== permissions.includes('machine.run')) {
+    throw new Error('manifest.machineCommands: machineCommands and machine.run permission must be declared together')
+  }
   const contributions = record(raw.contributes, 'manifest.contributes')
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
@@ -548,6 +661,7 @@ export function parseExtensionManifest(
     apiVersion,
     ...(channelApiVersion === undefined ? {} : { channelApiVersion }),
     ...(managedLocalTool ? { managedLocalTool } : {}),
+    ...(machineCommands ? { machineCommands } : {}),
     engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,

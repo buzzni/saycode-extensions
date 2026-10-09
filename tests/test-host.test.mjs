@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { defineExtension } from '../packages/sdk/dist/index.js'
+import { defineExtension, machineRun } from '../packages/sdk/dist/index.js'
 import { createTestHost } from '../packages/test-host/dist/index.js'
 
 test('public SDK defines and runs an extension without Desktop internals', async () => {
@@ -145,3 +145,23 @@ test('passes only Core-supplied approval presentation to the formatter', async (
   assert.deepEqual(await host.formatChannelReply(input), result)
   await host.deactivate()
 })
+
+test('machineRun uses the typed machine.run capability contract', async () => {
+  const calls = []
+  const extension = defineExtension({
+    activate(context) {
+      context.commands.register('buzzni.test.machine', () =>
+        machineRun(context, { action: 'start', profileId: 'buzzni.moai.status', parameters: {} }))
+    },
+  })
+  const host = createTestHost('buzzni.test', {
+    async invokeCapability(permission, action, args) {
+      calls.push({ permission, action, args })
+      return { action: 'start', operationId: 'op-1', state: 'accepted' }
+    },
+  })
+  await host.activate(extension)
+  assert.deepEqual(await host.invokeCommand('buzzni.test.machine', []), { action: 'start', operationId: 'op-1', state: 'accepted' })
+  assert.deepEqual(calls, [{ permission: 'machine.run', action: 'start', args: { profileId: 'buzzni.moai.status', parameters: {} } }])
+})
+
