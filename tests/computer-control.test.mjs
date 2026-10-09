@@ -13,9 +13,95 @@ test('CUA package declares exact pinned artifacts and cannot request control wit
   const parsed = parseExtensionManifest(raw, { supportedApiVersion: 3 })
   assert.equal(parsed.managedLocalTool.toolVersion, '0.32.0')
   assert.equal(parsed.managedLocalTool.operations.click.payload.session, '{{session}}')
+  assert.deepEqual(parsed.managedLocalTool.operations.status.argv, ['status'])
+  assert.deepEqual(parsed.managedLocalTool.operations.autostartEnable.argv, ['autostart', 'enable'])
+  assert.deepEqual(parsed.managedLocalTool.operations.autostartKick.argv, ['autostart', 'kick'])
   assert.throws(() => parseExtensionManifest({ ...raw, managedLocalTool: undefined }, { supportedApiVersion: 3 }), /metadata required/)
   assert.throws(() => parseExtensionManifest({ ...raw, apiVersion: 2 }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /API version 3/)
 })
+
+test('Windows doctor starts the CuaDriver autostart daemon before checking the driver', async () => {
+  const calls = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    calls.push({ permission, action, operation: input?.operation })
+    if (action !== 'run') return { version: 1, state: 'cancelled' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
+    if (input.operation === 'status') {
+      const started = calls.some(call => call.operation === 'autostartKick')
+      return started ? { state: 'succeeded', output: 'running\n' } : { state: 'failed', output: 'not running\n' }
+    }
+    if (input.operation === 'autostartEnable' || input.operation === 'autostartKick') return { state: 'succeeded', output: '' }
+    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
+    if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
+    throw new Error(`unexpected operation ${input.operation}`)
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), { version: 1, state: 'ready' })
+    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'doctor'])
+    assert.equal(calls.find(call => call.operation === 'autostartEnable').permission, 'localTools.control')
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor does not treat a negative daemon status as running', async () => {
+  const calls = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    calls.push({ permission, action, operation: input?.operation })
+    if (action !== 'run') return { version: 1, state: 'cancelled' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
+    if (input.operation === 'status') return { state: 'succeeded', output: 'daemon is not running\n' }
+    if (input.operation === 'autostartEnable' || input.operation === 'autostartKick') return { state: 'succeeded', output: '' }
+    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
+    if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
+    throw new Error(`unexpected operation ${input.operation}`)
+  })
+  try {
+    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), /LOCAL_DAEMON_REQUIRED/)
+    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'status', 'status', 'status', 'status', 'status'])
+  } finally { await provider.cleanup() }
+})
+// Desktop's managed-tool broker rejects instead of returning a state when the driver exits non-zero
+// (`status` exits 1 while the daemon is stopped) or prints only to stderr (TOOL_NO_OUTPUT).
+test('Windows doctor starts the daemon when the real broker rejects a stopped status', async () => {
+  const calls = []
+  let statusPolls = 0
+  const provider = await loadProvider(async (permission, action, input) => {
+    calls.push({ permission, action, operation: input?.operation })
+    if (action !== 'run') return { version: 1, state: 'cancelled' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
+    if (input.operation === 'status') {
+      const kicked = calls.some(call => call.operation === 'autostartKick')
+      if (!kicked || statusPolls++ < 1) throw new Error('TOOL_EXECUTION_FAILED')
+      return { state: 'succeeded', output: 'running\n' }
+    }
+    if (input.operation === 'autostartEnable') throw new Error('TOOL_NO_OUTPUT')
+    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
+    if (input.operation === 'autostartKick') return { state: 'succeeded', output: 'kicked\n' }
+    if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
+    throw new Error(`unexpected operation ${input.operation}`)
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), { version: 1, state: 'ready' })
+    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'status', 'doctor'])
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor reports a declined administrator approval instead of a stopped runtime', async () => {
+  const calls = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    calls.push({ permission, action, operation: input?.operation })
+    if (action !== 'run') return { version: 1, state: 'cancelled' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
+    if (input.operation === 'status') throw new Error('TOOL_EXECUTION_FAILED')
+    if (input.operation === 'autostartEnable') throw new Error('TOOL_EXECUTION_FAILED')
+    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'not-registered\n' }
+    throw new Error(`unexpected operation ${input.operation}`)
+  })
+  try {
+    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), /DRIVER_AUTOSTART_REQUIRED/)
+    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus'])
+  } finally { await provider.cleanup() }
+})
+
 test('Chrome recipe hands off ambiguity, verifies developer mode after action and never guesses file-picker targets', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'cua-recipe-'))
   try {
