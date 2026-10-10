@@ -18,7 +18,7 @@ The sample deliberately has no init, tui, wake, hooks, editor, or shell entry po
 Settings → Machines shows a **Moai** button on online machines. It opens an isolated panel that runs the two profiles
 through the extension's own commands: **Show status** prints the task counts and **Add task** creates a task from the
 typed title. Runs target the project currently selected in the app; each one first shows Desktop's confirmation with
-the machine and folder. While a run is in progress the panel polls its status and offers **Cancel**; after a cancel it stays busy until the machine reports the run's processes reaped.
+the machine and folder. While a run is in progress the panel polls its status and offers **Cancel**; after a cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's workspace write lock refuses an overlapping write until they settle).
 
 The board needs a Moai repository: run `moai init` once in the project folder on that machine. The extension cannot
 run `init` itself, so when Moai reports there is no `.moai/` (an add on stderr, or a status that lists projects
