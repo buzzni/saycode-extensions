@@ -95,7 +95,7 @@ class FakeElement {
   append(...children) { this.children.push(...children) }
   replaceChildren(...children) { this.children = children }
   addEventListener(type, listener) { this.listeners.set(type, listener) }
-  dispatch(type) { this.listeners.get(type)?.({ target: this, preventDefault() {} }) }
+  dispatch(type, fields = {}) { this.listeners.get(type)?.({ target: this, preventDefault() {}, ...fields }) }
 }
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
@@ -230,4 +230,24 @@ test('a failed run shows the reason Moai printed on stderr', async () => {
   elements.add.dispatch('click')
   await flush()
   assert.equal(elements.error.textContent, 'Moai reported an error: the git user details are not there')
+})
+
+test('Enter in the title field adds the task, since the sandboxed panel cannot submit forms', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-7', state: 'accepted' }
+    return { action: 'status', operationId: 'op-7', state: 'passed', stdout: JSON.stringify({ id: 'm1-x', title: 'Ship it', status: 'todo' }), exitCode: 0 }
+  })
+  elements.task.value = 'Ship it'
+  elements.task.dispatch('keydown', { key: 'Enter', isComposing: false })
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.add', 'Ship it']])
+  // An IME composing Hangul also reports Enter; that keystroke must not add the half-typed title.
+  calls.length = 0
+  elements.task.value = '한글'
+  elements.task.dispatch('keydown', { key: 'Enter', isComposing: true })
+  await flush()
+  assert.equal(calls.length, 0)
+  assert.doesNotMatch(await packedPanelHtml(), /<form|'submit'/)
 })

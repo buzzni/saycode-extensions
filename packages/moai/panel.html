@@ -20,10 +20,10 @@
     <button id="check" type="button"></button>
     <button id="cancel" type="button"></button>
   </div>
-  <form class="row" id="add-form">
+  <div class="row">
     <input id="task" maxlength="512" autocomplete="off">
     <button id="add" type="button"></button>
-  </form>
+  </div>
   <p id="status" role="status"></p>
   <p id="result"></p>
   <p id="error" role="alert"></p>
@@ -170,7 +170,8 @@
     });
   }
   el.add.addEventListener('click', add);
-  document.getElementById('add-form')?.addEventListener?.('submit', (event) => { event.preventDefault(); add(); });
+  // The panel iframe has no allow-forms, so a form would never submit; Enter is handled here (not while an IME composes).
+  el.task.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); add(); } });
 
   el.cancel.addEventListener('click', () => {
     if (!operationId) return;
