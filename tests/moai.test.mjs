@@ -252,26 +252,29 @@ test('Enter in the title field adds the task, since the sandboxed panel cannot s
   assert.doesNotMatch(await packedPanelHtml(), /<form|'submit'/)
 })
 
-test('a cancel still settling on the machine keeps the board busy until its processes are reaped', async () => {
-  const statuses = [
-    { state: 'cancelled', remoteMayContinue: true, descendantsReaped: false },
-    { state: 'cancelled', remoteMayContinue: false, descendantsReaped: true },
-  ]
+test('a cancel ends the run at once and says when processes may still be running on the machine', async () => {
+  // The Happy runner never reports a cancelled group reaped on macOS, so the board must not wait for it;
+  // the daemon's workspace write lock refuses an overlapping write until the old group settles.
   const calls = []
-  const elements = await runPanel(async (command, args) => {
+  const elements = await runPanel(async (command) => {
     calls.push(command)
     if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-8', state: 'accepted' }
-    return { action: 'status', operationId: 'op-8', ...statuses.shift() }
+    return { action: 'status', operationId: 'op-8', state: 'cancelled', remoteMayContinue: true, descendantsReaped: false }
   }, 'ko')
   elements.check.dispatch('click')
   await flush()
-  assert.equal(elements.status.textContent, '머신에서 취소 처리를 마무리하는 중…')
-  assert.equal(elements.check.disabled, true)
-  assert.equal(elements.add.disabled, true)
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  await flush()
-  assert.deepEqual(calls, ['buzzni.moai.run', 'buzzni.moai.status', 'buzzni.moai.status'])
-  assert.equal(elements.status.textContent, '실행을 취소했습니다.')
+  assert.deepEqual(calls, ['buzzni.moai.run', 'buzzni.moai.status'])
+  assert.equal(elements.status.textContent, '실행을 취소했습니다. 머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.')
   assert.equal(elements.error.textContent, '')
   assert.equal(elements.check.disabled, false)
+  assert.equal(elements.add.disabled, false)
+})
+
+test('a cancel whose processes are reaped says only that the run was cancelled', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-9', state: 'accepted' }
+    : { action: 'status', operationId: 'op-9', state: 'cancelled', remoteMayContinue: false, descendantsReaped: true })
+  elements.check.dispatch('click')
+  await flush()
+  assert.equal(elements.status.textContent, 'The run was cancelled.')
 })
