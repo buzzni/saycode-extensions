@@ -130,6 +130,27 @@ async function develop(projectPath: string): Promise<void> {
   if (process.argv.includes('--once')) console.log(output)
 }
 
+// Mirrors Desktop: panels run under a CSP allowing only inline script/style, and are read as at most
+// 512 KiB of strict UTF-8. Violations would install fine and render a blank panel.
+const MAX_PANEL_BYTES = 512 * 1024
+const EXTERNAL_PANEL_SCRIPT = /<script\b[^>]*\bsrc\s*=/i
+const EXTERNAL_PANEL_STYLE = /<link\b[^>]*\brel\s*=\s*["']?(?:stylesheet|modulepreload|preload)\b/i
+
+function assertPanelLoadable(entrypoint: string, bytes: Buffer): void {
+  if (bytes.byteLength > MAX_PANEL_BYTES) {
+    throw new Error(`panel ${entrypoint} is ${bytes.byteLength} bytes; Desktop loads at most 512 KiB`)
+  }
+  let html: string
+  try {
+    html = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new Error(`panel ${entrypoint} must be valid UTF-8`)
+  }
+  if (EXTERNAL_PANEL_SCRIPT.test(html) || EXTERNAL_PANEL_STYLE.test(html)) {
+    throw new Error(`panel ${entrypoint} loads a separate script or stylesheet; Desktop allows only inline <script> and <style>, so build it into one file (e.g. vite-plugin-singlefile)`)
+  }
+}
+
 async function pack(projectPath: string): Promise<void> {
   const root = resolve(projectPath)
   const manifest = await manifestAt(root)
@@ -154,7 +175,9 @@ async function pack(projectPath: string): Promise<void> {
       if (!realPanelPath.startsWith(`${realRoot}${sep}`)) {
         throw new Error(`panel entrypoint must stay inside the extension: ${panel.entrypoint}`)
       }
-      addFile(zip, panel.entrypoint, await readFile(realPanelPath))
+      const panelBytes = await readFile(realPanelPath)
+      assertPanelLoadable(panel.entrypoint, panelBytes)
+      addFile(zip, panel.entrypoint, panelBytes)
     }
     const output = resolve(argument('--output') ?? join(root, `${manifest.id}-${manifest.version}.saycode-extension`))
     await mkdir(resolve(output, '..'), { recursive: true })
