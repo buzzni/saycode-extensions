@@ -9,6 +9,6 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@buzzni/saycode-extension-sdk": "0.5.0"
+    "@buzzni/saycode-extension-sdk": "0.6.0"
   }
 }

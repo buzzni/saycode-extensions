@@ -1,6 +1,6 @@
 {
   "name": "@buzzni/saycode-extension-sdk",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Contracts and CLI for building Saycode Desktop extensions.",
   "license": "MIT",
   "keywords": ["saycode", "extension", "sdk", "desktop"],
