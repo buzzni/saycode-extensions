@@ -126,6 +126,11 @@ Extensions cannot import React components into the Saycode renderer. `panels` na
 in an isolated surface with origin and schema checks and no raw credential bridge. Settings and project templates are
 declarative descriptors. Keep contribution ids namespaced by the extension id; collisions disable registration.
 
+A panel is one HTML file: Desktop allows only inline `<script>` and `<style>`, reads at most 512 KiB, and requires UTF-8.
+Frameworks such as Svelte or Tailwind work when built into a single file (for example Vite with
+`vite-plugin-singlefile`); run that build before `pack`. `saycode-extension pack` refuses a panel that references a
+separate script or stylesheet, exceeds 512 KiB, or is not UTF-8, because Desktop would install it and render it blank.
+
 ## Testing and debugging
 
 `saycode-extension validate .` checks the manifest before you build. `saycode-extension dev . --once` produces a
