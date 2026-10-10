@@ -20,3 +20,6 @@ through the extension's own commands: **Show status** prints the task counts and
 typed title. Runs target the project currently selected in the app; each one first shows Desktop's confirmation with
 the machine and folder. While a run is in progress the panel polls its status and offers **Cancel**.
 
+The board needs a Moai repository: run `moai init` once in the project folder on that machine. The extension cannot
+run `init` itself, so when Moai reports there is no `.moai/` (an add on stderr, or a status that lists projects
+instead of counts) the panel says so and names that command.

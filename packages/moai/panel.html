@@ -20,10 +20,10 @@
     <button id="check" type="button"></button>
     <button id="cancel" type="button"></button>
   </div>
-  <form class="row" id="add-form">
+  <div class="row">
     <input id="task" maxlength="512" autocomplete="off">
     <button id="add" type="button"></button>
-  </form>
+  </div>
   <p id="status" role="status"></p>
   <p id="result"></p>
   <p id="error" role="alert"></p>
@@ -39,6 +39,7 @@
       added: (t) => `Added: ${t.title} (${t.id})`,
       notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
       moaiError: (message) => `Moai reported an error: ${message}`, failed: 'The run failed.', unreadable: 'The run finished, but its result could not be read.',
+      notInitialized: 'This project has no Moai board yet. On that machine, run `moai init` once in the project folder, then try again.',
     },
     ko: {
       title: 'Moai 작업 보드', hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
@@ -48,6 +49,7 @@
       added: (t) => `추가했습니다: ${t.title} (${t.id})`,
       notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
       moaiError: (message) => `Moai 오류: ${message}`, failed: '실행에 실패했습니다.', unreadable: '실행은 끝났지만 결과를 읽지 못했습니다.',
+      notInitialized: '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 `moai init`을 한 번 실행한 뒤 다시 시도하세요.',
     },
     ja: {
       title: 'Moai 作業ボード', hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
@@ -57,6 +59,7 @@
       added: (t) => `追加しました: ${t.title} (${t.id})`,
       notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
       moaiError: (message) => `Moai のエラー: ${message}`, failed: '実行に失敗しました。', unreadable: '実行は完了しましたが、結果を読み取れませんでした。',
+      notInitialized: 'このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで `moai init` を一度実行してから、もう一度お試しください。',
     },
     zh: {
       title: 'Moai 任务看板', hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
@@ -66,6 +69,7 @@
       added: (t) => `已添加: ${t.title} (${t.id})`,
       notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
       moaiError: (message) => `Moai 错误: ${message}`, failed: '运行失败。', unreadable: '运行已结束，但无法读取结果。',
+      notInitialized: '此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 `moai init`，然后重试。',
     },
   };
   const language = (document.documentElement.lang || navigator.language || 'en').split('-')[0];
@@ -80,6 +84,8 @@
   el.task.placeholder = copy.placeholder;
 
   const POLL_MS = 500;
+  // The board needs `moai init`, which this extension deliberately cannot run.
+  const NOT_A_REPOSITORY = /Not a moai repository/;
   let operationId = null;
   let busy = false;
 
@@ -132,7 +138,10 @@
       else if (finished && finished.state === 'passed') {
         if (output) onPassed(output); else el.error.textContent = copy.unreadable;
       } else {
-        el.error.textContent = output && typeof output.error === 'string' ? copy.moaiError(output.error) : copy.failed;
+        // Moai prints its JSON error on stderr.
+        const problem = (finished && parse(finished.stderr || '')) || output;
+        const reason = problem && typeof problem.error === 'string' ? problem.error : null;
+        el.error.textContent = reason && NOT_A_REPOSITORY.test(reason) ? copy.notInitialized : reason ? copy.moaiError(reason) : copy.failed;
       }
     } catch {
       el.error.textContent = copy.failed;
@@ -146,7 +155,8 @@
 
   el.check.addEventListener('click', () => void run(['buzzni.moai.status'], (output) => {
     const counts = output && output.counts;
-    if (!counts) { el.error.textContent = copy.unreadable; return; }
+    // Outside a `.moai/` repository, status lists the user's projects instead of a board.
+    if (!counts) { el.error.textContent = Array.isArray(output && output.projects) ? copy.notInitialized : copy.unreadable; return; }
     el.result.textContent = copy.counts(counts);
   }));
 
@@ -160,7 +170,8 @@
     });
   }
   el.add.addEventListener('click', add);
-  document.getElementById('add-form')?.addEventListener?.('submit', (event) => { event.preventDefault(); add(); });
+  // The panel iframe has no allow-forms, so a form would never submit; Enter is handled here (not while an IME composes).
+  el.task.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); add(); } });
 
   el.cancel.addEventListener('click', () => {
     if (!operationId) return;

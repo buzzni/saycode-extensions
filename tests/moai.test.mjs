@@ -95,7 +95,7 @@ class FakeElement {
   append(...children) { this.children.push(...children) }
   replaceChildren(...children) { this.children = children }
   addEventListener(type, listener) { this.listeners.set(type, listener) }
-  dispatch(type) { this.listeners.get(type)?.({ target: this, preventDefault() {} }) }
+  dispatch(type, fields = {}) { this.listeners.get(type)?.({ target: this, preventDefault() {}, ...fields }) }
 }
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
@@ -196,4 +196,58 @@ test('the board follows the host document language and only talks to its own com
   const html = await packedPanelHtml()
   for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
   assert.doesNotMatch(html, /electron|ipcRenderer|innerHTML/)
+})
+
+// Real Moai v0.8.0 output: errors go to stderr, and status outside a `.moai/` repository lists projects instead of counts.
+const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
+const NOT_INITIALIZED_EN = 'This project has no Moai board yet. On that machine, run `moai init` once in the project folder, then try again.'
+
+test('adding to a project without a Moai board explains how to start one', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-4', state: 'accepted' }
+    : { action: 'status', operationId: 'op-4', state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 })
+  elements.task.value = 'Write docs'
+  elements.add.dispatch('click')
+  await flush()
+  assert.equal(elements.error.textContent, NOT_INITIALIZED_EN)
+})
+
+test('status in a project without a Moai board explains how to start one', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-5', state: 'accepted' }
+    : { action: 'status', operationId: 'op-5', state: 'passed', stdout: JSON.stringify({ projects: [], problems: [], config: '/home/me/.config/moai/config.toml' }), stderr: '', exitCode: 0 }, 'ko')
+  elements.check.dispatch('click')
+  await flush()
+  assert.equal(elements.error.textContent, '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 `moai init`을 한 번 실행한 뒤 다시 시도하세요.')
+  assert.equal(elements.result.textContent, '')
+})
+
+test('a failed run shows the reason Moai printed on stderr', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-6', state: 'accepted' }
+    : { action: 'status', operationId: 'op-6', state: 'failed', stdout: '', stderr: JSON.stringify({ code: 'no_actor', error: 'the git user details are not there' }), exitCode: 1 })
+  elements.task.value = 'Write docs'
+  elements.add.dispatch('click')
+  await flush()
+  assert.equal(elements.error.textContent, 'Moai reported an error: the git user details are not there')
+})
+
+test('Enter in the title field adds the task, since the sandboxed panel cannot submit forms', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-7', state: 'accepted' }
+    return { action: 'status', operationId: 'op-7', state: 'passed', stdout: JSON.stringify({ id: 'm1-x', title: 'Ship it', status: 'todo' }), exitCode: 0 }
+  })
+  elements.task.value = 'Ship it'
+  elements.task.dispatch('keydown', { key: 'Enter', isComposing: false })
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.add', 'Ship it']])
+  // An IME composing Hangul also reports Enter; that keystroke must not add the half-typed title.
+  calls.length = 0
+  elements.task.value = '한글'
+  elements.task.dispatch('keydown', { key: 'Enter', isComposing: true })
+  await flush()
+  assert.equal(calls.length, 0)
+  assert.doesNotMatch(await packedPanelHtml(), /<form|'submit'/)
 })
