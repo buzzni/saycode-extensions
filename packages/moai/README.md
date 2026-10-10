@@ -15,11 +15,23 @@ The sample deliberately has no init, tui, wake, hooks, editor, or shell entry po
 
 ## Board panel
 
-Settings → Machines shows a **Moai** button on online machines. It opens an isolated panel that runs the two profiles
-through the extension's own commands: **Show status** prints the task counts and **Add task** creates a task from the
-typed title. Runs target the project currently selected in the app; each one first shows Desktop's confirmation with
-the machine and folder. While a run is in progress the panel polls its status and offers **Cancel**; after a cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's workspace write lock refuses an overlapping write until they settle).
+Settings → Machines shows a **Moai** button on online machines. It opens an isolated panel (`surfaceSize: "compact"`;
+the host draws the single "Moai" title) that runs the two profiles through the extension's own commands: **Add task**
+(the primary button, or Enter in the title field) creates a task from the typed title, and **Show status** shows the
+task counts as four small chips. Runs target the project currently selected in the app; each one first shows Desktop's
+confirmation with the machine and folder. **Cancel** appears only once the run has an operation id (not while the
+confirmation is open); a small spinner shows while the run is in progress and the panel polls its status. After a
+cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's
+workspace write lock refuses an overlapping write until they settle).
+
+The panel follows Desktop's panel theme v1 variables (`--saycode-*`, `data-theme`) and falls back to the OS light/dark
+scheme on older Desktop builds.
 
 The board needs a Moai repository: run `moai init` once in the project folder on that machine. The extension cannot
 run `init` itself, so when Moai reports there is no `.moai/` (an add on stderr, or a status that lists projects
-instead of counts) the panel says so and names that command.
+instead of counts) the panel shows an information banner with that command and points to the Moai path shown under
+Machine tools in Settings → Extensions, for when `moai` is not on that machine's `PATH`. Moai failures are shown as
+errors.
+
+Version 1.0.4 sets `panels[].surfaceSize`, which Desktop builds without panel size v1 reject; install it on a Desktop
+that supports it.

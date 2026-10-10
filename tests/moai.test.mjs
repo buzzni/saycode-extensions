@@ -87,7 +87,7 @@ test('Moai extension forwards approved run, status, and cancel calls', async () 
 })
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
-const PANEL_IDS = ['title', 'hint', 'check', 'task', 'add', 'cancel', 'status', 'error', 'result']
+const PANEL_IDS = ['hint', 'check', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error']
 const panelWindows = []
 after(() => { for (const window of panelWindows) window.close() })
 
@@ -114,7 +114,8 @@ test('a machine action opens the Moai board panel through a command declared by 
   const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
   const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
   assert.equal(open?.panelId, 'buzzni.moai.panel')
-  assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'panel.html' }])
+  // The host owns the panel title; compact asks for the small modal preset.
+  assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'panel.html', surfaceSize: 'compact' }])
   assert.deepEqual(parsed.contributes.machineActions, [{ id: 'buzzni.moai.board', title: 'Moai', command: 'buzzni.moai.open', when: { online: true } }])
   assert.ok(parsed.activationEvents.includes('onCommand:buzzni.moai.open'))
   const host = createTestHost('buzzni.moai', { async invokeCapability() { throw new Error('not expected') } })
@@ -139,7 +140,9 @@ test('the board shows task counts from a status run, polling until it finishes',
   await flush()
   assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.status']])
   assert.deepEqual(calls.slice(1).map(([command, args]) => [command, args]), [['buzzni.moai.status', ['op-1']], ['buzzni.moai.status', ['op-1']]])
-  assert.equal(elements.result.textContent, 'To do 3 · In progress 1 · Review 0 · Done 5')
+  assert.equal(elements.counts.hidden, false)
+  assert.deepEqual([...elements.counts.querySelectorAll('li')].map((chip) => [chip.querySelector('.stat-value').textContent, chip.querySelector('.stat-label').textContent]),
+    [['3', 'To do'], ['1', 'In progress'], ['0', 'Review'], ['5', 'Done']])
   assert.equal(elements.error.textContent, '')
   assert.equal(elements.check.disabled, false)
 })
@@ -184,7 +187,8 @@ test('a failed run shows the reason Moai gave', async () => {
 
 test('the board follows the host document language and only talks to its own commands', async () => {
   const elements = await runPanel(async () => null, 'ja')
-  assert.equal(elements.title.textContent, 'Moai 作業ボード')
+  assert.equal(elements.hint.textContent, 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。')
+  assert.equal(elements.check.textContent, '状態を表示')
   const html = await packedPanelHtml()
   for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
   assert.doesNotMatch(html, /electron|ipcRenderer|innerHTML/)
@@ -192,7 +196,17 @@ test('the board follows the host document language and only talks to its own com
 
 // Real Moai v0.8.0 output: errors go to stderr, and status outside a `.moai/` repository lists projects instead of counts.
 const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
-const NOT_INITIALIZED_EN = 'This project has no Moai board yet. On that machine, run `moai init` once in the project folder, then try again.'
+const NOT_INITIALIZED_EN = 'This project has no Moai board yet. On that machine, run moai init once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'
+
+/** The init guidance is information, not an error: it renders in the info banner with the command as code. */
+function assertInitGuidance(elements, text) {
+  assert.equal(elements.notice.hidden, false)
+  assert.equal(elements.notice.textContent, text)
+  assert.equal(elements.notice.querySelector('code')?.textContent, 'moai init')
+  assert.ok(elements.notice.classList.contains('info'))
+  assert.doesNotMatch(elements.notice.textContent, /`/)
+  assert.equal(elements.error.textContent, '')
+}
 
 test('adding to a project without a Moai board explains how to start one', async () => {
   const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
@@ -201,7 +215,7 @@ test('adding to a project without a Moai board explains how to start one', async
   elements.task.value = 'Write docs'
   elements.add.click()
   await flush()
-  assert.equal(elements.error.textContent, NOT_INITIALIZED_EN)
+  assertInitGuidance(elements, NOT_INITIALIZED_EN)
 })
 
 test('status in a project without a Moai board explains how to start one', async () => {
@@ -210,8 +224,9 @@ test('status in a project without a Moai board explains how to start one', async
     : { action: 'status', operationId: 'op-5', state: 'passed', stdout: JSON.stringify({ projects: [], problems: [], config: '/home/me/.config/moai/config.toml' }), stderr: '', exitCode: 0 }, 'ko')
   elements.check.click()
   await flush()
-  assert.equal(elements.error.textContent, '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 `moai init`을 한 번 실행한 뒤 다시 시도하세요.')
+  assertInitGuidance(elements, '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 moai init을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.')
   assert.equal(elements.result.textContent, '')
+  assert.equal(elements.counts.hidden, true)
 })
 
 test('a failed run shows the reason Moai printed on stderr', async () => {
@@ -269,4 +284,61 @@ test('a cancel whose processes are reaped says only that the run was cancelled',
   elements.check.click()
   await flush()
   assert.equal(elements.status.textContent, 'The run was cancelled.')
+})
+
+test('the board leaves the title to the host and keeps the guidance out of the chat', async () => {
+  const html = await packedPanelHtml()
+  assert.doesNotMatch(html, /<h1/)
+  // Init stays a user action on the machine (spec: separate high-risk capability), never a chat request.
+  assert.doesNotMatch(html, /\bAI\b|chat|채팅|チャット|聊天/i)
+})
+
+test('cancel appears only once the run has an operation id, and the spinner only while it runs', async () => {
+  let accept
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return new Promise((resolve) => { accept = resolve })
+    if (command === 'buzzni.moai.cancel') return { action: 'cancel', operationId: 'op-10', state: 'cancelled' }
+    return calls.some(([name]) => name === 'buzzni.moai.cancel')
+      ? { action: 'status', operationId: 'op-10', state: 'cancelled', remoteMayContinue: false }
+      : { action: 'status', operationId: 'op-10', state: 'running' }
+  })
+  assert.equal(elements.cancel.hidden, true)
+  assert.equal(elements.spinner.hidden, true)
+  elements.check.click()
+  await flush()
+  // Waiting on the confirmation dialog: nothing to cancel yet.
+  assert.equal(elements.cancel.hidden, true)
+  assert.equal(elements.spinner.hidden, false)
+  assert.equal(elements.check.disabled, true)
+  accept({ action: 'start', operationId: 'op-10', state: 'accepted' })
+  await flush()
+  assert.equal(elements.cancel.hidden, false)
+  assert.equal(elements.cancel.disabled, false)
+  elements.cancel.click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(calls.find(([name]) => name === 'buzzni.moai.cancel'), ['buzzni.moai.cancel', ['op-10']])
+  assert.equal(elements.status.textContent, 'The run was cancelled.')
+  assert.equal(elements.cancel.hidden, true)
+  assert.equal(elements.spinner.hidden, true)
+})
+
+test('a new run clears the previous counts, notice, and error', async () => {
+  let mode = 'init'
+  const elements = await runPanel(async (command) => {
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-11', state: 'accepted' }
+    return mode === 'init'
+      ? { action: 'status', operationId: 'op-11', state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }
+      : { action: 'status', operationId: 'op-11', state: 'passed', stdout: JSON.stringify({ counts: { todo: 1, in_progress: 0, review: 0, done: 0 } }), exitCode: 0 }
+  })
+  elements.check.click()
+  await flush()
+  assert.equal(elements.notice.hidden, false)
+  mode = 'ok'
+  elements.check.click()
+  await flush()
+  assert.equal(elements.notice.hidden, true)
+  assert.equal(elements.counts.hidden, false)
 })
