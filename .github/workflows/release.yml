@@ -59,7 +59,7 @@ jobs:
         run: sha256sum *.saycode-extension > buzzni.computer-control-0.2.1.saycode-extension.sha256
       - name: Create Moai checksum
         working-directory: packages/moai
-        run: sha256sum *.saycode-extension > buzzni.moai-1.0.1.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.moai-1.0.2.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -83,8 +83,8 @@ jobs:
           packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension.sha256
           packages/computer-control/buzzni.computer-control-0.2.1.saycode-extension
           packages/computer-control/buzzni.computer-control-0.2.1.saycode-extension.sha256
-          packages/moai/buzzni.moai-1.0.1.saycode-extension
-          packages/moai/buzzni.moai-1.0.1.saycode-extension.sha256
+          packages/moai/buzzni.moai-1.0.2.saycode-extension
+          packages/moai/buzzni.moai-1.0.2.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 

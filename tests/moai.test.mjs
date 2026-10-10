@@ -251,3 +251,27 @@ test('Enter in the title field adds the task, since the sandboxed panel cannot s
   assert.equal(calls.length, 0)
   assert.doesNotMatch(await packedPanelHtml(), /<form|'submit'/)
 })
+
+test('a cancel still settling on the machine keeps the board busy until its processes are reaped', async () => {
+  const statuses = [
+    { state: 'cancelled', remoteMayContinue: true, descendantsReaped: false },
+    { state: 'cancelled', remoteMayContinue: false, descendantsReaped: true },
+  ]
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push(command)
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-8', state: 'accepted' }
+    return { action: 'status', operationId: 'op-8', ...statuses.shift() }
+  }, 'ko')
+  elements.check.dispatch('click')
+  await flush()
+  assert.equal(elements.status.textContent, '머신에서 취소 처리를 마무리하는 중…')
+  assert.equal(elements.check.disabled, true)
+  assert.equal(elements.add.disabled, true)
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(calls, ['buzzni.moai.run', 'buzzni.moai.status', 'buzzni.moai.status'])
+  assert.equal(elements.status.textContent, '실행을 취소했습니다.')
+  assert.equal(elements.error.textContent, '')
+  assert.equal(elements.check.disabled, false)
+})
