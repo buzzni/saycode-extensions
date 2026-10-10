@@ -512,3 +512,50 @@ test('API 3 machine.run manifests parse fixed profiles and reject unsafe fields'
   assert.throws(() => parseExtensionManifest({ ...manifest, apiVersion: 2 }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /requires Extension API version 3/)
 })
 
+
+test('a panel may ask for a host surface size preset; any other value is refused', () => {
+  const manifest = (panel) => ({
+    id: 'buzzni.test', version: '1.0.0', apiVersion: 3,
+    engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+    contributes: { panels: [{ id: 'buzzni.test.panel', title: 'Panel', entrypoint: 'panel.html', ...panel }] },
+  })
+  const options = { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }
+  for (const surfaceSize of ['compact', 'standard', 'wide']) {
+    assert.equal(parseExtensionManifest(manifest({ surfaceSize }), options).contributes.panels[0].surfaceSize, surfaceSize)
+  }
+  // Omitted keeps the host's current size and parses exactly as before.
+  assert.deepEqual(parseExtensionManifest(manifest({}), options).contributes.panels[0], { id: 'buzzni.test.panel', title: 'Panel', entrypoint: 'panel.html' })
+  for (const surfaceSize of ['large', 'Compact', '', 3, null]) {
+    assert.throws(() => parseExtensionManifest(manifest({ surfaceSize }), options), /panels\[0\]\.surfaceSize/)
+  }
+})
+
+test('machineRun keeps a known refusal code as a typed MachineRunError and passes other failures through', async () => {
+  const { machineRun, MachineRunError, MACHINE_RUN_ERROR_CODES } = await import('../packages/sdk/dist/index.js')
+  assert.deepEqual([...MACHINE_RUN_ERROR_CODES], [
+    'unsupported-daemon', 'invalid-request', 'binding-mismatch', 'declined',
+    'approval-timeout', 'workspace-busy', 'tool-missing', 'unsupported-platform',
+  ])
+  const rejecting = (error) => ({ invokeCapability: async () => { throw error } })
+  const start = { action: 'start', profileId: 'buzzni.moai.status', parameters: {} }
+
+  const refused = Object.assign(new Error('capability.invoke machine.run/start failed: declined'), { code: 'declined' })
+  const error = await machineRun(rejecting(refused), start).then(() => null, (caught) => caught)
+  assert.ok(error instanceof MachineRunError)
+  assert.ok(error instanceof Error)
+  assert.equal(error.code, 'declined')
+  assert.equal(error.name, 'MachineRunError')
+  assert.match(error.message, /declined/)
+
+  // A host may hand the code over on a plain object rather than an Error.
+  const busy = await machineRun(rejecting({ code: 'workspace-busy', message: 'busy' }), start).then(() => null, (caught) => caught)
+  assert.ok(busy instanceof MachineRunError)
+  assert.equal(busy.code, 'workspace-busy')
+
+  // Unknown codes (a newer host) and code-less errors (an older host) stay ordinary failures.
+  for (const original of [Object.assign(new Error('later'), { code: 'something-new' }), new Error('capability failed')]) {
+    const caught = await machineRun(rejecting(original), start).then(() => null, (value) => value)
+    assert.equal(caught, original)
+    assert.ok(!(caught instanceof MachineRunError))
+  }
+})

@@ -81,11 +81,40 @@ export type MachineRunResult =
   | { action: 'status'; operationId: string; state: 'running' | 'passed' | 'failed' | 'cancelled'; stdout?: string; stderr?: string; truncated?: boolean; exitCode?: number | null; timedOut?: boolean; remoteMayContinue?: boolean; descendantsReaped?: boolean; signal?: string; durationMs?: number }
   | { action: 'cancel'; operationId: string; state: 'cancelled' | 'already-terminal'; remoteMayContinue?: boolean; descendantsReaped?: boolean }
 
+/** Why Core refused a `machine.run` call. Additive: an unknown code from a newer host stays an ordinary error. */
+export const MACHINE_RUN_ERROR_CODES = [
+  'unsupported-daemon', 'invalid-request', 'binding-mismatch', 'declined',
+  'approval-timeout', 'workspace-busy', 'tool-missing', 'unsupported-platform',
+] as const
+export type MachineRunErrorCode = (typeof MACHINE_RUN_ERROR_CODES)[number]
+
+export class MachineRunError extends Error {
+  readonly code: MachineRunErrorCode
+  constructor(code: MachineRunErrorCode, message?: string) {
+    super(message || `machine.run refused: ${code}`)
+    this.name = 'MachineRunError'
+    this.code = code
+  }
+}
+
+function refusalCode(error: unknown): MachineRunErrorCode | null {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+  return MACHINE_RUN_ERROR_CODES.includes(code as MachineRunErrorCode) ? code as MachineRunErrorCode : null
+}
+
+/** Rejects with a `MachineRunError` when the host reports a known refusal code; other failures pass through unchanged. */
 export async function machineRun(context: ExtensionContext, request: MachineRunRequest): Promise<MachineRunResult> {
   const args: JsonValue = request.action === 'start'
     ? { profileId: request.profileId, parameters: request.parameters }
     : { operationId: request.operationId }
-  return await context.invokeCapability('machine.run', request.action, args) as MachineRunResult
+  try {
+    return await context.invokeCapability('machine.run', request.action, args) as MachineRunResult
+  } catch (error) {
+    const code = refusalCode(error)
+    if (code === null) throw error
+    const message = (error as { message?: unknown }).message
+    throw new MachineRunError(code, typeof message === 'string' ? message : undefined)
+  }
 }
 
 export function defineExtension(extension: SaycodeExtension): SaycodeExtension {
@@ -102,6 +131,7 @@ export type {
   ExtensionManifest,
   ExtensionMachineActionContribution,
   ExtensionPanelContribution,
+  ExtensionPanelSurfaceSize,
   ExtensionPermission,
   ExtensionProjectTemplateLocalization,
   ExtensionProjectTemplateContribution,
