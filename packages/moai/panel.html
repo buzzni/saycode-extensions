@@ -34,7 +34,7 @@
     en: {
       title: 'Moai board', hint: 'Runs in the project selected in the app. Before each run, a confirmation shows the machine and folder.',
       check: 'Show status', cancel: 'Cancel', placeholder: 'New task title', add: 'Add task',
-      running: 'Running on the machine…', cancelled: 'The run was cancelled.', titleRequired: 'Enter a task title.',
+      running: 'Running on the machine…', cancelling: 'Cancellation is still settling on the machine…', cancelled: 'The run was cancelled.', titleRequired: 'Enter a task title.',
       counts: (c) => `To do ${c.todo} · In progress ${c.in_progress} · Review ${c.review} · Done ${c.done}`,
       added: (t) => `Added: ${t.title} (${t.id})`,
       notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
@@ -44,7 +44,7 @@
     ko: {
       title: 'Moai 작업 보드', hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
       check: '상태 보기', cancel: '취소', placeholder: '새 할 일 제목', add: '할 일 추가',
-      running: '머신에서 실행하는 중…', cancelled: '실행을 취소했습니다.', titleRequired: '할 일 제목을 입력하세요.',
+      running: '머신에서 실행하는 중…', cancelling: '머신에서 취소 처리를 마무리하는 중…', cancelled: '실행을 취소했습니다.', titleRequired: '할 일 제목을 입력하세요.',
       counts: (c) => `할 일 ${c.todo} · 진행 중 ${c.in_progress} · 검토 ${c.review} · 완료 ${c.done}`,
       added: (t) => `추가했습니다: ${t.title} (${t.id})`,
       notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
@@ -54,7 +54,7 @@
     ja: {
       title: 'Moai 作業ボード', hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
       check: '状態を表示', cancel: 'キャンセル', placeholder: '新しいタスクのタイトル', add: 'タスクを追加',
-      running: 'マシンで実行中…', cancelled: '実行をキャンセルしました。', titleRequired: 'タスクのタイトルを入力してください。',
+      running: 'マシンで実行中…', cancelling: 'マシンでキャンセル処理を完了しています…', cancelled: '実行をキャンセルしました。', titleRequired: 'タスクのタイトルを入力してください。',
       counts: (c) => `未着手 ${c.todo} · 進行中 ${c.in_progress} · レビュー ${c.review} · 完了 ${c.done}`,
       added: (t) => `追加しました: ${t.title} (${t.id})`,
       notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
@@ -64,7 +64,7 @@
     zh: {
       title: 'Moai 任务看板', hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
       check: '查看状态', cancel: '取消', placeholder: '新任务标题', add: '添加任务',
-      running: '正在机器上运行…', cancelled: '已取消运行。', titleRequired: '请输入任务标题。',
+      running: '正在机器上运行…', cancelling: '正在机器上完成取消处理…', cancelled: '已取消运行。', titleRequired: '请输入任务标题。',
       counts: (c) => `待办 ${c.todo} · 进行中 ${c.in_progress} · 审核 ${c.review} · 完成 ${c.done}`,
       added: (t) => `已添加: ${t.title} (${t.id})`,
       notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
@@ -105,7 +105,10 @@
   async function poll(id) {
     for (;;) {
       const result = await window.saycodePanel.invokeCommand('buzzni.moai.status', [id]);
-      if (!result || result.state !== 'running') return result;
+      // A cancel can leave processes on the machine; stay busy until the host reports them reaped.
+      const settling = result && result.state === 'cancelled' && (result.remoteMayContinue === true || result.descendantsReaped === false);
+      if (settling) el.status.textContent = copy.cancelling;
+      else if (!result || result.state !== 'running') return result;
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
   }
