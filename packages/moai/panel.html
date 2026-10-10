@@ -1,82 +1,188 @@
 <style>
-  :root { color-scheme: light dark; font: 14px/1.45 system-ui, sans-serif; }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 20px; color: CanvasText; background: Canvas; }
-  h1 { margin: 0 0 4px; font-size: 20px; }
-  p { margin: 6px 0; color: GrayText; }
-  section { display: grid; gap: 8px; margin-top: 16px; padding: 12px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; }
+  /* Panel theme v1: Desktop injects --saycode-* and data-theme; older hosts fall back to the OS scheme. */
+  :root {
+    color-scheme: light;
+    --fb-bg: #FFFFFF; --fb-surface: #F4F4F5; --fb-text: #09090B; --fb-muted: #52525B; --fb-border: #DCDCE0;
+    --fb-accent: #1B64DA; --fb-accent-contrast: #FFFFFF; --fb-danger: #DC2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --fb-bg: #13161A; --fb-surface: #22252C; --fb-text: #FAFAFA; --fb-muted: #A1A1AA; --fb-border: #3E424D;
+      --fb-accent: #2470E4; --fb-accent-contrast: #FFFFFF; --fb-danger: #F87171;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --fb-bg: #13161A; --fb-surface: #22252C; --fb-text: #FAFAFA; --fb-muted: #A1A1AA; --fb-border: #3E424D;
+    --fb-accent: #2470E4; --fb-accent-contrast: #FFFFFF; --fb-danger: #F87171;
+  }
+  /* Resolved per element so the host values apply wherever Desktop sets them. */
+  * {
+    box-sizing: border-box;
+    --bg: var(--saycode-bg, var(--fb-bg));
+    --surface: var(--saycode-surface, var(--fb-surface));
+    --text: var(--saycode-text, var(--fb-text));
+    --muted: var(--saycode-text-muted, var(--fb-muted));
+    --border: var(--saycode-border, var(--fb-border));
+    --accent: var(--saycode-accent, var(--fb-accent));
+    --accent-contrast: var(--saycode-accent-contrast, var(--fb-accent-contrast));
+    --danger: var(--saycode-danger, var(--fb-danger));
+    --radius: var(--saycode-radius, 10px);
+  }
+  body {
+    margin: 0; padding: 16px 20px 20px;
+    font: 13px/1.5 var(--saycode-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+    color: var(--text); background: var(--bg);
+  }
+  .lead { margin: 0 0 14px; color: var(--muted); }
   .row { display: flex; align-items: center; gap: 8px; }
-  input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid ButtonBorder; border-radius: 7px; font: inherit; }
-  button { padding: 7px 12px; border: 1px solid ButtonBorder; border-radius: 7px; font: inherit; }
-  #result { color: CanvasText; overflow-wrap: anywhere; }
-  #error { color: #c33; overflow-wrap: anywhere; }
+  .row + .row { margin-top: 10px; }
+  input {
+    flex: 1; min-width: 0; height: 34px; padding: 0 10px;
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius); outline: none;
+  }
+  input::placeholder { color: var(--muted); }
+  input:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  button {
+    flex: none; height: 34px; padding: 0 14px;
+    font: inherit; font-weight: 500; border-radius: var(--radius); cursor: pointer;
+  }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled, input:disabled { opacity: 0.5; cursor: default; }
+  .primary { color: var(--accent-contrast); background: var(--accent); border: 1px solid var(--accent); }
+  .primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  /* Bordered secondary: hover tints only the border. */
+  .secondary { color: var(--text); background: transparent; border: 1px solid var(--border); }
+  .secondary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .activity { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); }
+  .spinner {
+    flex: none; width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-color: var(--accent); } }
+  #status { margin: 0; overflow-wrap: anywhere; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+  .stats li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--surface); border-radius: var(--radius); }
+  .stat-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 12px; color: var(--muted); }
+  @media (max-width: 360px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  #result { margin: 12px 0 0; overflow-wrap: anywhere; }
+  .banner {
+    margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius); overflow-wrap: anywhere;
+    border: 1px solid var(--tone); background: color-mix(in srgb, var(--tone) 8%, var(--bg));
+  }
+  .banner.info { --tone: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .banner.danger { --tone: color-mix(in srgb, var(--danger) 55%, var(--border)); color: var(--danger); }
+  code {
+    padding: 1px 5px; border-radius: 5px; white-space: nowrap; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
   /* Empty lines would leave a gap below the controls. */
   #status:empty, #result:empty, #error:empty { display: none; }
+  [hidden] { display: none !important; }
 </style>
-<h1 id="title"></h1>
-<p id="hint"></p>
-<section>
-  <div class="row">
-    <button id="check" type="button"></button>
-    <button id="cancel" type="button"></button>
+<p class="lead" id="hint"></p>
+<div class="row">
+  <input id="task" maxlength="512" autocomplete="off">
+  <button id="add" class="primary" type="button"></button>
+</div>
+<div class="row">
+  <button id="check" class="secondary" type="button"></button>
+  <div class="activity">
+    <span id="spinner" class="spinner" aria-hidden="true" hidden></span>
+    <p id="status" role="status"></p>
   </div>
-  <div class="row">
-    <input id="task" maxlength="512" autocomplete="off">
-    <button id="add" type="button"></button>
-  </div>
-  <p id="status" role="status"></p>
-  <p id="result"></p>
-  <p id="error" role="alert"></p>
-</section>
+  <button id="cancel" class="secondary" type="button" hidden></button>
+</div>
+<ul id="counts" class="stats" hidden></ul>
+<p id="result"></p>
+<div id="notice" class="banner info" role="status" hidden></div>
+<p id="error" class="banner danger" role="alert"></p>
 <script>
 (() => {
   const translations = {
     en: {
-      title: 'Moai board', hint: 'Runs in the project selected in the app. Before each run, a confirmation shows the machine and folder.',
+      hint: 'Runs in the project selected in the app. Before each run, a confirmation shows the machine and folder.',
       check: 'Show status', cancel: 'Cancel', placeholder: 'New task title', add: 'Add task',
       running: 'Running on the machine…', mayContinue: 'Processes on the machine may not have finished yet.', cancelled: 'The run was cancelled.', titleRequired: 'Enter a task title.',
-      counts: (c) => `To do ${c.todo} · In progress ${c.in_progress} · Review ${c.review} · Done ${c.done}`,
+      stats: { todo: 'To do', in_progress: 'In progress', review: 'Review', done: 'Done' },
       added: (t) => `Added: ${t.title} (${t.id})`,
       notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
       moaiError: (message) => `Moai reported an error: ${message}`, failed: 'The run failed.', unreadable: 'The run finished, but its result could not be read.',
-      notInitialized: 'This project has no Moai board yet. On that machine, run `moai init` once in the project folder, then try again.',
+      refused: {
+        declined: 'The run did not start: the confirmation was declined.',
+        'approval-timeout': 'The confirmation was not answered in time, so nothing ran. Try again.',
+        'workspace-busy': 'Another change is still running in this folder on that machine. Try again when it finishes.',
+        'tool-missing': 'Moai is not installed on that machine. Install it for that machine under Machine tools in Settings → Extensions.',
+        'unsupported-platform': "Moai cannot run on that machine's operating system.",
+        'unsupported-daemon': "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.",
+      },
+      notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
     },
     ko: {
-      title: 'Moai 작업 보드', hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+      hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
       check: '상태 보기', cancel: '취소', placeholder: '새 할 일 제목', add: '할 일 추가',
       running: '머신에서 실행하는 중…', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.', cancelled: '실행을 취소했습니다.', titleRequired: '할 일 제목을 입력하세요.',
-      counts: (c) => `할 일 ${c.todo} · 진행 중 ${c.in_progress} · 검토 ${c.review} · 완료 ${c.done}`,
+      stats: { todo: '할 일', in_progress: '진행 중', review: '검토', done: '완료' },
       added: (t) => `추가했습니다: ${t.title} (${t.id})`,
       notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
       moaiError: (message) => `Moai 오류: ${message}`, failed: '실행에 실패했습니다.', unreadable: '실행은 끝났지만 결과를 읽지 못했습니다.',
-      notInitialized: '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 `moai init`을 한 번 실행한 뒤 다시 시도하세요.',
+      refused: {
+        declined: '확인 창에서 거부해 실행하지 않았습니다.',
+        'approval-timeout': '확인 창에 시간 안에 응답하지 않아 실행하지 않았습니다. 다시 시도하세요.',
+        'workspace-busy': '그 머신의 이 폴더에서 다른 변경이 아직 실행 중입니다. 끝난 뒤 다시 시도하세요.',
+        'tool-missing': '그 머신에 Moai가 설치되어 있지 않습니다. 설정 → 확장의 머신 도구에서 그 머신에 Moai를 설치하세요.',
+        'unsupported-platform': '그 머신의 운영체제에서는 Moai를 실행할 수 없습니다.',
+        'unsupported-daemon': '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.',
+      },
+      notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
     },
     ja: {
-      title: 'Moai 作業ボード', hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
+      hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
       check: '状態を表示', cancel: 'キャンセル', placeholder: '新しいタスクのタイトル', add: 'タスクを追加',
       running: 'マシンで実行中…', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。', cancelled: '実行をキャンセルしました。', titleRequired: 'タスクのタイトルを入力してください。',
-      counts: (c) => `未着手 ${c.todo} · 進行中 ${c.in_progress} · レビュー ${c.review} · 完了 ${c.done}`,
+      stats: { todo: '未着手', in_progress: '進行中', review: 'レビュー', done: '完了' },
       added: (t) => `追加しました: ${t.title} (${t.id})`,
       notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
       moaiError: (message) => `Moai のエラー: ${message}`, failed: '実行に失敗しました。', unreadable: '実行は完了しましたが、結果を読み取れませんでした。',
-      notInitialized: 'このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで `moai init` を一度実行してから、もう一度お試しください。',
+      refused: {
+        declined: '確認画面で拒否されたため、実行しませんでした。',
+        'approval-timeout': '確認画面に時間内に応答がなかったため、実行しませんでした。もう一度お試しください。',
+        'workspace-busy': 'そのマシンのこのフォルダでは、別の変更がまだ実行中です。終了してからもう一度お試しください。',
+        'tool-missing': 'そのマシンに Moai がインストールされていません。設定 → 拡張機能のマシンツールから、そのマシンに Moai をインストールしてください。',
+        'unsupported-platform': 'そのマシンの OS では Moai を実行できません。',
+        'unsupported-daemon': 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。',
+      },
+      notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
     },
     zh: {
-      title: 'Moai 任务看板', hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
+      hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
       check: '查看状态', cancel: '取消', placeholder: '新任务标题', add: '添加任务',
       running: '正在机器上运行…', mayContinue: '机器上的进程可能尚未结束。', cancelled: '已取消运行。', titleRequired: '请输入任务标题。',
-      counts: (c) => `待办 ${c.todo} · 进行中 ${c.in_progress} · 审核 ${c.review} · 完成 ${c.done}`,
+      stats: { todo: '待办', in_progress: '进行中', review: '审核', done: '完成' },
       added: (t) => `已添加: ${t.title} (${t.id})`,
       notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
       moaiError: (message) => `Moai 错误: ${message}`, failed: '运行失败。', unreadable: '运行已结束，但无法读取结果。',
-      notInitialized: '此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 `moai init`，然后重试。',
+      refused: {
+        declined: '已在确认窗口中拒绝，因此未运行。',
+        'approval-timeout': '未在规定时间内回应确认窗口，因此未运行。请重试。',
+        'workspace-busy': '该机器的此文件夹中仍有其他更改正在运行。请在其结束后重试。',
+        'tool-missing': '该机器上未安装 Moai。请在「设置 → 扩展」的机器工具中为该机器安装 Moai。',
+        'unsupported-platform': '该机器的操作系统无法运行 Moai。',
+        'unsupported-daemon': '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。',
+      },
+      notInitialized: ['此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 ', '，然后重试。如果找不到 moai，请使用「设置 → 扩展」的机器工具中显示的 Moai 路径运行。'],
     },
   };
   const language = (document.documentElement.lang || navigator.language || 'en').split('-')[0];
   const copy = translations[language] || translations.en;
-  const el = Object.fromEntries(['title', 'hint', 'check', 'task', 'add', 'cancel', 'status', 'error', 'result']
+  const el = Object.fromEntries(['hint', 'check', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error']
     .map((id) => [id, document.getElementById(id)]));
-  el.title.textContent = copy.title;
   el.hint.textContent = copy.hint;
   el.check.textContent = copy.check;
   el.cancel.textContent = copy.cancel;
@@ -86,6 +192,7 @@
   const POLL_MS = 500;
   // The board needs `moai init`, which this extension deliberately cannot run.
   const NOT_A_REPOSITORY = /Not a moai repository/;
+  const INIT_COMMAND = 'moai init';
   let operationId = null;
   let busy = false;
 
@@ -93,10 +200,51 @@
     el.check.disabled = busy;
     el.add.disabled = busy;
     el.task.disabled = busy;
-    el.cancel.hidden = !busy;
+    el.spinner.hidden = !busy;
+    // Nothing to cancel while the confirmation is still open: the run has no operation id yet.
+    el.cancel.hidden = !(busy && operationId);
     el.cancel.disabled = !operationId;
   }
   sync();
+
+  // Refusals the user chose or can simply retry are information; the rest are errors.
+  const INFO_REFUSALS = new Set(['declined', 'approval-timeout', 'workspace-busy']);
+
+  function showNotice(text) {
+    el.notice.replaceChildren(text);
+    el.notice.hidden = false;
+  }
+
+  function showInitGuidance() {
+    const command = document.createElement('code');
+    command.textContent = INIT_COMMAND;
+    showNotice(copy.notInitialized[0]);
+    el.notice.append(command, copy.notInitialized[1]);
+  }
+
+  function showCounts(counts) {
+    el.counts.replaceChildren(...['todo', 'in_progress', 'review', 'done'].map((key) => {
+      const chip = document.createElement('li');
+      const value = document.createElement('span');
+      const label = document.createElement('span');
+      value.className = 'stat-value';
+      label.className = 'stat-label';
+      value.textContent = String(counts[key] ?? 0);
+      label.textContent = copy.stats[key];
+      chip.append(value, label);
+      return chip;
+    }));
+    el.counts.hidden = false;
+  }
+
+  function clearOutput() {
+    el.error.textContent = '';
+    el.result.textContent = '';
+    el.notice.replaceChildren();
+    el.notice.hidden = true;
+    el.counts.replaceChildren();
+    el.counts.hidden = true;
+  }
 
   function parse(stdout) {
     try { return JSON.parse(stdout); } catch { return null; }
@@ -114,8 +262,7 @@
     if (busy) return;
     busy = true;
     operationId = null;
-    el.error.textContent = '';
-    el.result.textContent = '';
+    clearOutput();
     el.status.textContent = copy.running;
     sync();
     try {
@@ -124,6 +271,11 @@
         started = await window.saycodePanel.invokeCommand('buzzni.moai.run', args);
       } catch {
         el.error.textContent = copy.notStarted;
+        return;
+      }
+      const refusal = started && started.state === 'refused' && Object.hasOwn(copy.refused, started.code) ? started.code : null;
+      if (refusal) {
+        if (INFO_REFUSALS.has(refusal)) showNotice(copy.refused[refusal]); else el.error.textContent = copy.refused[refusal];
         return;
       }
       if (!started || started.state !== 'accepted' || typeof started.operationId !== 'string') {
@@ -143,7 +295,8 @@
         // Moai prints its JSON error on stderr.
         const problem = (finished && parse(finished.stderr || '')) || output;
         const reason = problem && typeof problem.error === 'string' ? problem.error : null;
-        el.error.textContent = reason && NOT_A_REPOSITORY.test(reason) ? copy.notInitialized : reason ? copy.moaiError(reason) : copy.failed;
+        if (reason && NOT_A_REPOSITORY.test(reason)) showInitGuidance();
+        else el.error.textContent = reason ? copy.moaiError(reason) : copy.failed;
       }
     } catch {
       el.error.textContent = copy.failed;
@@ -158,8 +311,11 @@
   el.check.addEventListener('click', () => void run(['buzzni.moai.status'], (output) => {
     const counts = output && output.counts;
     // Outside a `.moai/` repository, status lists the user's projects instead of a board.
-    if (!counts) { el.error.textContent = Array.isArray(output && output.projects) ? copy.notInitialized : copy.unreadable; return; }
-    el.result.textContent = copy.counts(counts);
+    if (!counts) {
+      if (Array.isArray(output && output.projects)) showInitGuidance(); else el.error.textContent = copy.unreadable;
+      return;
+    }
+    showCounts(counts);
   }));
 
   function add() {

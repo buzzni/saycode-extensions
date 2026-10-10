@@ -18,7 +18,10 @@ export const EXTENSION_PERMISSIONS = [
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
 export interface ExtensionCommandContribution { id: string; title: string; panelId?: string }
 export interface ExtensionSettingContribution { id: string; title: string; type: 'boolean' | 'number' | 'string' }
-export interface ExtensionPanelContribution { id: string; title: string; entrypoint: string }
+/** Host modal presets (panel size v1); omitted keeps the host's default size. */
+export const PANEL_SURFACE_SIZES = ['compact', 'standard', 'wide'] as const
+export type ExtensionPanelSurfaceSize = (typeof PANEL_SURFACE_SIZES)[number]
+export interface ExtensionPanelContribution { id: string; title: string; entrypoint: string; surfaceSize?: ExtensionPanelSurfaceSize }
 export interface ExtensionMachineActionContribution {
   id: string
   title: string
@@ -550,8 +553,17 @@ export function parseExtensionManifest(
     }
   })
   const panels = contributions.panels === undefined ? undefined : list(contributions.panels, 'panels').map((item, index) => {
-    const base = contributionBase(item, `panels[${index}]`)
-    return { ...base, entrypoint: safePath(record(item, `panels[${index}]`).entrypoint, `panels[${index}].entrypoint`) }
+    const path = `panels[${index}]`
+    const source = record(item, path)
+    const surfaceSize = source.surfaceSize
+    if (surfaceSize !== undefined && !PANEL_SURFACE_SIZES.includes(surfaceSize as ExtensionPanelSurfaceSize)) {
+      throw new Error(`${path}.surfaceSize: expected one of ${PANEL_SURFACE_SIZES.join(', ')}`)
+    }
+    return {
+      ...contributionBase(item, path),
+      entrypoint: safePath(source.entrypoint, `${path}.entrypoint`),
+      ...(surfaceSize === undefined ? {} : { surfaceSize: surfaceSize as ExtensionPanelSurfaceSize }),
+    }
   })
   const machineActions = contributions.machineActions === undefined
     ? undefined

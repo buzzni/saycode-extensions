@@ -131,6 +131,53 @@ Frameworks such as Svelte or Tailwind work when built into a single file (for ex
 `vite-plugin-singlefile`); run that build before `pack`. `saycode-extension pack` refuses a panel that references a
 separate script or stylesheet, exceeds 512 KiB, or is not UTF-8, because Desktop would install it and render it blank.
 
+### Panel title and size (panel size v1)
+
+The host draws the panel's single title from `panels[].title`; do not render a second large heading (`<h1>`) inside the
+panel. Start with a short description line or the content itself.
+
+`panels[].surfaceSize` picks the host modal preset: `"compact"` (a small form or status view), `"standard"`, or
+`"wide"` (tables, editors). Omit it to keep the host's default size. Any other value is rejected by `validate`/`pack`.
+The host cannot measure a sandboxed iframe, so it does not size the modal to the content; choose the preset that fits
+and let the panel scroll inside it.
+
+```json
+{ "panels": [{ "id": "com.example.hello.panel", "title": "Hello", "entrypoint": "panel.html", "surfaceSize": "compact" }] }
+```
+
+Older Desktop builds reject unknown panel fields, so a manifest that sets `surfaceSize` needs a Desktop with panel size v1.
+
+### Panel theme (panel theme v1)
+
+Desktop sets `<html data-theme="light|dark">` on the panel document and injects these CSS custom properties, updating
+them in place when the app theme changes (the iframe is not reloaded):
+
+| Variable | Meaning | Light fallback | Dark fallback |
+|---|---|---|---|
+| `--saycode-bg` | Panel background | `#FFFFFF` | `#13161A` |
+| `--saycode-surface` | Raised or grouped area (chips, banners) | `#F4F4F5` | `#22252C` |
+| `--saycode-text` | Body text | `#09090B` | `#FAFAFA` |
+| `--saycode-text-muted` | Secondary text, labels | `#52525B` | `#A1A1AA` |
+| `--saycode-border` | Control and divider borders | `#DCDCE0` | `#3E424D` |
+| `--saycode-accent` | Brand color: primary buttons, focus ring, spinner | `#1B64DA` | `#2470E4` |
+| `--saycode-accent-contrast` | Text on an accent fill | `#FFFFFF` | `#FFFFFF` |
+| `--saycode-danger` | Errors and destructive actions | `#DC2626` | `#F87171` |
+| `--saycode-radius` | Control corner radius | `10px` | `10px` |
+| `--saycode-font` | Font stack | `system-ui, sans-serif` | `system-ui, sans-serif` |
+
+Older Desktop builds inject neither, so always give a fallback and pick it from `prefers-color-scheme` unless
+`data-theme` says otherwise. Resolve the variables where you use them (not once on `:root`), so they follow the host
+wherever it sets them:
+
+```css
+:root { --fb-bg: #FFFFFF; --fb-text: #09090B; --fb-accent: #1B64DA; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fb-bg: #13161A; --fb-text: #FAFAFA; --fb-accent: #2470E4; } }
+:root[data-theme="dark"] { --fb-bg: #13161A; --fb-text: #FAFAFA; --fb-accent: #2470E4; }
+body { background: var(--saycode-bg, var(--fb-bg)); color: var(--saycode-text, var(--fb-text)); }
+```
+
+Panels never receive other host styles or values, and the CSP and sandbox stay as described above.
+
 ## Testing and debugging
 
 `saycode-extension validate .` checks the manifest before you build. `saycode-extension dev . --once` produces a
@@ -190,5 +237,33 @@ Panels run in an opaque-origin iframe framed with `sandbox="allow-scripts"`: for
 ## Managed local tools and browser setup (SDK 0.5.0)
 
 `machineCommands` (API v3, paired with the `machine.run` permission) declares fixed remote command profiles: an executable name, an argv template with `{{workspaceRoot}}` and typed bounded `parameters`, a named cwd root, an environment allowlist, timeout and output limits, `stdin: "none"`, and for writes a `writeScope` plus a `descendantAllowlist`. Call `machineRun(context, { action: 'start', profileId, parameters })`, then `status`/`cancel` with the returned `operationId`. Core binds each run to the selected machine and project, asks the user at call time, and starts it only when the pinned Happy daemon ships a profile with the same digest; extension code never supplies a command, path or machine.
+
+When Core refuses a run, `machineRun` rejects with a `MachineRunError` whose `code` is one of `MACHINE_RUN_ERROR_CODES`:
+
+| Code | Meaning |
+|---|---|
+| `unsupported-daemon` | The machine's runtime is too old for `machine.run` or this profile |
+| `invalid-request` | The request did not match the declared profile or parameters |
+| `binding-mismatch` | The selected project or machine changed, or the call has no valid binding |
+| `declined` | The user declined the confirmation |
+| `approval-timeout` | The confirmation was not answered in time |
+| `workspace-busy` | Another write to the same machine and folder is still running |
+| `tool-missing` | The managed tool is not installed on that machine |
+| `unsupported-platform` | The machine's operating system cannot run the tool |
+
+The list is additive. An error with an unknown code (from a newer host) or no code (from an older host) is passed
+through unchanged, so treat it as a generic failure.
+
+```ts
+try {
+  await machineRun(context, { action: 'start', profileId, parameters })
+} catch (error) {
+  if (error instanceof MachineRunError && error.code === 'declined') return { state: 'refused', code: error.code }
+  throw error
+}
+```
+
+A panel cannot see these codes: the panel bridge carries only an error message. Return the code from your command
+instead of throwing it, as the Moai extension does.
 
 `managedLocalTool` declares exact HTTPS artifacts, archive/executable hashes, platform-specific signing checks and fixed argv operations with bounded typed JSON inputs. `localTools.inspect/install/control` are separate grants; installation never grants ongoing control. `localBrowser.setup` accepts profiles/management/pair/status/cancel/revoke and never accepts caller identity, viewerKey or tokens from extension code. Core resolves the local personal machine and authenticated caller. Cancellation reports remote uncertainty instead of promising that a shared native service stopped. `computer-control` owns the CUA metadata/recipe; Desktop owns admission, process lifetime and package smoke. These contracts require the matching unreleased host/Happy sources and are not a statement of current release availability.
