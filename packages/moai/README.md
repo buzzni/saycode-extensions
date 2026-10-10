@@ -33,5 +33,13 @@ instead of counts) the panel shows an information banner with that command and p
 Machine tools in Settings → Extensions, for when `moai` is not on that machine's `PATH`. Moai failures are shown as
 errors.
 
+When Core refuses a run with a `machine.run` error code, `buzzni.moai.run` returns
+`{ action: 'start', state: 'refused', code }` instead of throwing (the panel bridge carries only an error message).
+The panel explains `declined`, `approval-timeout` and `workspace-busy` (another change is still running in that folder
+on that machine) as information, and `tool-missing` (install Moai for that machine under Machine tools),
+`unsupported-platform` and `unsupported-daemon` (the machine's runtime is too old) as errors, in English, Korean,
+Japanese and Chinese. Other codes, and failures from older Desktop builds that carry no code, keep the generic
+"did not start" message.
+
 Version 1.0.4 sets `panels[].surfaceSize`, which Desktop builds without panel size v1 reject; install it on a Desktop
 that supports it.

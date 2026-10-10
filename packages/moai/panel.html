@@ -114,6 +114,14 @@
       added: (t) => `Added: ${t.title} (${t.id})`,
       notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
       moaiError: (message) => `Moai reported an error: ${message}`, failed: 'The run failed.', unreadable: 'The run finished, but its result could not be read.',
+      refused: {
+        declined: 'The run did not start: the confirmation was declined.',
+        'approval-timeout': 'The confirmation was not answered in time, so nothing ran. Try again.',
+        'workspace-busy': 'Another change is still running in this folder on that machine. Try again when it finishes.',
+        'tool-missing': 'Moai is not installed on that machine. Install it for that machine under Machine tools in Settings → Extensions.',
+        'unsupported-platform': "Moai cannot run on that machine's operating system.",
+        'unsupported-daemon': "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.",
+      },
       notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
     },
     ko: {
@@ -124,6 +132,14 @@
       added: (t) => `추가했습니다: ${t.title} (${t.id})`,
       notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
       moaiError: (message) => `Moai 오류: ${message}`, failed: '실행에 실패했습니다.', unreadable: '실행은 끝났지만 결과를 읽지 못했습니다.',
+      refused: {
+        declined: '확인 창에서 거부해 실행하지 않았습니다.',
+        'approval-timeout': '확인 창에 시간 안에 응답하지 않아 실행하지 않았습니다. 다시 시도하세요.',
+        'workspace-busy': '그 머신의 이 폴더에서 다른 변경이 아직 실행 중입니다. 끝난 뒤 다시 시도하세요.',
+        'tool-missing': '그 머신에 Moai가 설치되어 있지 않습니다. 설정 → 확장의 머신 도구에서 그 머신에 Moai를 설치하세요.',
+        'unsupported-platform': '그 머신의 운영체제에서는 Moai를 실행할 수 없습니다.',
+        'unsupported-daemon': '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.',
+      },
       notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
     },
     ja: {
@@ -134,6 +150,14 @@
       added: (t) => `追加しました: ${t.title} (${t.id})`,
       notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
       moaiError: (message) => `Moai のエラー: ${message}`, failed: '実行に失敗しました。', unreadable: '実行は完了しましたが、結果を読み取れませんでした。',
+      refused: {
+        declined: '確認画面で拒否されたため、実行しませんでした。',
+        'approval-timeout': '確認画面に時間内に応答がなかったため、実行しませんでした。もう一度お試しください。',
+        'workspace-busy': 'そのマシンのこのフォルダでは、別の変更がまだ実行中です。終了してからもう一度お試しください。',
+        'tool-missing': 'そのマシンに Moai がインストールされていません。設定 → 拡張機能のマシンツールから、そのマシンに Moai をインストールしてください。',
+        'unsupported-platform': 'そのマシンの OS では Moai を実行できません。',
+        'unsupported-daemon': 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。',
+      },
       notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
     },
     zh: {
@@ -144,6 +168,14 @@
       added: (t) => `已添加: ${t.title} (${t.id})`,
       notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
       moaiError: (message) => `Moai 错误: ${message}`, failed: '运行失败。', unreadable: '运行已结束，但无法读取结果。',
+      refused: {
+        declined: '已在确认窗口中拒绝，因此未运行。',
+        'approval-timeout': '未在规定时间内回应确认窗口，因此未运行。请重试。',
+        'workspace-busy': '该机器的此文件夹中仍有其他更改正在运行。请在其结束后重试。',
+        'tool-missing': '该机器上未安装 Moai。请在「设置 → 扩展」的机器工具中为该机器安装 Moai。',
+        'unsupported-platform': '该机器的操作系统无法运行 Moai。',
+        'unsupported-daemon': '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。',
+      },
       notInitialized: ['此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 ', '，然后重试。如果找不到 moai，请使用「设置 → 扩展」的机器工具中显示的 Moai 路径运行。'],
     },
   };
@@ -175,11 +207,19 @@
   }
   sync();
 
-  function showNotice(parts) {
+  // Refusals the user chose or can simply retry are information; the rest are errors.
+  const INFO_REFUSALS = new Set(['declined', 'approval-timeout', 'workspace-busy']);
+
+  function showNotice(text) {
+    el.notice.replaceChildren(text);
+    el.notice.hidden = false;
+  }
+
+  function showInitGuidance() {
     const command = document.createElement('code');
     command.textContent = INIT_COMMAND;
-    el.notice.replaceChildren(parts[0], command, parts[1]);
-    el.notice.hidden = false;
+    showNotice(copy.notInitialized[0]);
+    el.notice.append(command, copy.notInitialized[1]);
   }
 
   function showCounts(counts) {
@@ -233,6 +273,11 @@
         el.error.textContent = copy.notStarted;
         return;
       }
+      const refusal = started && started.state === 'refused' && Object.hasOwn(copy.refused, started.code) ? started.code : null;
+      if (refusal) {
+        if (INFO_REFUSALS.has(refusal)) showNotice(copy.refused[refusal]); else el.error.textContent = copy.refused[refusal];
+        return;
+      }
       if (!started || started.state !== 'accepted' || typeof started.operationId !== 'string') {
         el.error.textContent = copy.notStarted;
         return;
@@ -250,7 +295,7 @@
         // Moai prints its JSON error on stderr.
         const problem = (finished && parse(finished.stderr || '')) || output;
         const reason = problem && typeof problem.error === 'string' ? problem.error : null;
-        if (reason && NOT_A_REPOSITORY.test(reason)) showNotice(copy.notInitialized);
+        if (reason && NOT_A_REPOSITORY.test(reason)) showInitGuidance();
         else el.error.textContent = reason ? copy.moaiError(reason) : copy.failed;
       }
     } catch {
@@ -267,7 +312,7 @@
     const counts = output && output.counts;
     // Outside a `.moai/` repository, status lists the user's projects instead of a board.
     if (!counts) {
-      if (Array.isArray(output && output.projects)) showNotice(copy.notInitialized); else el.error.textContent = copy.unreadable;
+      if (Array.isArray(output && output.projects)) showInitGuidance(); else el.error.textContent = copy.unreadable;
       return;
     }
     showCounts(counts);

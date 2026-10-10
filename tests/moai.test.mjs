@@ -342,3 +342,55 @@ test('a new run clears the previous counts, notice, and error', async () => {
   assert.equal(elements.notice.hidden, true)
   assert.equal(elements.counts.hidden, false)
 })
+
+test('a refused start comes back as a result with its code, so the panel can explain it', async () => {
+  // The panel bridge carries only an error message, so the command returns the refusal instead of throwing it.
+  let failure
+  const host = createTestHost('buzzni.moai', { async invokeCapability() { throw failure } })
+  await host.activate(extension)
+  failure = Object.assign(new Error('capability.invoke machine.run/start failed: declined'), { code: 'declined' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), { action: 'start', state: 'refused', code: 'declined' })
+  failure = Object.assign(new Error('busy'), { code: 'workspace-busy' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.add', 'Ship it']), { action: 'start', state: 'refused', code: 'workspace-busy' })
+  // Unknown or missing codes stay failures, as before.
+  failure = Object.assign(new Error('later'), { code: 'something-new' })
+  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /later/)
+  failure = new Error('capability failed')
+  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /capability failed/)
+})
+
+const REFUSALS = {
+  declined: { where: 'notice', en: 'The run did not start: the confirmation was declined.', ko: '확인 창에서 거부해 실행하지 않았습니다.', ja: '確認画面で拒否されたため、実行しませんでした。', zh: '已在确认窗口中拒绝，因此未运行。' },
+  'approval-timeout': { where: 'notice', en: 'The confirmation was not answered in time, so nothing ran. Try again.', ko: '확인 창에 시간 안에 응답하지 않아 실행하지 않았습니다. 다시 시도하세요.', ja: '確認画面に時間内に応答がなかったため、実行しませんでした。もう一度お試しください。', zh: '未在规定时间内回应确认窗口，因此未运行。请重试。' },
+  'workspace-busy': { where: 'notice', en: 'Another change is still running in this folder on that machine. Try again when it finishes.', ko: '그 머신의 이 폴더에서 다른 변경이 아직 실행 중입니다. 끝난 뒤 다시 시도하세요.', ja: 'そのマシンのこのフォルダでは、別の変更がまだ実行中です。終了してからもう一度お試しください。', zh: '该机器的此文件夹中仍有其他更改正在运行。请在其结束后重试。' },
+  'tool-missing': { where: 'error', en: 'Moai is not installed on that machine. Install it for that machine under Machine tools in Settings → Extensions.', ko: '그 머신에 Moai가 설치되어 있지 않습니다. 설정 → 확장의 머신 도구에서 그 머신에 Moai를 설치하세요.', ja: 'そのマシンに Moai がインストールされていません。設定 → 拡張機能のマシンツールから、そのマシンに Moai をインストールしてください。', zh: '该机器上未安装 Moai。请在「设置 → 扩展」的机器工具中为该机器安装 Moai。' },
+  'unsupported-platform': { where: 'error', en: "Moai cannot run on that machine's operating system.", ko: '그 머신의 운영체제에서는 Moai를 실행할 수 없습니다.', ja: 'そのマシンの OS では Moai を実行できません。', zh: '该机器的操作系统无法运行 Moai。' },
+  'unsupported-daemon': { where: 'error', en: "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.", ko: '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.', ja: 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。', zh: '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。' },
+}
+
+test('each refusal code is explained in all four languages; user choices are information, machine problems errors', async () => {
+  for (const [code, expected] of Object.entries(REFUSALS)) {
+    for (const language of ['en', 'ko', 'ja', 'zh']) {
+      const calls = []
+      const elements = await runPanel(async (command) => { calls.push(command); return { action: 'start', state: 'refused', code } }, language)
+      elements.check.click()
+      await flush()
+      const other = expected.where === 'notice' ? 'error' : 'notice'
+      assert.equal(elements[expected.where].textContent, expected[language], `${code} in ${language}`)
+      assert.equal(elements[other].textContent, '', `${code} in ${language} stays out of #${other}`)
+      if (expected.where === 'notice') assert.equal(elements.notice.hidden, false)
+      assert.deepEqual(calls, ['buzzni.moai.run'], 'a refused run is never polled')
+      assert.equal(elements.check.disabled, false)
+      assert.equal(elements.cancel.hidden, true)
+    }
+  }
+})
+
+test('refusals without a specific message keep the generic not-started explanation', async () => {
+  for (const code of ['binding-mismatch', 'invalid-request', 'something-new']) {
+    const elements = await runPanel(async () => ({ action: 'start', state: 'refused', code }))
+    elements.check.click()
+    await flush()
+    assert.equal(elements.error.textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
+  }
+})
