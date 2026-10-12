@@ -82,12 +82,19 @@ export interface ExtensionChannelContribution {
   provider: 'telegram' | 'slack' | 'discord'
   commands?: ExtensionChannelCommandContribution[]
 }
+/** A per-project tool in the Desktop work area More menu (engine ^1.2.0); choosing it opens the command's panel as a tool tab. */
+export interface ExtensionProjectToolContribution {
+  id: string
+  title: string
+  command: string
+}
 export interface ExtensionContributions {
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
   panels?: ExtensionPanelContribution[]
   projectTemplates?: ExtensionProjectTemplateContribution[]
   machineActions?: ExtensionMachineActionContribution[]
+  projectTools?: ExtensionProjectToolContribution[]
   artifactActions?: ExtensionArtifactActionContribution[]
   channels?: ExtensionChannelContribution[]
 }
@@ -582,6 +589,18 @@ export function parseExtensionManifest(
         when: { online: true as const },
       }
     })
+  if (apiVersion < 3 && contributions.projectTools !== undefined) {
+    throw new Error('manifest.contributes.projectTools: requires Extension API version 3')
+  }
+  const projectTools = contributions.projectTools === undefined
+    ? undefined
+    : list(contributions.projectTools, 'projectTools').map((item, index) => {
+      const path = `projectTools[${index}]`
+      const source = record(item, path)
+      const unknown = Object.keys(source).find((key) => !['id', 'title', 'command'].includes(key))
+      if (unknown) throw new Error(`${path}: unknown field ${unknown}`)
+      return { ...contributionBase(item, path), command: stableId(source.command, `${path}.command`) }
+    })
   const artifactActions = contributions.artifactActions === undefined
     ? undefined
     : parseArtifactActions(contributions.artifactActions)
@@ -607,6 +626,14 @@ export function parseExtensionManifest(
       || !action.command.startsWith(`${text(raw.id, 'manifest.id')}.`)
       || !commands?.some((command) => command.id === action.command)
     ) throw new Error(`machineActions[${index}].id/command: expected ids declared by the same extension`)
+  }
+  for (const [index, tool] of (projectTools ?? []).entries()) {
+    const extensionPrefix = `${text(raw.id, 'manifest.id')}.`
+    if (!tool.id.startsWith(extensionPrefix)) throw new Error(`projectTools[${index}].id: expected an id declared by the same extension`)
+    const command = tool.command.startsWith(extensionPrefix) ? commands?.find((candidate) => candidate.id === tool.command) : undefined
+    if (!command) throw new Error(`projectTools[${index}].command: expected a command declared by the same extension`)
+    // The tool tab shows a panel, so a command that opens none would leave it empty.
+    if (!command.panelId) throw new Error(`projectTools[${index}].command: expected a command that opens a panel`)
   }
   const settings = contributions.settings === undefined ? undefined : list(contributions.settings, 'settings').map((item, index) => {
     const source = record(item, `settings[${index}]`)
@@ -661,6 +688,7 @@ export function parseExtensionManifest(
     ...(panels ?? []),
     ...(projectTemplates ?? []),
     ...(machineActions ?? []),
+    ...(projectTools ?? []),
     ...(artifactActions ?? []),
     ...(channels ?? []),
   ].map((contribution) => contribution.id)
@@ -678,6 +706,6 @@ export function parseExtensionManifest(
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
     activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, artifactActions, channels },
+    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels },
   }
 }

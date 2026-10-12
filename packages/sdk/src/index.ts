@@ -130,6 +130,7 @@ export type {
   ExtensionContributions,
   ExtensionManifest,
   ExtensionMachineActionContribution,
+  ExtensionProjectToolContribution,
   ExtensionPanelContribution,
   ExtensionPanelSurfaceSize,
   ExtensionPermission,
