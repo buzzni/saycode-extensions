@@ -87,17 +87,38 @@ test('Moai extension forwards approved run, status, and cancel calls', async () 
 })
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
-const PANEL_IDS = ['hint', 'check', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error']
+const PANEL_IDS = ['hint', 'check', 'refresh', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error', 'board', 'detail', 'back', 'detail-title', 'detail-meta', 'detail-body', 'detail-children', 'detail-journal']
 const panelWindows = []
 after(() => { for (const window of panelWindows) window.close() })
 
-/** Runs the packed panel in a real DOM, wrapped the way Desktop's panel document wraps it. */
-async function runPanel(invokeCommand, language = 'en') {
+const fixture = async (name) => readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8')
+// Real Moai v0.8.0 output, read up front: file I/O inside a handler would outlast the panel's flushes.
+const PRIME = await fixture('prime-v080.json')
+const PRIME_NO_TRACKER = await fixture('prime-no-tracker-v080.json')
+const SHOW_NOTE_BODY = await fixture('show-note-body-v080.json')
+const SHOW_MOVED = await fixture('show-moved-v080.json')
+const EMPTY_BOARD = JSON.stringify({ picked: [], ready: [], rest: 0, others: [], others_rest: 0 })
+
+/**
+ * Runs the packed panel in a real DOM, wrapped the way Desktop's panel document wraps it. The board loads its
+ * list when it opens; unless `board` is null, that first load is answered with `board` (an empty board by
+ * default) before `invokeCommand` sees any call, so a test observes only what it does itself.
+ */
+async function runPanel(invokeCommand, language = 'en', board = EMPTY_BOARD) {
   const html = await packedPanelHtml()
+  let opening = board !== null
+  const respond = async (command, args) => {
+    if (opening && command === 'buzzni.moai.run' && args[0] === 'buzzni.moai.prime') return { action: 'start', operationId: 'opening-board', state: 'accepted' }
+    if (opening && command === 'buzzni.moai.status' && args[0] === 'opening-board') {
+      opening = false
+      return { action: 'status', operationId: 'opening-board', state: 'passed', stdout: board, stderr: '', exitCode: 0 }
+    }
+    return invokeCommand(command, args)
+  }
   const dom = new JSDOM(`<!doctype html><html lang="${language}"><head></head><body>${html}</body></html>`, {
     runScripts: 'dangerously',
     // Arguments cross a MessagePort in Desktop; copying them here also keeps assertions in this realm.
-    beforeParse(window) { window.saycodePanel = { ready: Promise.resolve(), invokeCommand: (command, args) => invokeCommand(command, structuredClone(args)) } },
+    beforeParse(window) { window.saycodePanel = { ready: Promise.resolve(), invokeCommand: (command, args) => respond(command, structuredClone(args)) } },
   })
   panelWindows.push(dom.window)
   await flush()
@@ -110,17 +131,20 @@ async function runPanel(invokeCommand, language = 'en') {
   })
 }
 
-test('a machine action opens the Moai board panel through a command declared by the extension', async () => {
+test('a project tool opens the Moai board panel in the work area instead of a machine settings button', async () => {
   const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
   const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
   assert.equal(open?.panelId, 'buzzni.moai.panel')
-  // The host owns the panel title; compact asks for the small modal preset.
+  // The host owns the panel title; compact asks for the small modal preset where a host still opens a modal.
   assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'panel.html', surfaceSize: 'compact' }])
-  assert.deepEqual(parsed.contributes.machineActions, [{ id: 'buzzni.moai.board', title: 'Moai', command: 'buzzni.moai.open', when: { online: true } }])
+  assert.deepEqual(parsed.contributes.projectTools, [{ id: 'buzzni.moai.board', title: 'Moai', command: 'buzzni.moai.open' }])
+  assert.equal(parsed.contributes.machineActions, undefined)
+  // Project tools need a Desktop with engine 1.2.0; an older one refuses the manifest instead of misreading it.
+  assert.equal(parsed.engines.saycode, '^1.2.0')
   assert.ok(parsed.activationEvents.includes('onCommand:buzzni.moai.open'))
   const host = createTestHost('buzzni.moai', { async invokeCapability() { throw new Error('not expected') } })
   await host.activate(extension)
-  assert.equal(await host.invokeCommand('buzzni.moai.open', [{ version: 1, machine: { id: 'm1', online: true } }]), null)
+  assert.equal(await host.invokeCommand('buzzni.moai.open', []), null)
 })
 
 test('the board shows task counts from a status run, polling until it finishes', async () => {
@@ -393,4 +417,114 @@ test('refusals without a specific message keep the generic not-started explanati
     await flush()
     assert.equal(elements.error.textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
   }
+})
+
+const groups = (elements) => [...elements.board.querySelectorAll('section.group')].map((group) => [
+  group.querySelector('h2').textContent,
+  [...group.querySelectorAll('button.task')].map((item) => item.querySelector('.task-title').textContent),
+])
+
+test('the board lists in-progress, review and to-do tasks from prime when it opens', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-p', state: 'accepted' }
+    return { action: 'status', operationId: 'op-p', state: 'passed', stdout: PRIME, stderr: '', exitCode: 0 }
+  }, 'ko', null)
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.prime']])
+  assert.deepEqual(groups(elements), [['진행 중', ['버튼으로 추가한 할 일']], ['검토', ['리뷰할 일']], ['할 일', ['가이드 첫 할 일']]])
+  assert.equal(elements.board.hidden, false)
+  assert.equal(elements.detail.hidden, true)
+})
+
+test('a truncated list says how many more tasks there are', async () => {
+  const board = JSON.stringify({ picked: [], ready: [{ id: 'a-1', title: 'First', status: 'todo', priority: 2 }], rest: 4, others: [], others_rest: 2 })
+  const elements = await runPanel(async () => null, 'en', board)
+  assert.match(elements.board.textContent, /6 more not shown/)
+})
+
+test('an empty board says so instead of showing empty sections', async () => {
+  const elements = await runPanel(async () => null, 'en')
+  assert.deepEqual(groups(elements), [])
+  assert.match(elements.board.textContent, /No open tasks/)
+})
+
+test('opening a project without a Moai board explains how to start one', async () => {
+  const elements = await runPanel(async () => null, 'en', PRIME_NO_TRACKER)
+  assertInitGuidance(elements, NOT_INITIALIZED_EN)
+  assert.deepEqual(groups(elements), [])
+})
+
+test('choosing a task shows its details in the same panel, and Back returns to the list', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-s', state: 'accepted' }
+    return { action: 'status', operationId: 'op-s', state: 'passed', stdout: SHOW_NOTE_BODY, stderr: '', exitCode: 0 }
+  }, 'ko', PRIME)
+  const item = [...elements.board.querySelectorAll('button.task')].find((button) => button.textContent.includes('가이드 첫 할 일'))
+  item.click()
+  await flush()
+  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.show', 'mgd-hmcr']])
+  assert.equal(elements.board.hidden, true)
+  assert.equal(elements.detail.hidden, false)
+  assert.equal(elements['detail-title'].textContent, '가이드 첫 할 일')
+  const meta = Object.fromEntries([...elements['detail-meta'].querySelectorAll('dt')].map((term) => [term.textContent, term.nextElementSibling.textContent]))
+  assert.equal(meta['상태'], '할 일')
+  assert.equal(meta['우선순위'], 'P2')
+  assert.equal(meta['담당자'], 'dev')
+  assert.equal(meta['ID'], 'mgd-hmcr')
+  assert.equal(elements['detail-body'].textContent, '본문 첫 줄\n둘째 줄')
+  const journal = [...elements['detail-journal'].querySelectorAll('li')].map((entry) => entry.querySelector('.journal-text').textContent)
+  assert.deepEqual(journal, ['만들었습니다', '메모 하나'])
+  assert.match(elements['detail-children'].textContent, /하위 항목 없음/)
+  assert.equal(elements.window.document.activeElement, elements.back)
+
+  elements.back.click()
+  assert.equal(elements.detail.hidden, true)
+  assert.equal(elements.board.hidden, false)
+  assert.equal(elements.window.document.activeElement.textContent.includes('가이드 첫 할 일'), true)
+})
+
+test('a status move in the history reads as from and to states', async () => {
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? { action: 'start', operationId: 'op-m', state: 'accepted' }
+    : { action: 'status', operationId: 'op-m', state: 'passed', stdout: SHOW_MOVED, stderr: '', exitCode: 0 }, 'en', PRIME)
+  ;[...elements.board.querySelectorAll('button.task')].find((button) => button.textContent.includes('mgd-ogym')).click()
+  await flush()
+  const journal = [...elements['detail-journal'].querySelectorAll('li')].map((entry) => entry.querySelector('.journal-text').textContent)
+  assert.deepEqual(journal, ['Created', 'To do → In progress'])
+  assert.equal(elements['detail-body'].hidden, true)
+})
+
+test('adding a task refreshes the list', async () => {
+  const calls = []
+  const elements = await runPanel(async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') return { action: 'start', operationId: `op-${args[0]}`, state: 'accepted' }
+    return args[0] === 'op-buzzni.moai.add'
+      ? { action: 'status', operationId: args[0], state: 'passed', stdout: JSON.stringify({ id: 'mgd-new', title: 'New one', status: 'todo' }), exitCode: 0 }
+      : { action: 'status', operationId: args[0], state: 'passed', stdout: JSON.stringify({ picked: [], ready: [{ id: 'mgd-new', title: 'New one', status: 'todo', priority: 2 }], rest: 0, others: [], others_rest: 0 }), exitCode: 0 }
+  })
+  elements.task.value = 'New one'
+  elements.add.click()
+  await flush()
+  await flush()
+  assert.deepEqual(calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args[0]), ['buzzni.moai.add', 'buzzni.moai.prime'])
+  assert.deepEqual(groups(elements), [['To do', ['New one']]])
+  assert.equal(elements.result.textContent, 'Added: New one (mgd-new)')
+})
+
+test('Refresh reloads the list, and task buttons wait while a run is in flight', async () => {
+  let accept
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? new Promise((resolve) => { accept = resolve })
+    : { action: 'status', operationId: 'op-r', state: 'passed', stdout: PRIME, exitCode: 0 }, 'en', PRIME)
+  elements.refresh.click()
+  await flush()
+  assert.ok([...elements.board.querySelectorAll('button.task')].every((button) => button.disabled))
+  accept({ action: 'start', operationId: 'op-r', state: 'accepted' })
+  await flush()
+  assert.ok([...elements.board.querySelectorAll('button.task')].every((button) => !button.disabled))
 })

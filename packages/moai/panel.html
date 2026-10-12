@@ -82,6 +82,34 @@
     padding: 1px 5px; border-radius: 5px; white-space: nowrap; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     background: color-mix(in srgb, var(--text) 8%, transparent);
   }
+  /* Task list and detail share the panel; the detail replaces the list in place. */
+  .board { margin: 16px 0 0; }
+  .group + .group { margin-top: 14px; }
+  .group-head { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; }
+  .group h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .group-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .tasks { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  button.task {
+    display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 38px; padding: 8px 12px;
+    text-align: left; font-weight: 400; color: var(--text); background: transparent; border: 1px solid var(--border);
+  }
+  button.task:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .task-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .task-id, .journal-meta { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .more, .empty { margin: 10px 0 0; color: var(--muted); }
+  .detail { margin: 16px 0 0; }
+  button.link { height: 28px; padding: 0 8px; margin: 0 0 8px -8px; color: var(--accent); background: transparent; border: 0; }
+  button.link:hover:not(:disabled) { text-decoration: underline; }
+  .detail h2 { margin: 0 0 10px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+  .detail h3 { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+  .meta dt { color: var(--muted); }
+  .meta dd { margin: 0; overflow-wrap: anywhere; }
+  .body { margin: 12px 0 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: var(--radius); }
+  .children, .journal { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .journal li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+  .journal-text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .children .empty { margin: 0; }
   /* Empty lines would leave a gap below the controls. */
   #status:empty, #result:empty, #error:empty { display: none; }
   [hidden] { display: none !important; }
@@ -92,6 +120,7 @@
   <button id="add" class="primary" type="button"></button>
 </div>
 <div class="row">
+  <button id="refresh" class="secondary" type="button"></button>
   <button id="check" class="secondary" type="button"></button>
   <div class="activity">
     <span id="spinner" class="spinner" aria-hidden="true" hidden></span>
@@ -103,10 +132,24 @@
 <p id="result"></p>
 <div id="notice" class="banner info" role="status" hidden></div>
 <p id="error" class="banner danger" role="alert"></p>
+<section id="board" class="board"></section>
+<section id="detail" class="detail" hidden>
+  <button id="back" class="link" type="button"></button>
+  <h2 id="detail-title"></h2>
+  <dl id="detail-meta" class="meta"></dl>
+  <p id="detail-body" class="body" hidden></p>
+  <h3 id="children-heading"></h3>
+  <ul id="detail-children" class="children" aria-labelledby="children-heading"></ul>
+  <h3 id="journal-heading"></h3>
+  <ol id="detail-journal" class="journal" aria-labelledby="journal-heading"></ol>
+</section>
 <script>
 (() => {
   const translations = {
     en: {
+      refresh: 'Refresh', board: 'Tasks', empty: 'No open tasks.', more: (n) => `${n} more not shown`, back: '← Back to list',
+      fields: { status: 'Status', priority: 'Priority', assignee: 'Assignee', created: 'Created', id: 'ID' },
+      children: 'Subtasks', noChildren: 'No subtasks', journal: 'History', createdEntry: 'Created',
       hint: 'Runs in the project selected in the app. Before each run, a confirmation shows the machine and folder.',
       check: 'Show status', cancel: 'Cancel', placeholder: 'New task title', add: 'Add task',
       running: 'Running on the machine…', mayContinue: 'Processes on the machine may not have finished yet.', cancelled: 'The run was cancelled.', titleRequired: 'Enter a task title.',
@@ -125,6 +168,9 @@
       notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
     },
     ko: {
+      refresh: '새로고침', board: '할 일 목록', empty: '진행 중이거나 할 일인 항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`, back: '← 목록으로',
+      fields: { status: '상태', priority: '우선순위', assignee: '담당자', created: '만든 시각', id: 'ID' },
+      children: '하위 항목', noChildren: '하위 항목 없음', journal: '기록', createdEntry: '만들었습니다',
       hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
       check: '상태 보기', cancel: '취소', placeholder: '새 할 일 제목', add: '할 일 추가',
       running: '머신에서 실행하는 중…', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.', cancelled: '실행을 취소했습니다.', titleRequired: '할 일 제목을 입력하세요.',
@@ -143,6 +189,9 @@
       notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
     },
     ja: {
+      refresh: '再読み込み', board: 'タスク一覧', empty: '未完了のタスクはありません。', more: (n) => `ほかに ${n} 件は表示していません`, back: '← 一覧に戻る',
+      fields: { status: '状態', priority: '優先度', assignee: '担当者', created: '作成日時', id: 'ID' },
+      children: 'サブタスク', noChildren: 'サブタスクなし', journal: '履歴', createdEntry: '作成しました',
       hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
       check: '状態を表示', cancel: 'キャンセル', placeholder: '新しいタスクのタイトル', add: 'タスクを追加',
       running: 'マシンで実行中…', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。', cancelled: '実行をキャンセルしました。', titleRequired: 'タスクのタイトルを入力してください。',
@@ -161,6 +210,9 @@
       notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
     },
     zh: {
+      refresh: '刷新', board: '任务列表', empty: '没有未完成的任务。', more: (n) => `另有 ${n} 项未显示`, back: '← 返回列表',
+      fields: { status: '状态', priority: '优先级', assignee: '负责人', created: '创建时间', id: 'ID' },
+      children: '子任务', noChildren: '无子任务', journal: '记录', createdEntry: '已创建',
       hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
       check: '查看状态', cancel: '取消', placeholder: '新任务标题', add: '添加任务',
       running: '正在机器上运行…', mayContinue: '机器上的进程可能尚未结束。', cancelled: '已取消运行。', titleRequired: '请输入任务标题。',
@@ -181,10 +233,16 @@
   };
   const language = (document.documentElement.lang || navigator.language || 'en').split('-')[0];
   const copy = translations[language] || translations.en;
-  const el = Object.fromEntries(['hint', 'check', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error']
+  const el = Object.fromEntries(['hint', 'check', 'refresh', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error',
+    'board', 'detail', 'back', 'detail-title', 'detail-meta', 'detail-body', 'detail-children', 'detail-journal', 'children-heading', 'journal-heading']
     .map((id) => [id, document.getElementById(id)]));
   el.hint.textContent = copy.hint;
   el.check.textContent = copy.check;
+  el.refresh.textContent = copy.refresh;
+  el.back.textContent = copy.back;
+  el.board.setAttribute('aria-label', copy.board);
+  el['children-heading'].textContent = copy.children;
+  el['journal-heading'].textContent = copy.journal;
   el.cancel.textContent = copy.cancel;
   el.add.textContent = copy.add;
   el.task.placeholder = copy.placeholder;
@@ -198,6 +256,9 @@
 
   function sync() {
     el.check.disabled = busy;
+    el.refresh.disabled = busy;
+    el.back.disabled = busy;
+    for (const button of el.board.querySelectorAll('button')) button.disabled = busy;
     el.add.disabled = busy;
     el.task.disabled = busy;
     el.spinner.hidden = !busy;
@@ -308,6 +369,118 @@
     }
   }
 
+  function node(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  const items = (list) => (Array.isArray(list) ? list : []).filter((item) => item && typeof item.id === 'string');
+
+  // prime lists what is held (picked: yours, others: other people's) and what can be picked up (ready); done tasks are not listed.
+  function renderBoard(output) {
+    const held = [...items(output.picked), ...items(output.others)];
+    const groups = [
+      ['in_progress', held.filter((item) => item.status === 'in_progress')],
+      ['review', held.filter((item) => item.status === 'review')],
+      ['todo', items(output.ready)],
+    ].filter(([, list]) => list.length);
+    const sections = groups.map(([key, list]) => {
+      const section = node('section', 'group');
+      const head = node('div', 'group-head');
+      head.append(node('h2', '', copy.stats[key]), node('span', 'group-count', String(list.length)));
+      const tasks = node('ul', 'tasks');
+      tasks.append(...list.map((item) => {
+        const button = node('button', 'task');
+        button.type = 'button';
+        button.dataset.id = item.id;
+        button.append(node('span', 'task-title', String(item.title || item.id)), node('span', 'task-id', item.id));
+        button.addEventListener('click', () => void openTask(item.id));
+        const entry = node('li');
+        entry.append(button);
+        return entry;
+      }));
+      section.append(head, tasks);
+      return section;
+    });
+    const hidden = (Number(output.rest) || 0) + (Number(output.others_rest) || 0);
+    el.board.replaceChildren(...sections, ...(sections.length ? [] : [node('p', 'empty', copy.empty)]), ...(hidden > 0 ? [node('p', 'more', copy.more(hidden))] : []));
+    sync();
+  }
+
+  function loadBoard() {
+    return run(['buzzni.moai.prime'], (output) => {
+      // Outside a `.moai/` repository prime reports no tracker instead of failing.
+      if (output.no_tracker === true) { el.board.replaceChildren(); showInitGuidance(); return; }
+      renderBoard(output);
+    });
+  }
+
+  function dateText(value) {
+    const date = new Date(value);
+    return typeof value === 'string' && !Number.isNaN(date.getTime()) ? date.toLocaleString(language) : '';
+  }
+
+  function journalText(entry) {
+    if (entry.kind === 'create') return copy.createdEntry;
+    if (entry.kind === 'note' && typeof entry.text === 'string') return entry.text;
+    if (entry.kind === 'status') return `${copy.stats[entry.from] || entry.from} → ${copy.stats[entry.to] || entry.to}`;
+    return String(entry.text || entry.kind || '');
+  }
+
+  function renderDetail(task) {
+    el['detail-title'].textContent = String(task.title || task.id);
+    const fields = [
+      ['status', copy.stats[task.status] || task.status],
+      ['priority', task.priority === undefined || task.priority === null ? '' : `P${task.priority}`],
+      ['assignee', task.assignee || ''],
+      ['created', dateText(task.created_at)],
+      ['id', task.id],
+    ].filter(([, value]) => value);
+    el['detail-meta'].replaceChildren(...fields.flatMap(([key, value]) => [node('dt', '', copy.fields[key]), node('dd', '', String(value))]));
+    const body = typeof task.body === 'string' ? task.body : '';
+    el['detail-body'].textContent = body;
+    el['detail-body'].hidden = !body;
+    const children = items(task.children);
+    el['detail-children'].replaceChildren(...(children.length
+      ? children.map((child) => node('li', '', `${child.title || child.id} (${child.id})`))
+      : [node('li', 'empty', copy.noChildren)]));
+    el['detail-journal'].replaceChildren(...(Array.isArray(task.journal) ? task.journal : []).map((entry) => {
+      const item = node('li');
+      const meta = [entry.by, dateText(entry.ts)].filter(Boolean).join(' · ');
+      item.append(node('span', 'journal-text', journalText(entry)), node('span', 'journal-meta', meta));
+      return item;
+    }));
+  }
+
+  let openedFrom = null;
+  function openTask(id) {
+    return run(['buzzni.moai.show', id], (output) => {
+      if (typeof output.id !== 'string') { el.error.textContent = copy.unreadable; return; }
+      openedFrom = id;
+      renderDetail(output);
+      el.board.hidden = true;
+      el.detail.hidden = false;
+    }).then(() => {
+      // Back is disabled until the run settles, so focus moves only then.
+      if (!el.detail.hidden) el.back.focus();
+    });
+  }
+
+  el.back.addEventListener('click', () => {
+    el.detail.hidden = true;
+    el.board.hidden = false;
+    const origin = [...el.board.querySelectorAll('button.task')].find((button) => button.dataset.id === openedFrom);
+    (origin || el.refresh).focus();
+  });
+
+  el.refresh.addEventListener('click', () => {
+    el.detail.hidden = true;
+    el.board.hidden = false;
+    void loadBoard();
+  });
+
   el.check.addEventListener('click', () => void run(['buzzni.moai.status'], (output) => {
     const counts = output && output.counts;
     // Outside a `.moai/` repository, status lists the user's projects instead of a board.
@@ -321,10 +494,19 @@
   function add() {
     const title = (el.task.value || '').trim();
     if (!title) { el.error.textContent = copy.titleRequired; return; }
+    let added = null;
     void run(['buzzni.moai.add', title], (output) => {
       if (!output || typeof output.id !== 'string') { el.error.textContent = copy.unreadable; return; }
-      el.result.textContent = copy.added(output);
+      added = copy.added(output);
+      el.result.textContent = added;
       el.task.value = '';
+    }).then(async () => {
+      if (!added) return;
+      el.detail.hidden = true;
+      el.board.hidden = false;
+      await loadBoard();
+      // The refresh starts a new run, which clears the previous result line.
+      if (!el.error.textContent) el.result.textContent = added;
     });
   }
   el.add.addEventListener('click', add);
@@ -335,5 +517,8 @@
     if (!operationId) return;
     void window.saycodePanel.invokeCommand('buzzni.moai.cancel', [operationId]).catch(() => {});
   });
+
+  // Opening the board shows the project's tasks; the first read of a session asks Desktop's confirmation.
+  void loadBoard();
 })();
 </script>
