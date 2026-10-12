@@ -152,7 +152,8 @@ Older Desktop builds reject unknown panel fields, so a manifest that sets `surfa
 `projectTools` (API v3) puts a per-project tool in the Desktop work area More menu, after a separator under the built-in
 Files, Terminal, Browser, Review and Preview entries. Choosing it opens the command's panel as a work area tab instead of a
 modal: the panel document fills the tab, so its own list and detail views stay in that tab, and `surfaceSize` does not
-apply there. Project tools appear only in project conversations, and `machine.run` calls from the tab run in that
+apply there. In a tab `--saycode-bg` carries the work area background instead of the dialog surface, so a panel that
+paints its body with it blends into the work area in both themes. Project tools appear only in project conversations, and `machine.run` calls from the tab run in that
 project's folder on its machine.
 
 ```json
