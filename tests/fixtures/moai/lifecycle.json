@@ -1,9 +1,9 @@
 {
   "extensionId": "buzzni.moai",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "install": { "manifest": "packages/moai/extension.json", "initialState": "disabled" },
   "approval": { "permission": "machine.run", "required": true },
-  "run": { "commands": ["buzzni.moai.run"], "profiles": ["buzzni.moai.status", "buzzni.moai.add"] },
+  "run": { "commands": ["buzzni.moai.run"], "profiles": ["buzzni.moai.status", "buzzni.moai.prime", "buzzni.moai.show", "buzzni.moai.add"] },
   "status": { "command": "buzzni.moai.status" },
   "cancel": { "command": "buzzni.moai.cancel" },
   "rollback": { "preservesLastKnownGood": true }

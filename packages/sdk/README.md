@@ -147,6 +147,26 @@ and let the panel scroll inside it.
 
 Older Desktop builds reject unknown panel fields, so a manifest that sets `surfaceSize` needs a Desktop with panel size v1.
 
+### Project tools
+
+`projectTools` (API v3) puts a per-project tool in the Desktop work area More menu, after a separator under the built-in
+Files, Terminal, Browser, Review and Preview entries. Choosing it opens the command's panel as a work area tab instead of a
+modal: the panel document fills the tab, so its own list and detail views stay in that tab, and `surfaceSize` does not
+apply there. In a tab `--saycode-bg` carries the work area background instead of the dialog surface, so a panel that
+paints its body with it blends into the work area in both themes. Project tools appear only in project conversations, and `machine.run` calls from the tab run in that
+project's folder on its machine.
+
+```json
+{
+  "commands": [{ "id": "com.example.board.open", "title": "Open board", "panelId": "com.example.board.panel" }],
+  "panels": [{ "id": "com.example.board.panel", "title": "Board", "entrypoint": "panel.html" }],
+  "projectTools": [{ "id": "com.example.board.tool", "title": "Board", "command": "com.example.board.open" }]
+}
+```
+
+Only `id`, `title` and `command` are accepted, and `command` must be a command of the same extension that sets
+`panelId`. Desktop builds before engine 1.2.0 reject the field, so declare `"engines": { "saycode": "^1.2.0" }`.
+
 ### Panel theme (panel theme v1)
 
 Desktop sets `<html data-theme="light|dark">` on the panel document and injects these CSS custom properties, updating

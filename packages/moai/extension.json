@@ -1,8 +1,8 @@
 {
   "id": "buzzni.moai",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "apiVersion": 3,
-  "engines": { "saycode": "^1.0.0" },
+  "engines": { "saycode": "^1.2.0" },
   "entrypoint": "index.js",
   "permissions": ["machine.run"],
   "activationEvents": [
@@ -21,8 +21,8 @@
     "panels": [
       { "id": "buzzni.moai.panel", "title": "Moai", "entrypoint": "panel.html", "surfaceSize": "compact" }
     ],
-    "machineActions": [
-      { "id": "buzzni.moai.board", "title": "Moai", "command": "buzzni.moai.open", "when": { "online": true } }
+    "projectTools": [
+      { "id": "buzzni.moai.board", "title": "Moai", "command": "buzzni.moai.open" }
     ]
   },
   "machineCommands": {
@@ -33,6 +33,32 @@
         "executable": "moai",
         "argv": ["--json", "-C", "{{workspaceRoot}}", "status"],
         "parameters": {},
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "descendantAllowlist": ["git"]
+      },
+      {
+        "id": "buzzni.moai.prime",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "prime"],
+        "parameters": {},
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "descendantAllowlist": ["git"]
+      },
+      {
+        "id": "buzzni.moai.show",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "{{id}}"],
+        "parameters": {
+          "id": { "type": "string", "maxLength": 128 }
+        },
         "cwd": "workspaceRoot",
         "envAllowlist": ["HOME"],
         "timeoutMs": 120000,

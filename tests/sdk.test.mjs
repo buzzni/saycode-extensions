@@ -559,3 +559,24 @@ test('machineRun keeps a known refusal code as a typed MachineRunError and passe
     assert.ok(!(caught instanceof MachineRunError))
   }
 })
+
+test('a project tool opens a panel command of the same extension; anything else is refused', () => {
+  const manifest = (projectTools, commandOverrides = {}, apiVersion = 3) => ({
+    id: 'buzzni.test', version: '1.0.0', apiVersion,
+    engines: { saycode: '^1.2.0' }, entrypoint: 'index.js', permissions: [], activationEvents: [],
+    contributes: {
+      commands: [{ id: 'buzzni.test.open', title: 'Open', panelId: 'buzzni.test.panel', ...commandOverrides }],
+      panels: [{ id: 'buzzni.test.panel', title: 'Panel', entrypoint: 'panel.html' }],
+      projectTools,
+    },
+  })
+  const options = { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }
+  const tool = { id: 'buzzni.test.board', title: 'Board', command: 'buzzni.test.open' }
+  assert.deepEqual(parseExtensionManifest(manifest([tool]), options).contributes.projectTools, [tool])
+  assert.throws(() => parseExtensionManifest(manifest([{ ...tool, icon: 'x.svg' }]), options), /projectTools\[0\]: unknown field icon/)
+  assert.throws(() => parseExtensionManifest(manifest([{ ...tool, id: 'other.test.board' }]), options), /projectTools\[0\]\.id/)
+  assert.throws(() => parseExtensionManifest(manifest([{ ...tool, command: 'buzzni.test.missing' }]), options), /projectTools\[0\]\.command/)
+  assert.throws(() => parseExtensionManifest(manifest([tool], { panelId: undefined }), options), /projectTools\[0\]\.command.*panel/)
+  assert.throws(() => parseExtensionManifest(manifest([{ ...tool, id: 'buzzni.test.open' }]), options), /duplicate contribution id/)
+  assert.throws(() => parseExtensionManifest(manifest([tool], {}, 2), options), /projectTools.*requires Extension API version 3/)
+})

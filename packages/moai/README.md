@@ -2,24 +2,34 @@
 
 This first-party sample uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for two fixed profiles:
+run, status, and cancel commands for four fixed profiles:
 
 - `buzzni.moai.status` runs `moai --json -C <workspace> status` (managed read).
+- `buzzni.moai.prime` runs `moai --json -C <workspace> prime` (managed read): the held and ready tasks the board lists.
+- `buzzni.moai.show` runs `moai --json -C <workspace> show <id>` (managed read): one task's body, subtasks and history.
 - `buzzni.moai.add` runs `moai --json -C <workspace> add <title>`, declared to change only `.moai/` (managed project
   write; Desktop asks for a one-operation approval).
 
-Both declarations copy the Happy daemon's Moai v0.8.0 catalog verbatim, so their digests match what the daemon runs.
+All four declarations copy the Happy daemon's Moai v0.8.0 catalog verbatim, so their digests match what the daemon runs.
 They start from the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs),
 may launch only `git`, and disable stdin.
 The sample deliberately has no init, tui, wake, hooks, editor, or shell entry points.
 
 ## Board panel
 
-Settings → Machines shows a **Moai** button on online machines. It opens an isolated panel (`surfaceSize: "compact"`;
-the host draws the single "Moai" title) that runs the two profiles through the extension's own commands: **Add task**
+The extension contributes a project tool (Desktop engine 1.2.0): in a project conversation, the work area More menu lists
+**Moai** under the built-in tools, and choosing it opens the board as a work area tab (the host draws the single "Moai"
+title; `surfaceSize: "compact"` applies only where a host opens it as a modal). Settings → Machines no longer shows a
+Moai button. Opening the board loads the project's tasks with `prime`, grouped as In progress, Review and To do
+(held tasks of other people included; done tasks are not listed, and a truncated list says how many more there are).
+Choosing a task shows its details with `show` in the same tab — status, priority, assignee, creation time, body,
+subtasks and history (notes, status moves) — and **Back to list** returns to the list with focus on that task.
+**Refresh** reloads the list, and adding a task refreshes it. A read is approved once per profile, machine and folder
+for the session, so the list and the details each ask once; every add asks again. The panel also runs the profiles
+through the extension's own commands: **Add task**
 (the primary button, or Enter in the title field) creates a task from the typed title, and **Show status** shows the
-task counts as four small chips. Runs target the project currently selected in the app; each one first shows Desktop's
-confirmation with the machine and folder. **Cancel** appears only once the run has an operation id (not while the
+task counts as four small chips. Runs target the project of the conversation; Desktop's confirmation shows the machine
+and folder. **Cancel** appears only once the run has an operation id (not while the
 confirmation is open); a small spinner shows while the run is in progress and the panel polls its status. After a
 cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's
 workspace write lock refuses an overlapping write until they settle).
