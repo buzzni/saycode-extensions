@@ -1,1 +1,1 @@
-{"name":"@buzzni/saycode-extension-media-preview","version":"1.0.0","private":true,"type":"module","scripts":{"pack":"node ../sdk/dist/cli.js pack .","test":"node --test tests/*.test.mjs"}}
+{"name":"@buzzni/saycode-extension-media-preview","version":"1.0.0","private":true,"type":"module","scripts":{"pack":"npm run build && node ../sdk/dist/cli.js pack .","test":"node --test tests/*.test.mjs","build":"node build.mjs"}}
