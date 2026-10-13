@@ -211,7 +211,7 @@ test('a failed run shows the reason Moai gave', async () => {
 
 test('the board follows the host document language and only talks to its own commands', async () => {
   const elements = await runPanel(async () => null, 'ja')
-  assert.equal(elements.hint.textContent, 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。')
+  assert.equal(elements.hint.textContent, 'このプロジェクトのフォルダで実行します。一覧・詳細・状態はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。')
   assert.equal(elements.check.textContent, '状態を表示')
   const html = await packedPanelHtml()
   for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
@@ -527,4 +527,36 @@ test('Refresh reloads the list, and task buttons wait while a run is in flight',
   accept({ action: 'start', operationId: 'op-r', state: 'accepted' })
   await flush()
   assert.ok([...elements.board.querySelectorAll('button.task')].every((button) => !button.disabled))
+})
+
+test('the hint says the board runs in this project and when it asks for confirmation, in every language', async () => {
+  const hints = {
+    en: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list, details and status, and every time you add a task.",
+    ko: '이 프로젝트 폴더에서 실행됩니다. 목록·상세·상태는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+    zh: '在此项目的文件夹中运行。列表、详情和状态在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
+  }
+  for (const [language, hint] of Object.entries(hints)) {
+    assert.equal((await runPanel(async () => null, language)).hint.textContent, hint, language)
+  }
+})
+
+test('until the run is accepted the board says it is starting and may be waiting for the confirmation, then that it runs', async () => {
+  let accept
+  let finished = false
+  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
+    ? new Promise((resolve) => { accept = resolve })
+    : finished
+      ? { action: 'status', operationId: 'op-w', state: 'passed', stdout: JSON.stringify({ counts: { todo: 0, in_progress: 0, review: 0, done: 0 } }), exitCode: 0 }
+      : { action: 'status', operationId: 'op-w', state: 'running' }, 'ko')
+  elements.check.click()
+  await flush()
+  // Nothing has started yet: Desktop may be showing its confirmation.
+  assert.equal(elements.status.textContent, '시작하는 중… 확인 창이 떠 있으면 승인하세요.')
+  accept({ action: 'start', operationId: 'op-w', state: 'accepted' })
+  await flush()
+  assert.equal(elements.status.textContent, '머신에서 실행하는 중…')
+  finished = true
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(elements.status.textContent, '')
 })

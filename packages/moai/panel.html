@@ -150,7 +150,8 @@
       refresh: 'Refresh', board: 'Tasks', empty: 'No open tasks.', more: (n) => `${n} more not shown`, back: '← Back to list',
       fields: { status: 'Status', priority: 'Priority', assignee: 'Assignee', created: 'Created', id: 'ID' },
       children: 'Subtasks', noChildren: 'No subtasks', journal: 'History', createdEntry: 'Created',
-      hint: 'Runs in the project selected in the app. Before each run, a confirmation shows the machine and folder.',
+      hint: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list, details and status, and every time you add a task.",
+      starting: 'Starting… approve the confirmation if it is showing.',
       check: 'Show status', cancel: 'Cancel', placeholder: 'New task title', add: 'Add task',
       running: 'Running on the machine…', mayContinue: 'Processes on the machine may not have finished yet.', cancelled: 'The run was cancelled.', titleRequired: 'Enter a task title.',
       stats: { todo: 'To do', in_progress: 'In progress', review: 'Review', done: 'Done' },
@@ -171,7 +172,8 @@
       refresh: '새로고침', board: '할 일 목록', empty: '진행 중이거나 할 일인 항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`, back: '← 목록으로',
       fields: { status: '상태', priority: '우선순위', assignee: '담당자', created: '만든 시각', id: 'ID' },
       children: '하위 항목', noChildren: '하위 항목 없음', journal: '기록', createdEntry: '만들었습니다',
-      hint: '앱에서 선택한 프로젝트에서 실행됩니다. 실행할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+      hint: '이 프로젝트 폴더에서 실행됩니다. 목록·상세·상태는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+      starting: '시작하는 중… 확인 창이 떠 있으면 승인하세요.',
       check: '상태 보기', cancel: '취소', placeholder: '새 할 일 제목', add: '할 일 추가',
       running: '머신에서 실행하는 중…', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.', cancelled: '실행을 취소했습니다.', titleRequired: '할 일 제목을 입력하세요.',
       stats: { todo: '할 일', in_progress: '진행 중', review: '검토', done: '완료' },
@@ -192,7 +194,8 @@
       refresh: '再読み込み', board: 'タスク一覧', empty: '未完了のタスクはありません。', more: (n) => `ほかに ${n} 件は表示していません`, back: '← 一覧に戻る',
       fields: { status: '状態', priority: '優先度', assignee: '担当者', created: '作成日時', id: 'ID' },
       children: 'サブタスク', noChildren: 'サブタスクなし', journal: '履歴', createdEntry: '作成しました',
-      hint: 'アプリで選択したプロジェクトで実行します。実行のたびに、マシンとフォルダを示す確認画面が表示されます。',
+      hint: 'このプロジェクトのフォルダで実行します。一覧・詳細・状態はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。',
+      starting: '開始しています… 確認画面が表示されていれば承認してください。',
       check: '状態を表示', cancel: 'キャンセル', placeholder: '新しいタスクのタイトル', add: 'タスクを追加',
       running: 'マシンで実行中…', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。', cancelled: '実行をキャンセルしました。', titleRequired: 'タスクのタイトルを入力してください。',
       stats: { todo: '未着手', in_progress: '進行中', review: 'レビュー', done: '完了' },
@@ -213,7 +216,8 @@
       refresh: '刷新', board: '任务列表', empty: '没有未完成的任务。', more: (n) => `另有 ${n} 项未显示`, back: '← 返回列表',
       fields: { status: '状态', priority: '优先级', assignee: '负责人', created: '创建时间', id: 'ID' },
       children: '子任务', noChildren: '无子任务', journal: '记录', createdEntry: '已创建',
-      hint: '在应用中选择的项目里运行。每次运行前都会显示机器和文件夹的确认窗口。',
+      hint: '在此项目的文件夹中运行。列表、详情和状态在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
+      starting: '正在启动… 如果显示了确认窗口，请批准。',
       check: '查看状态', cancel: '取消', placeholder: '新任务标题', add: '添加任务',
       running: '正在机器上运行…', mayContinue: '机器上的进程可能尚未结束。', cancelled: '已取消运行。', titleRequired: '请输入任务标题。',
       stats: { todo: '待办', in_progress: '进行中', review: '审核', done: '完成' },
@@ -324,7 +328,8 @@
     busy = true;
     operationId = null;
     clearOutput();
-    el.status.textContent = copy.running;
+    // Until the run is accepted Desktop may be showing its confirmation; nothing runs on the machine yet.
+    el.status.textContent = copy.starting;
     sync();
     try {
       let started;
@@ -344,6 +349,7 @@
         return;
       }
       operationId = started.operationId;
+      el.status.textContent = copy.running;
       sync();
       const finished = await poll(started.operationId);
       const output = finished ? parse(finished.stdout || '') : null;
@@ -362,7 +368,7 @@
     } catch {
       el.error.textContent = copy.failed;
     } finally {
-      if (el.status.textContent === copy.running) el.status.textContent = '';
+      if (el.status.textContent === copy.running || el.status.textContent === copy.starting) el.status.textContent = '';
       busy = false;
       operationId = null;
       sync();

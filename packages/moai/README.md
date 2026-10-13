@@ -29,7 +29,8 @@ for the session, so the list and the details each ask once; every add asks again
 through the extension's own commands: **Add task**
 (the primary button, or Enter in the title field) creates a task from the typed title, and **Show status** shows the
 task counts as four small chips. Runs target the project of the conversation; Desktop's confirmation shows the machine
-and folder. **Cancel** appears only once the run has an operation id (not while the
+and folder. The hint at the top says so, and until a run is accepted the status reads "Starting… approve the
+confirmation if it is showing" rather than claiming it already runs on the machine (1.1.1). **Cancel** appears only once the run has an operation id (not while the
 confirmation is open); a small spinner shows while the run is in progress and the panel polls its status. After a
 cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's
 workspace write lock refuses an overlapping write until they settle).
