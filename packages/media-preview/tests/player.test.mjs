@@ -6,6 +6,13 @@ function page(d=descriptor){const errors=[],vc=new VirtualConsole();vc.on('jsdom
 test('the package declares the new generic viewer and only selected-file read permission',()=>{const parsed=parseExtensionManifest(manifest,{supportedApiVersion:4,minimumSupportedApiVersion:2});assert.deepEqual(parsed.permissions,['filePreviews.read']);assert.ok(parsed.contributes.fileViewers[0].extensions.includes('mp4'))})
 test('the player streams a capability URL without autoplay or copying file bytes',()=>{const {dom,document,errors}=page();assert.deepEqual(errors,[]);const video=document.querySelector('video');assert.equal(video.src,descriptor.url);assert.equal(video.preload,'metadata');assert.equal(video.controls,true);assert.equal(video.autoplay,false);assert.equal(video.getAttribute('aria-label'),'video.mp4');video.dispatchEvent(new dom.window.Event('error'));assert.match(document.getElementById('status').textContent,/코덱/);dom.window.close()})
 test('an arbitrary remote URL cannot become a media source',()=>{const {dom,document,errors}=page({...descriptor,url:'https://example.com/private.mp4'});assert.deepEqual(errors,[]);assert.equal(document.querySelector('video'),null);assert.match(document.getElementById('status').textContent,/다시/);dom.window.close()})
+test('Escape explicitly exits only an active fullscreen preview',()=>{
+ const {dom,document}=page();let exits=0,fullscreen=null;
+ Object.defineProperty(document,'fullscreenElement',{get:()=>fullscreen});document.exitFullscreen=()=>{exits++;fullscreen=null;return Promise.resolve()};
+ dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(exits,0);
+ fullscreen=document.querySelector('video');dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter'}));assert.equal(exits,0);
+ const escape=new dom.window.KeyboardEvent('keydown',{key:'Escape',cancelable:true});dom.window.dispatchEvent(escape);assert.equal(exits,1);assert.equal(escape.defaultPrevented,true);dom.window.close();
+})
 test('API 4 is isolated while existing API 2 and 3 manifests remain supported',()=>{
  const options={supportedApiVersion:4,minimumSupportedApiVersion:2};
  for(const apiVersion of [2,3]){

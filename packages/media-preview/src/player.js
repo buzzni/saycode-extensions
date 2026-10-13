@@ -15,6 +15,7 @@ export function mountMediaPreview(window) {
   media.addEventListener('error',()=>say(ko?'파일을 재생할 수 없습니다. 연결 상태와 지원하는 코덱인지 확인하거나 원본을 저장해 열어주세요.':'Cannot play this file. Check the connection or codec, or save the original and open it locally.'));
   surface.appendChild(media);media.src=url.href;
  }catch{say(ko?'미리보기를 열 수 없습니다. 파일을 다시 열어주세요.':'Preview unavailable. Reopen the file.')}
+ window.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.fullscreenElement){event.preventDefault();void document.exitFullscreen().catch(()=>{})}});
  window.addEventListener('pagehide',()=>{if(media){media.pause();media.removeAttribute('src');media.load()}});
 }
 if (typeof window !== 'undefined') mountMediaPreview(window)
