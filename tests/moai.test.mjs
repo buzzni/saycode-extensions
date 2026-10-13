@@ -211,7 +211,7 @@ test('a failed run shows the reason Moai gave', async () => {
 
 test('the board follows the host document language and only talks to its own commands', async () => {
   const elements = await runPanel(async () => null, 'ja')
-  assert.equal(elements.hint.textContent, 'このプロジェクトのフォルダで実行します。初めて読み取るときと、タスクを追加するたびに、マシンとフォルダを示す確認画面が表示されます。')
+  assert.equal(elements.hint.textContent, 'このプロジェクトのフォルダで実行します。一覧・詳細・状態はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。')
   assert.equal(elements.check.textContent, '状態を表示')
   const html = await packedPanelHtml()
   for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
@@ -531,9 +531,9 @@ test('Refresh reloads the list, and task buttons wait while a run is in flight',
 
 test('the hint says the board runs in this project and when it asks for confirmation, in every language', async () => {
   const hints = {
-    en: "Runs in this project's folder. A confirmation showing the machine and folder appears the first time it reads, and each time you add a task.",
-    ko: '이 프로젝트 폴더에서 실행됩니다. 처음 읽을 때와 할 일을 추가할 때마다 머신과 폴더를 보여주는 확인 창이 뜹니다.',
-    zh: '在此项目的文件夹中运行。首次读取以及每次添加任务时，都会显示机器和文件夹的确认窗口。',
+    en: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list, details and status, and every time you add a task.",
+    ko: '이 프로젝트 폴더에서 실행됩니다. 목록·상세·상태는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+    zh: '在此项目的文件夹中运行。列表、详情和状态在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
   }
   for (const [language, hint] of Object.entries(hints)) {
     assert.equal((await runPanel(async () => null, language)).hint.textContent, hint, language)
