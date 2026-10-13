@@ -4,7 +4,7 @@ export const EXTENSION_PERMISSIONS = [
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
-  'artifacts.publishPublic',
+  'artifacts.publishPublic', 'filePreviews.read',
   // One permission per channel wire method, deliberately not a single `channels.adapter`.
   // A transport adapter needs to receive and ack; being able to *control a session* or to
   // *approve a tool call once* is a different and much larger authority, and a blanket grant
@@ -88,7 +88,9 @@ export interface ExtensionProjectToolContribution {
   title: string
   command: string
 }
+export interface ExtensionFileViewer { id: string; title: string; extensions: string[]; panelId: string }
 export interface ExtensionContributions {
+  fileViewers?: ExtensionFileViewer[]
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
   panels?: ExtensionPanelContribution[]
@@ -487,13 +489,14 @@ export function parseExtensionManifest(
     || !Number.isInteger(raw.apiVersion)
     || raw.apiVersion < minimum
     || raw.apiVersion > options.supportedApiVersion
-    || options.supportedApiVersion - minimum > 1
+    || options.supportedApiVersion - minimum > (options.supportedApiVersion === 4 && minimum === 2 ? 2 : 1)
   ) throw new Error(`manifest.apiVersion: unsupported ${String(raw.apiVersion)}`)
   const apiVersion = raw.apiVersion
   const channelApiVersion = parseChannelApiVersion(raw.channelApiVersion, apiVersion, options)
   const version = text(raw.version, 'manifest.version')
   if (!SEMVER.test(version)) throw new Error('manifest.version: expected semantic version')
   const engines = record(raw.engines, 'manifest.engines')
+  if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('filePreviews.read')) throw new Error('filePreviews.read requires API 4')
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {
     const permission = text(item, `manifest.permissions[${index}]`)
     if (!PERMISSIONS.has(permission)) throw new Error(`manifest.permissions: unknown ${permission}`)
@@ -526,6 +529,14 @@ export function parseExtensionManifest(
     throw new Error('manifest.machineCommands: machineCommands and machine.run permission must be declared together')
   }
   const contributions = record(raw.contributes, 'manifest.contributes')
+  if (apiVersion < 4 && contributions.fileViewers !== undefined) throw new Error('fileViewers requires API 4')
+  const fileViewers = contributions.fileViewers === undefined ? undefined : list(contributions.fileViewers, 'fileViewers').map((item, index) => {
+    if (apiVersion < 4 || !permissions.includes('filePreviews.read')) throw new Error('fileViewers requires API 4 and filePreviews.read')
+    const source = record(item, `fileViewers[${index}]`)
+    if (Object.keys(source).sort().join() !== 'extensions,id,panelId,title' || !Array.isArray(source.extensions) || !source.extensions.length || source.extensions.length > 30 || source.extensions.some(extension => typeof extension !== 'string' || !/^[a-z0-9]{1,12}$/.test(extension)) || new Set(source.extensions).size !== source.extensions.length) throw new Error('invalid fileViewers')
+    return { ...contributionBase(item, `fileViewers[${index}]`), extensions: source.extensions as string[], panelId: text(source.panelId, 'fileViewers.panelId') }
+  })
+
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
   }
@@ -627,6 +638,7 @@ export function parseExtensionManifest(
       || !commands?.some((command) => command.id === action.command)
     ) throw new Error(`machineActions[${index}].id/command: expected ids declared by the same extension`)
   }
+  for (const viewer of fileViewers ?? []) if (!viewer.id.startsWith(`${String(raw.id)}.`) || !viewer.panelId.startsWith(`${String(raw.id)}.`) || !panels?.some(panel => panel.id === viewer.panelId)) throw new Error('fileViewers must reference an owned panel')
   for (const [index, tool] of (projectTools ?? []).entries()) {
     const extensionPrefix = `${text(raw.id, 'manifest.id')}.`
     if (!tool.id.startsWith(extensionPrefix)) throw new Error(`projectTools[${index}].id: expected an id declared by the same extension`)
@@ -690,6 +702,7 @@ export function parseExtensionManifest(
     ...(machineActions ?? []),
     ...(projectTools ?? []),
     ...(artifactActions ?? []),
+    ...(fileViewers ?? []),
     ...(channels ?? []),
   ].map((contribution) => contribution.id)
   if (new Set(contributionIds).size !== contributionIds.length) {
@@ -706,6 +719,6 @@ export function parseExtensionManifest(
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
     activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels },
+    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers },
   }
 }

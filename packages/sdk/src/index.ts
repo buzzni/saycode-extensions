@@ -3,6 +3,17 @@ import type { ExtensionPermission } from './manifest.js'
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
+/** Selected-file capability, scoped to the owning panel and permission lifetime. Never contains source paths or credentials. */
+export interface ExtensionFilePreviewDescriptor {
+  version: 1
+  handle: string
+  name: string
+  mimeType: string
+  sizeBytes: number
+  revision: string
+  url: string
+}
+
 export type ExtensionCommandHandler = (...args: JsonValue[]) => JsonValue | Promise<JsonValue>
 
 /** Core-issued context for one declared channel contribution; contains no credentials or account data. */
