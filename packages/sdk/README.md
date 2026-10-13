@@ -83,7 +83,7 @@ Ids are lowercase stable namespaces. Versions use semantic versioning. Paths are
 empty, `.`, or `..` segments. API versions and permissions are closed sets; an unknown value is rejected before
 execution. API v2 supports `commands`, typed `settings`, isolated `panels`, `projectTemplates`, and contextual
 `machineActions`. API v3 additionally supports declarative `artifactActions`; the current SDK accepts only the
-Desktop support window `[2,3]`.
+Desktop support window `[2,4]` during the API 4 migration; arbitrary wider windows are rejected.
 
 A project template keeps the v1 `id`, `title`, and `assetsRoot` fields and may add UI metadata:
 
@@ -242,7 +242,11 @@ MIT
 
 ## Asset workflow (SDK 0.4.1 / host engine 1.1.0)
 
-API 3 remains current, with API 2 still supported. New asset extensions declare `engines.saycode: "^1.1.0"`; older hosts fail closed. The CLI includes a package's optional `assets/` directory using the same traversal/symlink checks as project-template files. Do not put private user originals or credentials in an artifact.
+API 4 adds selected-file previews, with API 2/3 still supported during migration. New asset extensions declare `engines.saycode: "^1.1.0"`; older hosts fail closed. The CLI includes a package's optional `assets/` directory using the same traversal/symlink checks as project-template files. Do not put private user originals or credentials in an artifact.
+
+### Selected-file previews (API 4)
+
+`contributes.fileViewers` declares `{id,title,extensions,panelId}`. Extensions are unique lowercase file suffixes; the panel must belong to the same extension. Declare and obtain user approval for `filePreviews.read`. Desktop chooses the file; this permission does not allow browsing arbitrary paths. The isolated panel receives an `ExtensionFilePreviewDescriptor` v1 in its URL fragment with a short-lived, path-free media URL. Treat the handle/URL as content access: never persist, log, or share it. Capability actions `describe`, `createStream`, and `close` take `{version:1,handle}` and cannot choose another file. Closing/hiding the panel, switching account, disabling/removing the extension, or revoking permission invalidates its URL. See `packages/media-preview` for the separately owned native media player and packaging example. API 3 and older Desktop versions reject this contribution and permission.
 
 The four permissions are separate grants: `assets.read` (list/describe/open/readChunk/close), `assets.write` (create/update/remove and begin/writeChunk/seal for instruction text), `files.select` (native pick/readChunk/close), and `drafts.prepare` (context/prepare/commit/cancel). Call `context.invokeCapability(permission, action, {version: 1, ...args})`. Core supplies the authenticated caller; no user ID, URL, credential, arbitrary machine command or absolute path is accepted. `assets.read/open` accepts either an artifact-relative `path`, or private `id`, `revision`, `role` (source/instructions/preview). `readChunk` accepts handle/offset and returns base64, nextOffset and done.
 

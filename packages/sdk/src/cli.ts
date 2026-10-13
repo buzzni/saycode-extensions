@@ -83,7 +83,7 @@ async function manifestAt(projectPath: string): Promise<ExtensionManifest> {
   try { value = JSON.parse(await readFile(path, 'utf8')) } catch (error) {
     throw new Error(`cannot read extension manifest: ${error instanceof Error ? error.message : String(error)}`)
   }
-  return parseExtensionManifest(value, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  return parseExtensionManifest(value, { supportedApiVersion: 4, minimumSupportedApiVersion: 2 })
 }
 
 async function bundle(projectPath: string, outfile: string, watch: boolean): Promise<void> {
