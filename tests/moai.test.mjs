@@ -349,13 +349,16 @@ test('a truncated list says how many more tasks there are', async () => {
   assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
 })
 
-test('an empty banner takes no room, and the page scrolls to rows and details below the fold', async () => {
+test('an empty banner takes no room, and the panes scroll to rows and details below the fold', async () => {
   const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
-  for (const selector of ['.moai-notice', '.moai-error', '.moai-result']) {
+  for (const selector of ['.moai-notice', '.moai-error', '.moai-result', '.moai-more']) {
     assert.equal(panel.window.getComputedStyle(panel.$(selector)).display, 'none', selector)
   }
-  // tokens.css stops the body scrolling for the shell's own panes; this one-column view needs the page to scroll.
-  assert.equal(panel.window.getComputedStyle(panel.window.document.body).overflow, 'auto')
+  // The page itself does not scroll (tokens.css); the list and the detail scroll in their own panes.
+  const style = (selector) => panel.window.getComputedStyle(panel.$(selector))
+  assert.equal(style('body').overflow, 'hidden')
+  assert.equal(style('.m-pane-main[data-pane="list"]').overflow, 'auto')
+  assert.equal(style('.m-split-detail').overflow, 'auto')
 })
 
 test('why an add did nothing stays on its own line while the list and the detail redraw', async () => {
