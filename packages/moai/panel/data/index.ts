@@ -37,6 +37,18 @@ export interface Row {
   assignee?: string
   assignee_email?: string
   blocked_by?: string[]
+  /** CLI's unread verdict: `true` or absent (see read.ts). */
+  unread?: boolean
+  // ASSUMED upstream fields (not in any released moai): the CLI's own derivations. When present they win where
+  // the panel decides the same thing (deferral in the index's shelf and in query.ts, the milestone in
+  // IssueIndex.milestoneOf and query.ts, the archive in archiveCandidate and query.ts); when absent the panel
+  // derives the values itself. The tree's placement (IssueIndex.homeOf) keeps the index's own rule either way.
+  /** The milestone the row stands on (null: none). */
+  derived_milestone?: string | null
+  /** Deferral inherited from itself, its parents, epic or milestone. */
+  derived_deferred?: boolean
+  /** Done and older than the CLI's `archive_days`. */
+  archive_candidate?: boolean
   [field: string]: unknown
 }
 
@@ -98,6 +110,8 @@ const joins = (row: Row): boolean => {
   return kind === 'issue' || kind === 'backlog'
 }
 export const isDone = (row: Row): boolean => row.status === 'done'
+/** Moai's default columns, in order: what a tracker has when `.moai/config.toml` names none of its own. */
+export const DEFAULT_STATUSES: readonly string[] = ['todo', 'in_progress', 'review', 'done']
 /** Priority as moai reads it: 2 when absent. */
 export const priorityOf = (row: Row): number => (typeof row.priority === 'number' ? row.priority : 2)
 
@@ -138,8 +152,16 @@ export class IssueIndex {
   private readonly shelved: (string | undefined)[]
   private readonly places = new Map<string, Place>()
 
-  constructor(rows: readonly Row[]) {
+  private readonly counts: ReadonlyMap<string, readonly [number, number]>
+
+  /**
+   * `counts` are the milestone and epic `[done, total]` that `moai status` prints (`talliesFrom` in source.ts).
+   * They include the rows the clock has archived, which `show --all` leaves out, so {@link tally} of a milestone
+   * or epic place prefers them to its own count. Without them (or for an id they lack) the index counts its rows.
+   */
+  constructor(rows: readonly Row[], counts: ReadonlyMap<string, readonly [number, number]> = new Map()) {
     this.rows = rows
+    this.counts = counts
     // The later row wins an id, as in moai.
     rows.forEach((row, at) => {
       this.byId.set(row.id, at)
@@ -383,13 +405,22 @@ export class IssueIndex {
   }
 
   private shelve(): (string | undefined)[] {
-    if (!this.rows.some(isPutOff)) return this.rows.map(() => undefined)
+    const walk = this.rows.some(isPutOff)
     return this.rows.map((row) => {
-      if (closedByHand(row)) return undefined
-      // A group whose members are all done reads done, and a done row is not deferred.
-      if (isGroup(row) && row.derived_status === 'done') return undefined
-      return this.nearestShelf(row)
+      // ASSUMED upstream `derived_deferred` wins when the row carries it: false clears the shelf, true keeps the
+      // one the walk finds, or names the row itself when the walk finds none (its shelf may not be loaded).
+      const given = row.derived_deferred
+      if (given === false) return undefined
+      const found = walk ? this.shelfOf(row) : undefined
+      return given === true ? (found ?? row.id) : found
     })
+  }
+
+  private shelfOf(row: Row): string | undefined {
+    if (closedByHand(row)) return undefined
+    // A group whose members are all done reads done, and a done row is not deferred.
+    if (isGroup(row) && row.derived_status === 'done') return undefined
+    return this.nearestShelf(row)
   }
 
   // ── reading ────────────────────────────────────────────────────────
@@ -447,8 +478,15 @@ export class IssueIndex {
     return this.stoodAt(row, this.epicAt(row))
   }
 
-  /** The milestone a row actually stands under (read from its place, not its own field). */
+  /**
+   * The milestone a row stands under: the ASSUMED upstream `derived_milestone` when the row carries it (null or
+   * empty: none), else read from its place (not its own field). The place itself ({@link homeOf}) always
+   * follows the index's own rule, so the two can differ when upstream knows better.
+   */
   milestoneOf(at: number): string | undefined {
+    const given = this.rows[at]?.derived_milestone
+    if (typeof given === 'string') return given || undefined
+    if (given === null) return undefined
     const seg = this.homes[at]?.find((s) => s.startsWith('m:') && s !== NO_MILESTONE)
     return seg?.slice(2)
   }
@@ -458,7 +496,10 @@ export class IssueIndex {
     return this.homes[at]?.find((s) => s.startsWith('e:'))?.slice(2)
   }
 
-  /** The row that took this row out of the plan (itself, or an ancestor, epic or milestone); undefined if planned. */
+  /**
+   * The row that took this row out of the plan (itself, or an ancestor, epic or milestone); undefined if planned.
+   * The ASSUMED upstream `derived_deferred` decides when the row carries it (see {@link shelve}).
+   */
   shelvedAt(at: number): string | undefined {
     return this.shelved[at]
   }
@@ -467,6 +508,11 @@ export class IssueIndex {
   deferredRoot(id: string): string | undefined {
     const at = this.byId.get(id)
     return at === undefined ? undefined : this.shelved[at]
+  }
+
+  /** Is the row out of the plan by deferral? (`shelvedAt` names what took it out.) */
+  isDeferred(at: number): boolean {
+    return this.shelved[at] !== undefined
   }
 
   /** The rows at `path` — kept ones, and folders with something kept under them — folders first, buckets last. */
@@ -530,8 +576,17 @@ export class IssueIndex {
     return { kids: kids.length, work, done: work.filter((at) => isDone(this.rows[at]!)).length }
   }
 
-  /** `[done, work]` under a place. */
+  /**
+   * `[done, work]` under a place. A milestone or epic place (its last segment `m:<id>` / `e:<id>`) takes the
+   * count `moai status` gave for that id when the index was built with one; the (none) and (lost) buckets and
+   * places of parent-folded rows always keep their own count.
+   */
   tally(path: Path): [number, number] {
+    const last = path[path.length - 1]
+    if (last !== undefined && last !== NO_MILESTONE && (last.startsWith('m:') || last.startsWith('e:'))) {
+      const given = this.counts.get(last.slice(2))
+      if (given) return [given[0], given[1]]
+    }
     const place = this.places.get(pathKey(path))
     return place ? [place.done, place.work] : [0, 0]
   }
@@ -548,6 +603,8 @@ export class IssueIndex {
  * deferred member was set aside when that is later; that case is not read here.)
  */
 export function archiveCandidate(row: Row, now: Date, archiveDays: number, members: readonly Row[] = []): boolean {
+  // ASSUMED upstream `archive_candidate` (computed with the CLI's own archive_days) wins when present.
+  if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
   if (!(archiveDays > 0)) return false
   const group = isGroup(row)
   const column = group ? (row.derived_status ?? row.status) : row.status

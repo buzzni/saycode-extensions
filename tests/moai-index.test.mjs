@@ -181,3 +181,83 @@ test('helpers: id parents and archive candidates', () => {
   assert.equal(archiveCandidate({ id: 'a', status: 'done', status_since: '2026-10-01T00:00:00Z' }, now, 30), false)
   assert.equal(archiveCandidate({ id: 'a', status: 'todo', status_since: '2026-01-01T00:00:00Z' }, now, 30), false)
 })
+
+// ASSUMED upstream fields (derived_milestone, derived_deferred, archive_candidate): not in any released moai.
+// Present, the index uses them; absent, it derives the same values itself.
+test('assumed upstream derived_milestone wins when present, own derivation otherwise', () => {
+  const idx = new IssueIndex([
+    { id: 'm1', kind: 'milestone' },
+    { id: 'e1', kind: 'epic', milestone: 'm1' },
+    { id: 'a', kind: 'issue', epic: 'e1' },
+    { id: 'b', kind: 'issue', epic: 'e1', derived_milestone: 'elsewhere' },
+    { id: 'c', kind: 'issue', epic: 'e1', derived_milestone: null },
+  ])
+  assert.equal(idx.milestoneOf(idx.find('a')), 'm1', 'absent: fallback derivation')
+  assert.equal(idx.milestoneOf(idx.find('b')), 'elsewhere', 'string: upstream value')
+  assert.equal(idx.milestoneOf(idx.find('c')), undefined, 'null: no milestone')
+})
+
+test('assumed upstream derived_deferred wins when present, own derivation otherwise', () => {
+  const idx = new IssueIndex([
+    { id: 'p', kind: 'issue', deferred_at: '2026-10-01T00:00:00Z' },
+    { id: 'p.kid', kind: 'issue' },
+    { id: 'free', kind: 'issue' },
+    { id: 'told-yes', kind: 'issue', derived_deferred: true },
+    { id: 'p.told-no', kind: 'issue', derived_deferred: false },
+  ])
+  assert.equal(idx.isDeferred(idx.find('p.kid')), true, 'absent: inherited from parent')
+  assert.equal(idx.isDeferred(idx.find('free')), false)
+  assert.equal(idx.isDeferred(idx.find('told-yes')), true, 'true: upstream value')
+  assert.equal(idx.isDeferred(idx.find('p.told-no')), false, 'false beats own derivation')
+  // The shelf itself reads the field, so what hides deferred rows (shelvedAt, deferredRoot) agrees.
+  assert.equal(idx.shelvedAt(idx.find('p.told-no')), undefined)
+  assert.equal(idx.deferredRoot('p.told-no'), undefined)
+  assert.equal(idx.shelvedAt(idx.find('told-yes')), 'told-yes', 'no shelf the walk can find: the row itself')
+  assert.equal(idx.deferredRoot('told-yes'), 'told-yes')
+  assert.equal(idx.shelvedAt(idx.find('p.kid')), 'p')
+  // Also when no row in the set is put off by its own field.
+  const lone = new IssueIndex([{ id: 'a', kind: 'issue', derived_deferred: true }, { id: 'b', kind: 'issue' }])
+  assert.deepEqual([lone.shelvedAt(0), lone.shelvedAt(1)], ['a', undefined])
+})
+
+test('assumed upstream archive_candidate wins when present, own derivation otherwise', () => {
+  const now = new Date('2026-10-14T00:00:00Z')
+  const old = { id: 'a', status: 'done', status_since: '2026-09-01T00:00:00Z' }
+  assert.equal(archiveCandidate(old, now, 30), true)
+  assert.equal(archiveCandidate({ ...old, archive_candidate: false }, now, 30), false)
+  assert.equal(archiveCandidate({ id: 'b', status: 'todo', archive_candidate: true }, now, 30), true)
+})
+
+test('without the field, archiveCandidate follows report::archived: off at 0 days, whole days, a group by its members', () => {
+  const now = new Date('2026-10-14T00:00:00Z')
+  const done = { id: 'a', status: 'done', status_since: '2026-09-30T00:00:00Z' }
+  assert.equal(archiveCandidate(done, now, 14), true, 'exactly 14 whole days')
+  assert.equal(archiveCandidate(done, now, 15), false)
+  assert.equal(archiveCandidate(done, now, 0), false, '0 days turns the archive off')
+  // A group stands in the column its members give it, since the latest day one of them got there.
+  const epic = { id: 'e', kind: 'epic', status_since: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' }
+  const members = [{ id: 'e.1', status: 'done', status_since: '2026-09-01T00:00:00Z' }, { id: 'e.2', status: 'done', status_since: '2026-10-10T00:00:00Z' }]
+  assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14, members.slice(0, 1)), true, 'its members put it in done')
+  assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14, members), false, 'a member done 4 days ago keeps it')
+  assert.equal(archiveCandidate({ ...epic, status: 'done', derived_status: 'in_progress' }, now, 14, members.slice(0, 1)), false)
+})
+
+test('milestone and epic tallies take the counts `moai status` gave; buckets and no-count ids keep their own (se-tcd4)', () => {
+  const epicAt = index.find(idOf('Epic in release one'))
+  const epic = index.dirPath(epicAt)
+  const release = index.dirPath(index.find(idOf('Release one')))
+  const counts = new Map([[rows[epicAt].id, [3, 9]], [rows[index.find(idOf('Release one'))].id, [4, 12]]])
+  const counted = new IssueIndex(rows, counts)
+  assert.deepEqual(counted.tally(epic), [3, 9])
+  assert.deepEqual(counted.tally(release), [4, 12])
+  // Without counts, or for an id they lack, the old count.
+  assert.deepEqual(new IssueIndex(rows).tally(epic), [1, 6])
+  assert.deepEqual(new IssueIndex(rows, new Map()).tally(release), [1, 8])
+  assert.deepEqual(new IssueIndex(rows, new Map([['other', [9, 9]]])).tally(epic), [1, 6])
+  // Buckets are never replaced, whatever the map holds; progress() stays the drawn rows.
+  const withBucket = new IssueIndex(rows, new Map([['', [99, 99]], ['lost', [99, 99]]]))
+  assert.deepEqual(withBucket.tally([NO_MILESTONE]), index.tally([NO_MILESTONE]))
+  assert.deepEqual(withBucket.tally([LOST]), index.tally([LOST]))
+  assert.deepEqual(counted.tally([]), index.tally([]))
+  assert.equal(counted.progress(epic).work.length, 6)
+})
