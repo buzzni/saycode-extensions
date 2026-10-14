@@ -40,7 +40,7 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki, read, rows = ROWS, platform = 'other', sortDefault } = {}) {
+function boot({ wiki, read, rows = ROWS, platform = 'other', sortDefault = createSortDefault() } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -882,8 +882,10 @@ test('keys: D in the sort editor saves the order as the default; emptying the or
   panel.press('D')
   assert.deepEqual(sortDefault.get(), { fields: [{ key: 'title', dir: 'asc' }, { key: 'priority', dir: 'asc' }], reversed: false })
   assert.match(panel.$('.moai-result')?.textContent ?? '', /세션/)
-  assert.equal(panel.state().toolbar.sortOpen, true, 'D saves and leaves the editor open')
+  assert.equal(panel.state().toolbar.sortOpen, false, 'D applies, saves and leaves the editor')
+  assert.deepEqual(panel.state().sort, sortDefault.get())
   // Take every field out (SPC on each): the reset is the saved default, not priority alone.
+  panel.seq(' ', 's', 'e')
   panel.press(' ')
   panel.seq('k', 'k', 'k', 'k', 'k')
   panel.press(' ')

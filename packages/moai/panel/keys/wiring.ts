@@ -479,6 +479,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     "sorter.default": () => {
       defaults.set(store.getState().sort)
       say(defaults.persistent ? SORT_DEFAULT_SAVED : SORT_DEFAULT_SAVED_SESSION)
+      // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
+      closeSorter(true)
     },
     "sorter.cancel": () => closeSorter(false),
     "wiki.enter": wiki,

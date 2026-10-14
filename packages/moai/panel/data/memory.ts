@@ -13,7 +13,7 @@
  * {@link normalizeMemory} is pure and cleans whatever comes back, so a value from an older or newer panel,
  * or one edited by hand, still boots with usable settings.
  */
-import { GREP_SCOPES, SORT_KEYS, type Dir, type GrepScope, type Sort, type SortField } from './query.js'
+import { DEFAULT_SORT, GREP_SCOPES, SORT_KEYS, formatSort, type Dir, type GrepScope, type Sort, type SortField } from './query.js'
 import { COLUMN_DEFAULTS, type ColumnName, type DetailPosition, type Remembered, type State, type Store, type ViewSettings } from '../store.js'
 import { DEFAULT_RATIO, normalizeRatio } from '../view/split.js'
 import { DEFAULT_TAB, normalizeTab } from '../view/tabs.js'
@@ -126,10 +126,12 @@ export function createMemory(backend: () => Backend | null | undefined, key: str
 
 // ── the default sort (E4 se-5air) ──────────────────────────────────────────────────────────────────────
 //
-// The sort editor's `D` keeps the order on screen as the one `reset sort` and a fresh opening return to. Nothing
-// persists settings yet (the SDK is being asked for a settings-storage API), so it is kept through a
-// {@link SettingsStorage} whose only implementation today is the session's own memory. A backend that persists
-// plugs in under the same {@link SORT_DEFAULT_KEY} and the callers do not change.
+// The sort editor's `D` keeps the order on screen as the one `reset sort` and a fresh opening return to (a
+// workspace that kept an order of its own opens on that one, as moai tui's project order beats its default).
+// Nothing persists settings yet (the SDK is being asked for a settings-storage API), so it is kept through a
+// {@link SettingsStorage} whose only implementation today is the session's own memory ({@link settingsStorage}). A backend
+// that persists plugs in under the same {@link SORT_DEFAULT_KEY}. Every access is guarded, as {@link createMemory}'s:
+// a failing store only forgets.
 
 /** Where the default sort is kept; a persisting backend is stored under this same key. */
 export const SORT_DEFAULT_KEY = `${MEMORY_KEY}.sort`
@@ -180,21 +182,27 @@ export interface SortDefault {
 }
 
 export function createSortDefault(storage: SettingsStorage = createSessionStorage(), key: string = SORT_DEFAULT_KEY): SortDefault {
+  const write = (value: string | null) => {
+    try {
+      storage.write(key, value)
+    } catch {
+      // Full, or refused: the default is forgotten, the panel goes on.
+    }
+  }
   return {
     get() {
-      const text = storage.read(key)
-      if (text === null) return null
       try {
-        return normalizeSort(JSON.parse(text))
+        const text = storage.read(key)
+        return text === null ? null : normalizeSort(JSON.parse(text))
       } catch {
         return null
       }
     },
     set(sort) {
-      storage.write(key, JSON.stringify({ fields: sort.fields, reversed: sort.reversed }))
+      write(JSON.stringify({ fields: sort.fields, reversed: sort.reversed }))
     },
     clear() {
-      storage.write(key, null)
+      write(null)
     },
     get persistent() {
       return storage.persistent
@@ -202,11 +210,16 @@ export function createSortDefault(storage: SettingsStorage = createSessionStorag
   }
 }
 
-/** The one settings storage of this panel today: the session's. A persisting backend replaces it here. */
+/**
+ * The panel's one settings storage and one default sort, which {@link remember} and the key wiring (`D`, reset) fall
+ * back to so they meet the same default. Session-only today; a persisting backend replaces them here. Callers other
+ * than the panel itself (tests) pass their own, so nothing they write reaches the next boot.
+ */
 export const settingsStorage: SettingsStorage = createSessionStorage()
-
-/** The panel's one default sort, shared by the key wiring (`D`, reset) and {@link remember} (load). */
 export const sortDefault: SortDefault = createSortDefault(settingsStorage)
+
+/** The same order: the same fields in the same directions, and the same reverse switch. */
+const sameSort = (a: Sort, b: Sort): boolean => a.reversed === b.reversed && formatSort(a.fields) === formatSort(b.fields)
 
 // ── the query settings (E4 se-cv7w.lca) ────────────────────────────────────────────────────────────────
 //
@@ -221,6 +234,7 @@ export interface QuerySettings {
   scope: GrepScope
   /** The applied filter text. */
   filter: string
+  /** The workspace's own order; null while it is the default one, which the workspace then follows. */
   sort: Sort | null
   columns: Partial<Record<ColumnName, boolean>>
   view: Partial<ViewSettings>
@@ -228,15 +242,24 @@ export interface QuerySettings {
 
 const COLUMN_NAMES = Object.keys(COLUMN_DEFAULTS) as ColumnName[]
 
-export function queryOf(state: State): QuerySettings {
+/**
+ * The query settings of `state`, read to be written as JSON (the store's own objects, not copies). An order that is
+ * `defaultSort` is not kept: toggling a cell does not pin the workspace to the order the default had then, so a
+ * later `D` still decides its next opening (moai tui keeps a project's order only once one was chosen there).
+ */
+export function queryOf(state: State, defaultSort: Sort = DEFAULT_SORT): QuerySettings {
   return {
     scope: state.search.scope,
     filter: state.filter.applied,
-    sort: { fields: state.sort.fields.map((field) => ({ ...field })), reversed: state.sort.reversed },
-    columns: { ...state.columns },
-    view: { ...state.view, hiddenStatuses: [...state.view.hiddenStatuses] },
+    sort: sameSort(state.sort, defaultSort) ? null : state.sort,
+    columns: state.columns,
+    view: state.view,
   }
 }
+
+/** The slices {@link queryOf} reads are the ones `previous` had: the reducer keeps an unchanged slice's object. */
+const sameQuerySlices = (a: State, b: State): boolean =>
+  a.search.scope === b.search.scope && a.filter.applied === b.filter.applied && a.sort === b.sort && a.columns === b.columns && a.view === b.view
 
 /** Stored query settings (parsed JSON, or anything else) to what can be applied; what is wrong is left out. */
 export function normalizeQuery(value: unknown): Partial<QuerySettings> {
@@ -264,8 +287,6 @@ export function normalizeQuery(value: unknown): Partial<QuerySettings> {
   return out
 }
 
-const sameQuery = (a: QuerySettings, b: QuerySettings): boolean => JSON.stringify(a) === JSON.stringify(b)
-
 /** Puts stored query settings into the store through the actions the toolbar and the view menu use. */
 function applyQuery(store: Store, query: Partial<QuerySettings>): void {
   if (query.scope) store.dispatch({ type: 'search', text: store.getState().search.text, scope: query.scope })
@@ -281,7 +302,8 @@ function applyQuery(store: Store, query: Partial<QuerySettings>): void {
 /**
  * Restores the remembered settings into the store, then saves them whenever they change. Returns the
  * unsubscribe. Call it before the views mount, so they first draw the restored tab and layout. The default
- * sort is applied first, so a saved working order of the query settings wins over it.
+ * sort is applied first, so the workspace's own order in the query settings wins over it. Left out, `defaults` and
+ * `storage` are the panel's shared {@link sortDefault} and {@link settingsStorage}, the ones the key wiring falls back to.
  */
 export function remember(
   store: Store,
@@ -298,10 +320,20 @@ export function remember(
   } catch {
     // Unreadable: the panel starts from its defaults.
   }
+  const written = (state: State) => JSON.stringify(queryOf(state, defaults.get() ?? DEFAULT_SORT))
+  let last = written(store.getState())
   return store.subscribe((state, previous) => {
     const now = rememberedOf(state)
     if (!sameMemory(now, rememberedOf(previous))) memory.save(now)
-    const query = queryOf(state)
-    if (!sameQuery(query, queryOf(previous))) storage.write(QUERY_KEY, JSON.stringify(query))
+    // Most changes (the cursor, a read) leave the query alone: nothing is built or compared for them.
+    if (sameQuerySlices(state, previous)) return
+    const text = written(state)
+    if (text === last) return
+    last = text
+    try {
+      storage.write(QUERY_KEY, text)
+    } catch {
+      // Full, or refused: forgotten. A throw here would stop the listeners after this one (the views) drawing.
+    }
   })
 }
