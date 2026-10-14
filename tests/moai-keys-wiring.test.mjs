@@ -826,3 +826,46 @@ test('keys: the filter suggestions close when the filter loses the focus (se-h5c
   assert.equal(panel.$('.m-hints .m-menu-item'), null, 'the list is no longer drawn')
   assert.equal(panel.state().filter.text, 'sta', 'the text stays')
 })
+
+test('keys: SPC m g on an archived group marks nothing — not the milestone around it either', async () => {
+  const calls = []
+  const read = { one: async (id) => (calls.push(['one', id]), null), all: async () => null, group: async (id) => (calls.push(['group', id]), null) }
+  const panel = boot({ read })
+  panel.store.dispatch({ type: 'enter', path: ['m:m1'], cursor: 'e1' })
+  panel.shell.focusPane('list')
+  // Beside a whole list an archive-only row is archived (source.ts withArchive tags it).
+  panel.store.dispatch({ type: 'view', view: { showArchived: true } })
+  panel.store.dispatch({ type: 'archive', rows: [...ROWS, { id: 'e9', kind: 'epic', title: 'Old epic', milestone: 'm1', status: 'done' }] })
+  panel.store.dispatch({ type: 'cursor', id: 'e9' })
+  panel.seq(' ', 'm', 'g')
+  await ticks()
+  assert.deepEqual(calls, [], 'the archived epic takes no mark, and m1 is not marked in its stead')
+  // An active group under the cursor is still the one marked, and a row that is no group marks the place.
+  panel.store.dispatch({ type: 'cursor', id: 'e1' })
+  panel.seq(' ', 'm', 'g')
+  panel.store.dispatch({ type: 'enter', path: ['m:m1', 'e:e1'], cursor: 'e1.a' })
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'm', 'g')
+  await ticks()
+  assert.deepEqual(calls, [['group', 'e1'], ['group', 'e1']])
+})
+
+test('keys: Esc in a search opened with / still puts the cursor back after the window lost the focus and came back', () => {
+  const panel = inEpic()
+  panel.press('/')
+  const search = panel.shell.toolbar.searchInput
+  assert.equal(panel.doc.activeElement, search)
+  panel.store.dispatch({ type: 'cursor', id: 'e1.c' })
+  // The window going away blurs the input but leaves it the active element: the caret has not left the search.
+  search.dispatchEvent(new panel.dom.window.FocusEvent('blur'))
+  assert.equal(panel.doc.activeElement, search)
+  panel.press('Escape')
+  assert.equal(panel.state().cursor, 'e1.a', 'back where / opened the search')
+  // A real blur (a click elsewhere) still forgets it.
+  panel.press('/')
+  panel.store.dispatch({ type: 'cursor', id: 'e1.c' })
+  search.blur()
+  search.focus()
+  panel.press('Escape')
+  assert.equal(panel.state().cursor, 'e1.c')
+})

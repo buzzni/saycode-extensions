@@ -28,8 +28,9 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
   const nameOf = (key: string) =>
     key === BACKLOG ? copy.shell.backlog : key === DEFERRED ? copy.shell.deferred : ((copy.stats as Record<string, string>)[key] ?? key)
 
-  // One card is the tab stop, where focus() puts the focus: the one with the cursor, else the first. (The key router
-  // keeps Tab in browse mode, so it is the focus moves and clicks that reach it, not Tab.)
+  // One card is the tab stop, where focus() puts the focus: the one with the cursor, else the first. Tab on the board
+  // runs nothing (expandAll is the list's), so the key router leaves it to the browser: Tab reaches that one card and
+  // goes on past the board, and j/k/h/l move between the cards.
   const cards = model.lanes.flatMap((lane) => lane.columns.flatMap((column) => column.cards))
   const cursorCard = state.cursor === null ? undefined : cards.find((at) => index.rows[at]!.id === state.cursor)
   const tabStop = cursorCard ?? cards[0]
