@@ -14,6 +14,7 @@ const { mountShell } = await panelModule('view/shell.ts')
 const { PANES } = await panelModule('view/panes.ts')
 const { wireKeys, keyContext, NOT_WIRED } = await panelModule('keys/wiring.ts')
 const { KEY_TABLE, menuLayer } = await panelModule('keys/table.ts')
+const { createSortDefault } = await panelModule('data/memory.ts')
 
 const en = copyFor('en')
 
@@ -39,7 +40,7 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki, read, rows = ROWS, platform = 'other' } = {}) {
+function boot({ wiki, read, rows = ROWS, platform = 'other', sortDefault } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -65,7 +66,7 @@ function boot({ wiki, read, rows = ROWS, platform = 'other' } = {}) {
     wiki,
   })
   store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
-  const keys = wireKeys({ document: doc, store, shell, copy: en, platform, read })
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform, read, sortDefault })
   const $ = (selector) => doc.querySelector(selector)
   /** A keydown on `target` (the focused element when left out), as the browser sends it. */
   const press = (key, init = {}, target = doc.activeElement ?? doc.body) => {
@@ -868,4 +869,23 @@ test('keys: Esc in a search opened with / still puts the cursor back after the w
   search.focus()
   panel.press('Escape')
   assert.equal(panel.state().cursor, 'e1.c')
+})
+
+test('keys: D in the sort editor saves the order as the default; emptying the order returns to it', () => {
+  const sortDefault = createSortDefault()
+  const panel = inEpic({ sortDefault })
+  panel.seq(' ', 's', 't')
+  panel.press('P')
+  panel.press('Escape')
+  panel.seq(' ', 's', 'e')
+  assert.match(panel.$('.m-sort-pop [data-sort-note]').textContent, /이 세션에서만/, 'the editor says the default lasts for the session')
+  panel.press('D')
+  assert.deepEqual(sortDefault.get(), { fields: [{ key: 'title', dir: 'asc' }, { key: 'priority', dir: 'asc' }], reversed: false })
+  assert.match(panel.$('.moai-result')?.textContent ?? '', /세션/)
+  assert.equal(panel.state().toolbar.sortOpen, true, 'D saves and leaves the editor open')
+  // Take every field out (SPC on each): the reset is the saved default, not priority alone.
+  panel.press(' ')
+  panel.seq('k', 'k', 'k', 'k', 'k')
+  panel.press(' ')
+  assert.deepEqual(panel.state().sort.fields.map((f) => f.key), ['title', 'priority'])
 })

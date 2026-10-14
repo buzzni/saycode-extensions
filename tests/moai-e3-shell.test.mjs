@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const { crumbSegments, crumbLine, hungBadge, lookBadge, segLabel, sortWords } = await panelModule('view/crumbs.ts')
-const { MEMORY_KEY, createMemory, normalizeMemory, remember } = await panelModule('data/memory.ts')
+const { MEMORY_KEY, SORT_DEFAULT_KEY, createMemory, createSortDefault, createSessionStorage, normalizeSort, normalizeMemory, remember } = await panelModule('data/memory.ts')
 const { createStore, initialState, reduce } = await panelModule('store.ts')
 const { IssueIndex, LOST, NO_MILESTONE } = await panelModule('data/index.ts')
 const { copyFor } = await panelModule('i18n/index.ts')
@@ -528,4 +528,31 @@ test('shell: the activity line asks to approve a waiting run beside one that run
   panel.shell.activity({ phase: 'starting', waiting: true, cancellable: false })
   assert.equal(line.textContent, en.starting)
   assert.equal(panel.$('.moai-cancel').hidden, true)
+})
+
+test('memory: the default sort lasts for the session, lives under one key, and is applied at boot', () => {
+  const storage = createSessionStorage()
+  const sortDefault = createSortDefault(storage)
+  assert.equal(sortDefault.get(), null)
+  assert.equal(sortDefault.persistent, false)
+  const sort = { fields: [{ key: 'updated', dir: 'desc' }, { key: 'title', dir: 'asc' }], reversed: true }
+  sortDefault.set(sort)
+  assert.deepEqual(sortDefault.get(), sort)
+  assert.deepEqual(JSON.parse(storage.read(SORT_DEFAULT_KEY)), sort, 'a persisting backend finds it under the same key')
+  const store = createStore()
+  remember(store, createMemory(() => null), sortDefault)
+  assert.deepEqual(store.getState().sort, sort)
+  sortDefault.clear()
+  assert.equal(sortDefault.get(), null)
+})
+
+test('memory: a stored sort that is not usable is no default', () => {
+  assert.equal(normalizeSort(null), null)
+  assert.equal(normalizeSort({ fields: [] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'nope', dir: 'asc' }] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'title', dir: 'sideways' }] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'title', dir: 'asc' }, { key: 'title', dir: 'desc' }] }), null)
+  const storage = createSessionStorage()
+  storage.write(SORT_DEFAULT_KEY, '{not json')
+  assert.equal(createSortDefault(storage).get(), null)
 })

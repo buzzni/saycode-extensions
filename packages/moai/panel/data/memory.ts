@@ -13,6 +13,7 @@
  * {@link normalizeMemory} is pure and cleans whatever comes back, so a value from an older or newer panel,
  * or one edited by hand, still boots with usable settings.
  */
+import { SORT_KEYS, type Dir, type Sort, type SortField } from './query.js'
 import type { DetailPosition, Remembered, State, Store } from '../store.js'
 import { DEFAULT_RATIO, normalizeRatio } from '../view/split.js'
 import { DEFAULT_TAB, normalizeTab } from '../view/tabs.js'
@@ -127,10 +128,93 @@ export function createMemory(backend: () => Backend | null | undefined, key: str
  * Restores the remembered settings into the store, then saves them whenever they change. Returns the
  * unsubscribe. Call it before the views mount, so they first draw the restored tab and layout.
  */
-export function remember(store: Store, memory: Memory): () => void {
+export function remember(store: Store, memory: Memory, defaults: SortDefault = sortDefault): () => void {
   store.dispatch({ type: 'restore', settings: memory.load() })
+  const saved = defaults.get()
+  if (saved) store.dispatch({ type: 'sort', sort: saved })
   return store.subscribe((state, previous) => {
     const now = rememberedOf(state)
     if (!sameMemory(now, rememberedOf(previous))) memory.save(now)
   })
 }
+
+// ── the default sort (E4 se-5air) ──────────────────────────────────────────────────────────────────────
+//
+// The sort editor's `D` keeps the order on screen as the one `reset sort` and a fresh opening return to. Nothing
+// persists settings yet (the SDK is being asked for a settings-storage API), so it is kept through a
+// {@link SettingsStorage} whose only implementation today is the session's own memory. A backend that persists
+// plugs in under the same {@link SORT_DEFAULT_KEY} and the callers do not change.
+
+/** Where the default sort is kept; a persisting backend is stored under this same key. */
+export const SORT_DEFAULT_KEY = `${MEMORY_KEY}.sort`
+
+/** A string store keyed by name: the seam a settings-storage API will fill. `null` clears a key. */
+export interface SettingsStorage {
+  read(key: string): string | null
+  write(key: string, value: string | null): void
+  /** False when what is written is lost with the session (the only kind there is until settings storage exists). */
+  readonly persistent: boolean
+}
+
+/** The session-only storage: a copy in memory, gone when the panel closes. */
+export function createSessionStorage(): SettingsStorage {
+  const kept = new Map<string, string>()
+  return {
+    read: (key) => kept.get(key) ?? null,
+    write(key, value) {
+      if (value === null) kept.delete(key)
+      else kept.set(key, value)
+    },
+    persistent: false,
+  }
+}
+
+const isDir = (value: unknown): value is Dir => value === 'asc' || value === 'desc'
+
+/** A stored order back to a {@link Sort}, or null when it is not a usable one (empty, unknown key, repeated key). */
+export function normalizeSort(value: unknown): Sort | null {
+  if (!isRecord(value) || !Array.isArray(value.fields) || value.fields.length === 0) return null
+  const fields: SortField[] = []
+  for (const one of value.fields) {
+    if (!isRecord(one) || !isDir(one.dir)) return null
+    const key = SORT_KEYS.find((candidate) => candidate === one.key)
+    if (!key || fields.some((field) => field.key === key)) return null
+    fields.push({ key, dir: one.dir })
+  }
+  return { fields, reversed: value.reversed === true }
+}
+
+export interface SortDefault {
+  /** The saved default, or null when none was saved. */
+  get(): Sort | null
+  set(sort: Sort): void
+  clear(): void
+  /** False while the default lasts for this session only. */
+  readonly persistent: boolean
+}
+
+export function createSortDefault(storage: SettingsStorage = createSessionStorage(), key: string = SORT_DEFAULT_KEY): SortDefault {
+  return {
+    get() {
+      const text = storage.read(key)
+      if (text === null) return null
+      try {
+        return normalizeSort(JSON.parse(text))
+      } catch {
+        return null
+      }
+    },
+    set(sort) {
+      storage.write(key, JSON.stringify({ fields: sort.fields, reversed: sort.reversed }))
+    },
+    clear() {
+      storage.write(key, null)
+    },
+    get persistent() {
+      return storage.persistent
+    },
+  }
+}
+
+/** The panel's one default sort, shared by the key wiring (`D`, reset) and {@link remember} (load). */
+export const sortDefault: SortDefault = createSortDefault()
