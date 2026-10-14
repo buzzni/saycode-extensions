@@ -178,6 +178,8 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const notice = el(doc, "div", { class: "m-banner moai-notice", role: "status" })
   const error = el(doc, "div", { class: "m-banner m-banner-danger moai-error", role: "alert" })
   const more = el(doc, "p", { class: "moai-more" })
+  // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
+  const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
@@ -192,7 +194,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -350,6 +352,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explain(state.board.problem ?? (state.detail.visible ? null : state.shown.problem))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
+    // Written only when it changes: it is a live region.
+    const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
+    if (truncated.textContent !== partial) truncated.textContent = partial
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

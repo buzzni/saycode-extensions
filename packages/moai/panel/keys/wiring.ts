@@ -8,6 +8,7 @@
 // leaves it (attachKeyRouter). The mode comes from the store and the focus: `sorter` while the sort editor is
 // open, `prompt` while a search or filter input has the caret, `wiki` on the wiki tab, `browse` otherwise.
 
+import type { Outcome } from "../data/client.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
 import type { Copy } from "../i18n/index.ts"
 import type { ColumnName, State, Store } from "../store.ts"
@@ -33,7 +34,7 @@ export interface ContextEnv {
   raw?: boolean
   /** Status column names as the menu labels them (SPC v 1~9); the status itself when left out. */
   statusName?: (status: string) => string
-  /** The read marks can be written. False until the data layer that writes them is merged. */
+  /** The read marks can be written: the panel was given {@link ReadMarks}. */
   readable?: boolean
 }
 
@@ -65,10 +66,20 @@ export function keyContext(state: State, env: ContextEnv): KeyContext {
  * menu leaves them out and the help dims them; a dispatch that still reaches them only says so.
  */
 export const NOT_WIRED: Readonly<Record<string, string>> = {
-  read: "data layer (se-ehdi.o5u): read marks",
-  "read.all": "data layer (se-ehdi.o5u): read marks",
-  "read.group": "data layer (se-ehdi.o5u): read marks",
   "sorter.default": "no place keeps a default sort yet (data/memory.ts)",
+}
+
+/**
+ * The read-mark writes (data/read.ts markRead, markAllRead, markGroupRead), each answering null when it went
+ * through or the {@link Outcome} that stopped it. main.ts reads the list again after one that went through.
+ */
+export interface ReadMarks {
+  /** `r`: the row under the cursor. */
+  one(id: string): Promise<Outcome | null>
+  /** `SPC m a`: everything unread. */
+  all(): Promise<Outcome | null>
+  /** `SPC m g`: a milestone's or epic's members. */
+  group(id: string): Promise<Outcome | null>
 }
 
 export interface KeyWiringOptions {
@@ -78,6 +89,8 @@ export interface KeyWiringOptions {
   copy: Copy
   /** Defaults to the navigator's (detectPlatform). */
   platform?: Platform
+  /** The read-mark writes; without them `r` and `SPC m` are not offered (KeyContext.readable). */
+  read?: ReadMarks
 }
 
 export interface KeyWiring {
@@ -129,8 +142,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       wikiPane: wikiPaneEl()?.dataset.pane === "body" ? "body" : "list",
       raw: (onWiki ? panes().wiki?.raw?.() : panes().detail.raw?.()) ?? false,
       statusName: (status) => (copy.stats as Record<string, string>)[status] ?? status,
-      // hookup: data layer (se-ehdi.o5u) read — true once the read marks can be written.
-      readable: false,
+      readable: options.read !== undefined,
     })
   }
 
@@ -244,10 +256,39 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     const field = String(a.args?.field) as SortKey
     setSort(sortEdit(store.getState().sort, field, how))
   }
-  const readHookup: Handler = () => {
-    // hookup: data layer (se-ehdi.o5u) read — mark the cursor row / all / the group read here.
-    say(copy.keys.readUnavailable)
+  // ── read marks ──
+  /** The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in. */
+  function groupHere(): string | null {
+    const state = store.getState()
+    const row = state.cursor === null ? undefined : state.board.value?.rows.find((r) => r.id === state.cursor)
+    if (row && (row.kind === "milestone" || row.kind === "epic")) return row.id
+    const place = [...state.path].reverse().find((segment) => segment.startsWith("m:") || segment.startsWith("e:"))
+    return place ? place.slice(2) : null
   }
+  function marking(write: (marks: ReadMarks) => Promise<Outcome | null> | null): Handler {
+    return () => {
+      const marks = options.read
+      if (!marks) return say(copy.keys.readUnavailable)
+      const writing = write(marks)
+      if (!writing) return
+      void writing.then((outcome) => {
+        if (outcome) shell.refuse(outcome)
+      })
+    }
+  }
+  const readOne = marking((marks) => {
+    const id = store.getState().cursor
+    return id !== null && store.getState().board.value?.rows.some((row) => row.id === id) ? marks.one(id) : null
+  })
+  const readAll = marking((marks) => marks.all())
+  const readGroup = marking((marks) => {
+    const id = groupHere()
+    if (id === null) {
+      say(copy.keys.readNoGroup)
+      return null
+    }
+    return marks.group(id)
+  })
 
   const handlers: Record<string, Handler> = {
     "move.down": move,
@@ -277,9 +318,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       if (state.filter.text || state.filter.applied) store.dispatch({ type: "filter", text: "" })
     },
     "add.open": () => shell.input.focus(),
-    read: readHookup,
-    "read.all": readHookup,
-    "read.group": readHookup,
+    read: readOne,
+    "read.all": readAll,
+    "read.group": readGroup,
     help: (a) => help.open(a.mode, context()),
     "tab.list": tab("list"),
     "tab.board": tab("board"),

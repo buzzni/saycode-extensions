@@ -7,11 +7,9 @@
  *   Moai's clock too (a row done for `archive_days`), so a group's old done members are not among these rows
  *   until the archive is read. If the daemon cut `show --all` at the 1 MiB output limit the rows fall back to
  *   `prime` (what is held and what is ready) with `truncated: true`, so the view can say the list is partial.
- * - {@link loadRows}, which the panel boots with today, still reads `prime` alone: the board's jsdom tests
- *   (tests/moai.test.mjs) and main.ts answer only `prime`, and both are held by other work. Switching is
- *   main.ts calling {@link loadAllRows} (same arguments) once those tests answer `show-all` and `backlog-all`,
- *   with the board state taking `truncated` along: BoardData holds only `rows` and `more`, and in the fallback
- *   `more` counts only what prime held back, not what `show --all` would have listed.
+ * - main.ts boots on {@link loadAllRows} and keeps `truncated` in the board state for its banner; in the
+ *   fallback `more` counts only what prime held back, not what `show --all` would have listed.
+ *   {@link loadRows} reads `prime` alone and is that fallback.
  * - A partial answer (Moai's non-zero exit with its whole JSON still printed; see client.ts) is read like a
  *   whole one: the rows it could read, the wiki pages it did not skip. `prime` ends such a run with 0 itself.
  * - The column names come from `status` ({@link loadStatuses}).

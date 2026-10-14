@@ -45,6 +45,8 @@ export interface ShellCopy {
   wikiUnavailable: string
   /** `wiki ls` failed; the reason follows. */
   wikiListFailed: (reason: string) => string
+  /** `show --all` was cut at the output limit: the list stands on prime's rows and the backlog (source.ts loadAllRows). */
+  truncated: string
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -71,6 +73,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiPlaceholder: 'The wiki is not here yet.',
     wikiUnavailable: 'The wiki cannot be read here yet.',
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
+    truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -95,6 +98,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiPlaceholder: '위키는 아직 준비 중입니다.',
     wikiUnavailable: '아직 여기서는 위키를 읽을 수 없습니다.',
     wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
+    truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -119,6 +123,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiPlaceholder: 'Wiki はまだ準備中です。',
     wikiUnavailable: 'ここではまだ Wiki を読めません。',
     wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
+    truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -143,6 +148,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiPlaceholder: 'Wiki 尚未就绪。',
     wikiUnavailable: '这里暂时无法读取 Wiki。',
     wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
+    truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务（以及待办池）。',
   },
 }
 
@@ -417,8 +423,10 @@ const TOOLBAR: Record<Language, ToolbarCopy> = {
 export interface KeysCopy {
   /** Shown while the panel's frame has no keyboard focus (the host does not give it one). */
   focusHint: string
-  /** `r`, `SPC m a`, `SPC m g` before the data layer that writes read marks is merged. */
+  /** `r`, `SPC m a`, `SPC m g` in a panel given no read-mark writes (keys/wiring.ts `read`). */
   readUnavailable: string
+  /** `SPC m g` with neither a group under the cursor nor a group to stand in. */
+  readNoGroup: string
   /** `D` in the sort editor: the panel has nowhere to keep a default order yet. */
   sortDefaultUnavailable: string
 }
@@ -427,21 +435,25 @@ const KEYS: Record<Language, KeysCopy> = {
   en: {
     focusHint: 'Click to use the keyboard',
     readUnavailable: 'Marking items read is not available in the panel yet.',
+    readNoGroup: 'Move to a milestone or epic to mark its items read.',
     sortDefaultUnavailable: 'Saving a default sort is not available in the panel yet.',
   },
   ko: {
     focusHint: '클릭하면 키보드를 쓸 수 있습니다',
     readUnavailable: '읽음 표시는 아직 패널에서 쓸 수 없습니다.',
+    readNoGroup: '읽음으로 표시할 마일스톤이나 에픽으로 옮겨 가세요.',
     sortDefaultUnavailable: '기본 정렬 저장은 아직 패널에서 쓸 수 없습니다.',
   },
   ja: {
     focusHint: 'クリックするとキーボードを使えます',
     readUnavailable: '既読の記録はまだパネルでは使えません。',
+    readNoGroup: '既読にするマイルストーンかエピックに移動してください。',
     sortDefaultUnavailable: '既定の並べ替えの保存はまだパネルでは使えません。',
   },
   zh: {
     focusHint: '点击后即可使用键盘',
     readUnavailable: '面板中暂时还不能标记为已读。',
+    readNoGroup: '请移到要标记为已读的里程碑或史诗。',
     sortDefaultUnavailable: '面板中暂时还不能保存默认排序。',
   },
 }

@@ -50,6 +50,10 @@ export interface Loadable<T> {
 export interface BoardData {
   rows: Row[]
   more: number
+  /** `show --all` was cut at the output limit, so these are prime's rows and the backlog (source.ts loadAllRows). */
+  truncated?: boolean
+  /** Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies); absent when that read failed. */
+  tallies?: ReadonlyMap<string, readonly [number, number]>
   /** When the rows were read (ms since epoch). */
   loadedAt: number
 }
@@ -100,6 +104,11 @@ export interface State {
   toolbar: ToolbarUi
   board: Loadable<BoardData>
   shown: Loadable<DetailData>
+  /**
+   * The rows the archive holds (source.ts loadArchived, archive-only ones tagged `archived: true`), read when
+   * archived rows are shown (`view.showArchived`); null until then.
+   */
+  archive: Row[] | null
   /** The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left and given back on its return. */
   wiki: WikiState
 }
@@ -171,6 +180,7 @@ export function initialState(): State {
     toolbar: { cursor: 0, hintsOpen: false, hintIndex: -1, sortOpen: false },
     board: idle(),
     shown: idle(),
+    archive: null,
     wiki: initialWiki(),
   }
 }
@@ -203,6 +213,8 @@ export type Action =
   /** `order` is the ids in the order they were drawn before this read, to place the cursor after it. */
   | { type: 'board-loaded'; data: BoardData; order?: string[] }
   | { type: 'board-failed'; problem: Outcome }
+  /** The archive's rows as read (null forgets them). */
+  | { type: 'archive'; rows: Row[] | null }
   | { type: 'detail-loading'; id: string }
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
@@ -295,6 +307,8 @@ export function reduce(state: State, action: Action): State {
     case 'board-failed':
       // The rows read before stay on screen; the problem is shown beside them.
       return { ...state, board: { ...state.board, loading: false, problem: action.problem } }
+    case 'archive':
+      return state.archive === action.rows ? state : { ...state, archive: action.rows }
     case 'detail-loading':
       return { ...state, shown: { value: state.shown.value?.id === action.id ? state.shown.value : null, loading: true, problem: null } }
     case 'detail-loaded':

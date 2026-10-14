@@ -117,6 +117,25 @@ const PRIME = await fixture('prime-v080.json')
 const PRIME_NO_TRACKER = await fixture('prime-no-tracker-v080.json')
 const SHOW_NOTE_BODY = await fixture('show-note-body-v080.json')
 const SHOW_MOVED = await fixture('show-moved-v080.json')
+// Real Moai v0.16 output: `show --all`, `backlog show --all`, `status`, the archive and the wiki.
+const SHOW_ALL_V016 = await fixture('show-all-v016.json')
+const BACKLOG_V016 = await fixture('backlog-v016.json')
+const STATUS_V016 = await fixture('status-v016.json')
+const ARCHIVED_V016 = await fixture('show-archived-v016.json')
+const WIKI_LS_V016 = await fixture('wiki-ls-v016.json')
+const WIKI_SHOW_V016 = await fixture('wiki-show-v016.json')
+const READ_ONE_V016 = await fixture('read-one-v016.json')
+const READ_ALL_V016 = await fixture('read-all-v016.json')
+const READ_GROUP_V016 = await fixture('read-group-v016.json')
+// The v0.8.0 tracker the detail fixtures come from, as `show --all` lists it (prime's rows: nothing else is in it),
+// and `status` for it. The board reads `show --all`, `backlog show --all` and `status` side by side.
+const listOf = (prime) => {
+  const parsed = JSON.parse(prime)
+  return JSON.stringify([...parsed.picked, ...parsed.others, ...parsed.ready].map((row) => ({ kind: 'issue', ...row })))
+}
+const SHOW_ALL = listOf(PRIME)
+const NO_BACKLOG = '[]'
+const STATUS = JSON.stringify({ counts: { done: 0, in_progress: 1, review: 1, todo: 1 }, total: 3, milestones: [], epics: [] })
 const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
 
 const accepted = (operationId) => ({ action: 'start', operationId, state: 'accepted' })
@@ -187,6 +206,11 @@ const stdoutFor = (outputs) => (profile, value) => {
   const text = typeof out === 'function' ? out(value) : out
   return text === null ? null : (typeof text === 'string' ? passed('', text) : text)
 }
+/** The board's three reads answered (the v0.8.0 tracker unless given), with `outputs` for the rest. */
+const board = (outputs = {}) => stdoutFor({ 'buzzni.moai.show-all': SHOW_ALL, 'buzzni.moai.backlog-all': NO_BACKLOG, 'buzzni.moai.status': STATUS, ...outputs })
+const LIST_READS = [['buzzni.moai.show-all'], ['buzzni.moai.backlog-all'], ['buzzni.moai.status']]
+/** `show --all` cut by the daemon at the output limit: the flag on a finished status whose stdout no longer parses. */
+const cut = { state: 'passed', stdout: '[{"id":"mgd-', stderr: '', exitCode: 0, truncated: true }
 
 test('a project tool opens the Moai board panel in the work area instead of a machine settings button', async () => {
   const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
@@ -219,8 +243,8 @@ test('the packed panel is one file: inline script and style only, under the 512 
 })
 
 test('opening the board reads the list once, draws it by priority and shows when it was read', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
-  assert.deepEqual(panel.starts(), [['buzzni.moai.prime']])
+  const panel = await runPanel(board())
+  assert.deepEqual(panel.starts(), LIST_READS)
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   assert.match(panel.$('.moai-refresh').textContent, /^↻ \d{2}:\d{2}:\d{2}$/)
   assert.match(panel.$('.moai-refresh').title, /^Updated \d{2}:\d{2}:\d{2}$/)
@@ -229,13 +253,13 @@ test('opening the board reads the list once, draws it by priority and shows when
 })
 
 test('the board follows the host document language', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }), 'ja')
+  const panel = await runPanel(board(), 'ja')
   assert.equal(panel.$('.moai-add-button').textContent, 'タスクを追加')
   assert.equal(panel.$('.moai-add input').placeholder, '新しいタスクのタイトル')
 })
 
 test('choosing a task shows its details beside the list, with history and status moves', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': (id) => (id === 'mgd-hmcr' ? SHOW_NOTE_BODY : SHOW_MOVED) }), 'ko')
+  const panel = await runPanel(board({ 'buzzni.moai.show': (id) => (id === 'mgd-hmcr' ? SHOW_NOTE_BODY : SHOW_MOVED) }), 'ko')
   panel.row('mgd-hmcr').click()
   await flush()
   assert.deepEqual(panel.starts().at(-1), ['buzzni.moai.show', 'mgd-hmcr'])
@@ -262,7 +286,8 @@ test('choosing a task shows its details beside the list, with history and status
 })
 
 test('a refused read is explained where it happened; user choices are information, machine problems errors', async () => {
-  for (const [code, info] of [['declined', true], ['workspace-busy', true], ['tool-missing', false], ['unsupported-daemon', false]]) {
+  // workspace-busy is tried again before it is told (the next test).
+  for (const [code, info] of [['declined', true], ['tool-missing', false], ['unsupported-daemon', false]]) {
     const answer = stdoutFor({})
     answer.start = () => ({ action: 'start', state: 'refused', code })
     const panel = await runPanel(answer, 'ko')
@@ -277,9 +302,34 @@ test('a refused read is explained where it happened; user choices are informatio
   assert.equal(panel.$('.moai-refresh').disabled, false)
 })
 
-test('a project without a Moai board says how to start one, from prime or from a failed run', async () => {
-  for (const reply of [PRIME_NO_TRACKER, { state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }]) {
-    const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': reply }))
+test('a read refused as workspace-busy is tried again, and told only when the last try is refused too', async () => {
+  // Busy once: the second try a second later goes through, and nothing was said meanwhile.
+  let busy = 1
+  const once = board()
+  once.start = (args) => (args[0] === 'buzzni.moai.show-all' && busy-- > 0 ? { action: 'start', state: 'refused', code: 'workspace-busy' } : null)
+  const passing = await runPanel(once)
+  assert.deepEqual(passing.rows(), [])
+  assert.equal(passing.$('.moai-notice').textContent, '')
+  await new Promise((resolve) => setTimeout(resolve, 1700))
+  await flush()
+  assert.deepEqual(passing.starts().filter(([profile]) => profile === 'buzzni.moai.show-all').length, 2)
+  assert.deepEqual(passing.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.equal(passing.$('.moai-notice').textContent, '')
+  // Busy every time: three tries, 1 s and then 2 s apart, and then the notice (information, not an error).
+  const always = board()
+  always.start = () => ({ action: 'start', state: 'refused', code: 'workspace-busy' })
+  const panel = await runPanel(always, 'ko')
+  assert.equal(panel.$('.moai-notice').textContent, '')
+  await new Promise((resolve) => setTimeout(resolve, 3300))
+  await flush()
+  assert.equal(panel.starts().filter(([profile]) => profile === 'buzzni.moai.show-all').length, 3)
+  assert.ok(panel.$('.moai-notice').textContent)
+  assert.equal(panel.$('.moai-error').textContent, '')
+})
+
+test('a project without a Moai board says how to start one, from a failed run or from prime after a cut list', async () => {
+  for (const reply of [{ state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }, cut]) {
+    const panel = await runPanel(board({ 'buzzni.moai.show-all': reply, 'buzzni.moai.prime': PRIME_NO_TRACKER }))
     const notice = panel.$('.moai-notice')
     assert.equal(notice.querySelector('code')?.textContent, 'moai init')
     assert.match(notice.textContent, /^This project has no Moai board yet\./)
@@ -288,16 +338,16 @@ test('a project without a Moai board says how to start one, from prime or from a
 })
 
 test('a failed run shows the reason Moai printed on stderr', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'config.toml: bad column' }), exitCode: 1 } }))
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'config.toml: bad column' }), exitCode: 1 } }))
   assert.equal(panel.$('.moai-error').textContent, 'Moai reported an error: config.toml: bad column')
 })
 
 test('adding needs a title, takes Enter but not while an IME composes, and refreshes the list', async () => {
-  let listed = PRIME
-  const panel = await runPanel(stdoutFor({
-    'buzzni.moai.prime': () => listed,
+  let listed = SHOW_ALL
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': () => listed,
     'buzzni.moai.add': (title) => {
-      listed = JSON.stringify({ ...JSON.parse(PRIME), ready: [...JSON.parse(PRIME).ready, { id: 'mgd-new1', title, status: 'todo', priority: 1 }] })
+      listed = JSON.stringify([...JSON.parse(SHOW_ALL), { id: 'mgd-new1', title, status: 'todo', priority: 1, kind: 'issue' }])
       return JSON.stringify({ id: 'mgd-new1', title, status: 'todo' })
     },
   }), 'ko')
@@ -307,53 +357,64 @@ test('adding needs a title, takes Enter but not while an IME composes, and refre
   panel.$('.moai-add input').value = '  새 일  '
   panel.pressEnter(true)
   await flush()
-  assert.equal(panel.starts().length, 1)
+  assert.equal(panel.starts().length, 3)
   panel.pressEnter(false)
   await flush()
-  assert.deepEqual(panel.starts().slice(1), [['buzzni.moai.add', '새 일'], ['buzzni.moai.prime']])
+  assert.deepEqual(panel.starts().slice(3), [['buzzni.moai.add', '새 일'], ...LIST_READS])
   assert.equal(panel.$('.moai-result').textContent, '추가했습니다: 새 일 (mgd-new1)')
   assert.equal(panel.$('.moai-add input').value, '')
   assert.deepEqual(panel.rows(), ['mgd-new1', 'mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
 
 test('until a run is accepted the panel says it may wait for the confirmation; cancel shows only once it runs', async () => {
-  let accept
-  const answer = (profile) => (profile === 'buzzni.moai.prime' ? null : null)
-  answer.start = () => new Promise((resolve) => { accept = () => resolve(null) })
+  // The list's three reads start at once (3 at a time); each waits for its confirmation.
+  const accepts = []
+  const answer = () => null
+  answer.start = () => new Promise((resolve) => accepts.push(() => resolve(null)))
   const panel = await runPanel(answer)
+  assert.equal(accepts.length, 3)
   assert.equal(panel.$('.moai-activity').textContent, 'Starting… approve the confirmation if it is showing.')
   assert.equal(panel.$('.moai-cancel').hidden, true)
-  accept()
+  for (const accept of accepts) accept()
   await flush()
   assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine…')
   assert.equal(panel.$('.moai-cancel').hidden, false)
   panel.$('.moai-cancel').click()
   await new Promise((resolve) => setTimeout(resolve, 600))
   await flush()
+  // Cancel stops every run of the list, not only the first.
   assert.deepEqual(panel.calls.find(([command]) => command === 'buzzni.moai.cancel'), ['buzzni.moai.cancel', ['op-1']])
+  assert.deepEqual([...new Set(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').map(([, [id]]) => id))].sort(), ['op-1', 'op-2', 'op-3'])
   assert.equal(panel.$('.moai-notice').textContent, 'The run was cancelled. Processes on the machine may not have finished yet.')
   assert.equal(panel.$('.moai-cancel').hidden, true)
   assert.equal(panel.$('.moai-activity').textContent, '')
 })
 
 test('Refresh reads the list again and keeps the cursor on the same task', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_MOVED }))
+  const panel = await runPanel(board({ 'buzzni.moai.show': SHOW_MOVED }))
   panel.row('mgd-ogym').click()
   await flush()
   panel.$('.moai-refresh').click()
   await flush()
-  assert.deepEqual(panel.starts().map(([profile]) => profile), ['buzzni.moai.prime', 'buzzni.moai.show', 'buzzni.moai.prime'])
+  assert.deepEqual(panel.starts(), [...LIST_READS, ['buzzni.moai.show', 'mgd-ogym'], ...LIST_READS])
   assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
 })
 
-test('a truncated list says how many more tasks there are', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': JSON.stringify({ ...JSON.parse(PRIME), rest: 3, others_rest: 2 }) }))
+test('a list cut at the output limit stands on prime, says so in a banner and how many more tasks there are', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': cut, 'buzzni.moai.prime': JSON.stringify({ ...JSON.parse(PRIME), rest: 3, others_rest: 2 }) }))
+  assert.deepEqual(panel.starts().map(([profile]) => profile), ['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.status', 'buzzni.moai.prime'])
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.equal(panel.$('.moai-truncated').textContent, 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.')
+  assert.notEqual(panel.window.getComputedStyle(panel.$('.moai-truncated')).display, 'none')
   assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
+  // The whole list read again: the banner goes.
+  const whole = await runPanel(board(), 'ko')
+  assert.equal(whole.$('.moai-truncated').textContent, '')
 })
 
 test('an empty banner takes no room, and the panes scroll to rows and details below the fold', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
-  for (const selector of ['.moai-notice', '.moai-error', '.moai-result', '.moai-more']) {
+  const panel = await runPanel(board())
+  for (const selector of ['.moai-notice', '.moai-error', '.moai-truncated', '.moai-result', '.moai-more']) {
     assert.equal(panel.window.getComputedStyle(panel.$(selector)).display, 'none', selector)
   }
   // The page itself does not scroll (tokens.css); the list and the detail scroll in their own panes.
@@ -364,7 +425,7 @@ test('an empty banner takes no room, and the panes scroll to rows and details be
 })
 
 test('why an add did nothing stays on its own line while the list and the detail redraw', async () => {
-  const answer = stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY })
+  const answer = board({ 'buzzni.moai.show': SHOW_NOTE_BODY })
   answer.start = (args) => (args[0] === 'buzzni.moai.add' ? { action: 'start', state: 'refused', code: 'declined' } : null)
   const panel = await runPanel(answer)
   panel.$('.moai-add input').value = 'Ship it'
@@ -382,8 +443,7 @@ test('why an add did nothing stays on its own line while the list and the detail
 
 test('a title typed while an add runs stays in the field', async () => {
   let finishing = false
-  const panel = await runPanel(stdoutFor({
-    'buzzni.moai.prime': PRIME,
+  const panel = await runPanel(board({
     'buzzni.moai.add': (title) => (finishing ? JSON.stringify({ id: 'mgd-new1', title, status: 'todo' }) : null),
   }))
   panel.$('.moai-add input').value = 'First'
@@ -398,19 +458,19 @@ test('a title typed while an add runs stays in the field', async () => {
 })
 
 test('a detail asked for a task the next read no longer lists closes instead of staying on Loading', async () => {
-  const prime = JSON.parse(PRIME)
-  let listed = PRIME
+  let listed = SHOW_ALL
   let holding = false
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': () => (holding ? null : listed), 'buzzni.moai.show': SHOW_MOVED }))
-  // A read runs, and a task is chosen meanwhile: its detail waits behind that read.
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': () => (holding ? null : listed), 'buzzni.moai.show': () => (holding ? null : SHOW_MOVED) }))
+  // A read runs, and a task is chosen meanwhile: its detail runs beside that read (3 at once), and both are slow.
   holding = true
   panel.$('.moai-refresh').click()
   await flush()
   panel.row('mgd-ogym').click()
   await flush()
+  assert.deepEqual(panel.starts().at(-1), ['buzzni.moai.show', 'mgd-ogym'])
   assert.equal(panel.$('.moai-detail').textContent, 'Loading…')
-  // The read no longer lists the task, so the cursor moves to its neighbour before the detail answers.
-  listed = JSON.stringify({ ...prime, picked: prime.picked.filter((row) => row.id !== 'mgd-ogym') })
+  // The read no longer lists the task, so the cursor moves to its neighbour; the detail answers after it.
+  listed = JSON.stringify(JSON.parse(SHOW_ALL).filter((row) => row.id !== 'mgd-ogym'))
   holding = false
   await new Promise((resolve) => setTimeout(resolve, 700))
   await flush()
@@ -422,14 +482,13 @@ test('a detail asked for a task the next read no longer lists closes instead of 
 })
 
 test('a loaded detail goes when a reload no longer lists its task', async () => {
-  const prime = JSON.parse(PRIME)
-  let listed = PRIME
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': () => listed, 'buzzni.moai.show': SHOW_MOVED }))
+  let listed = SHOW_ALL
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': () => listed, 'buzzni.moai.show': SHOW_MOVED }))
   panel.row('mgd-ogym').click()
   await flush()
   assert.equal(panel.$('.moai-detail h2').textContent, '버튼으로 추가한 할 일')
   // The task is finished elsewhere: the next read does not list it. Its detail does not stay beside another row.
-  listed = JSON.stringify({ ...prime, picked: prime.picked.filter((row) => row.id !== 'mgd-ogym') })
+  listed = JSON.stringify(JSON.parse(SHOW_ALL).filter((row) => row.id !== 'mgd-ogym'))
   panel.$('.moai-refresh').click()
   await new Promise((resolve) => setTimeout(resolve, 700))
   await flush()
@@ -440,7 +499,7 @@ test('a loaded detail goes when a reload no longer lists its task', async () => 
 
 test('a key press that moves the cursor while a detail is read does not discard the answer', async () => {
   let holding = true
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  const panel = await runPanel(board({ 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
   panel.row('mgd-hmcr').click()
   await flush()
   assert.equal(panel.$('.moai-detail').textContent, 'Loading…')
@@ -456,7 +515,7 @@ test('a key press that moves the cursor while a detail is read does not discard 
 
 test('closing the detail while its read is still running keeps it closed', async () => {
   let holding = false
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  const panel = await runPanel(board({ 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
   panel.row('mgd-hmcr').click()
   await flush()
   assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
@@ -473,7 +532,7 @@ test('closing the detail while its read is still running keeps it closed', async
 })
 
 test('the row with the keyboard focus keeps it when the list redraws', async () => {
-  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY }))
+  const panel = await runPanel(board({ 'buzzni.moai.show': SHOW_NOTE_BODY }))
   // The keyboard focus lives on the treegrid itself and points at the row (aria-activedescendant), so a redraw keeps it.
   const list = panel.$('.moai-list')
   list.focus()
@@ -482,4 +541,109 @@ test('the row with the keyboard focus keeps it when the list redraws', async () 
   assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
   assert.equal(panel.window.document.activeElement, list)
   assert.equal(list.getAttribute('aria-activedescendant'), panel.row('mgd-hmcr').id)
+})
+
+/** Keys as the browser sends them, to the element with the focus (the key router listens on the document). */
+const press = (panel, ...keys) => {
+  for (const key of keys) {
+    const target = panel.window.document.activeElement ?? panel.window.document.body
+    target.dispatchEvent(new panel.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+  }
+}
+const countsOf = (panel, id) => panel.row(id)?.querySelector('.moai-c-counts')?.textContent
+
+test('the board reads show --all and the backlog, and its milestone and epic counts come from status', async () => {
+  const status = JSON.parse(STATUS_V016)
+  status.milestones[0] = { ...status.milestones[0], done: 5, total: 9 }
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_V016, 'buzzni.moai.backlog-all': BACKLOG_V016, 'buzzni.moai.status': JSON.stringify(status) }))
+  assert.deepEqual(panel.starts(), LIST_READS)
+  // status counts the archived members too, which show --all leaves out: its 5/9, not the rows' own 1/2.
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '5/9')
+  // When status cannot be read the board counts its own rows.
+  const failing = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_V016, 'buzzni.moai.backlog-all': BACKLOG_V016, 'buzzni.moai.status': { state: 'failed', stdout: '', stderr: '', exitCode: 1 } }))
+  assert.equal(countsOf(failing, 'tracker-e0ue'), '1/2')
+  assert.equal(failing.$('.moai-error').textContent, '')
+})
+
+test('showing archived rows reads the archive and adds the rows only it holds', async () => {
+  const old = { id: 'mgd-old1', title: '오래전에 끝낸 일', status: 'done', kind: 'issue', priority: 2, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z', status_since: '2026-01-02T00:00:00Z', done_at: '2026-01-02T00:00:00Z' }
+  // `--archived` lists the active rows too; only the row the active ones do not hold is archive-only.
+  const archived = JSON.stringify([...JSON.parse(SHOW_ALL), old])
+  const panel = await runPanel(board({ 'buzzni.moai.show-archived': archived }))
+  assert.equal(panel.starts().some(([profile]) => profile === 'buzzni.moai.show-archived'), false)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.deepEqual(panel.starts().at(-1), ['buzzni.moai.show-archived'])
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym', 'mgd-old1'])
+  // Turned off, the archive's rows go again.
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('the wiki tab lists the pages and shows one, and says why when the listing cannot be read', async () => {
+  const guide = JSON.stringify({ ...JSON.parse(WIKI_SHOW_V016), slug: 'guide', title: 'Guide', path: 'docs/guide.md', body: '# Guide\n\nBack [[home]].\n' })
+  const panel = await runPanel(board({ 'buzzni.moai.wiki-ls': WIKI_LS_V016, 'buzzni.moai.wiki-show': (slug) => (slug === 'home' ? WIKI_SHOW_V016 : slug === 'guide' ? guide : null) }))
+  press(panel, ' ', 'g', 'w')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  await flush()
+  assert.ok(panel.starts().some(([profile]) => profile === 'buzzni.moai.wiki-ls'))
+  // The listing opens its first page.
+  assert.deepEqual(panel.starts().filter(([profile]) => profile === 'buzzni.moai.wiki-show'), [['buzzni.moai.wiki-show', 'guide']])
+  const wiki = panel.$('.m-pane-wiki')
+  assert.match(wiki.textContent, /Home/)
+  assert.match(wiki.textContent, /Back/)
+  assert.doesNotMatch(wiki.textContent, /cannot be read here yet/)
+
+  const answer = board()
+  answer.start = (args) => (args[0] === 'buzzni.moai.wiki-ls' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const refused = await runPanel(answer)
+  press(refused, ' ', 'g', 'w')
+  await flush()
+  assert.match(refused.$('.m-pane-wiki').textContent, /The wiki pages could not be read: The run did not start: the confirmation was declined\./)
+})
+
+test('r marks the row under the cursor read, SPC m a everything, and the list is read again after each', async () => {
+  let reads = 0
+  const panel = await runPanel(board({
+    'buzzni.moai.show': SHOW_NOTE_BODY,
+    'buzzni.moai.read': () => { reads++; return READ_ONE_V016 },
+    'buzzni.moai.read-all': READ_ALL_V016,
+    'buzzni.moai.read-group': READ_GROUP_V016,
+  }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  const before = panel.starts().length
+  press(panel, 'r')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.equal(reads, 1)
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ...LIST_READS])
+  const after = panel.starts().length
+  press(panel, ' ', 'm', 'a')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.deepEqual(panel.starts().slice(after), [['buzzni.moai.read-all'], ...LIST_READS])
+  // No milestone or epic here: SPC m g says where to go instead of writing anything.
+  const grouped = panel.starts().length
+  press(panel, ' ', 'm', 'g')
+  await flush()
+  assert.equal(panel.starts().length, grouped)
+  assert.equal(panel.$('.moai-result').textContent, 'Move to a milestone or epic to mark its items read.')
+})
+
+test('a declined read mark is told on the result line and the list is not read again', async () => {
+  const answer = board({ 'buzzni.moai.show': SHOW_NOTE_BODY })
+  answer.start = (args) => (args[0] === 'buzzni.moai.read' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer)
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  const before = panel.starts().length
+  press(panel, 'r')
+  await flush()
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr']])
+  assert.equal(panel.$('.moai-result').textContent, 'The run did not start: the confirmation was declined.')
 })

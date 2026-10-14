@@ -39,7 +39,7 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki } = {}) {
+function boot({ wiki, read } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -65,7 +65,7 @@ function boot({ wiki } = {}) {
     wiki,
   })
   store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now() } })
-  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other' })
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other', read })
   const $ = (selector) => doc.querySelector(selector)
   /** A keydown on `target` (the focused element when left out), as the browser sends it. */
   const press = (key, init = {}, target = doc.activeElement ?? doc.body) => {
@@ -83,8 +83,8 @@ const ticks = async (n = 5) => {
 }
 
 /** In the epic, the cursor on its first row and the list focused. */
-function inEpic() {
-  const panel = boot()
+function inEpic(options) {
+  const panel = boot(options)
   panel.store.dispatch({ type: 'enter', path: ['m:m1', 'e:e1'], cursor: 'e1.a' })
   panel.shell.focusPane('list')
   return panel
@@ -361,13 +361,13 @@ test('keys: the board — j/k inside a column, l to the next column with cards, 
   assert.deepEqual(panel.chosen, ['e1.b'])
 })
 
-test('keys: every action of the key table has a dispatch target; read marks are not wired and not offered', () => {
+test('keys: every action of the key table has a dispatch target; without read writes the read marks are not offered', () => {
   const panel = inEpic()
   const ids = new Set(Object.values(KEY_TABLE).flat().map((binding) => binding.action))
   const missing = [...ids].filter((id) => !panel.keys.actions.includes(id))
   assert.deepEqual(missing, [])
   for (const id of Object.keys(NOT_WIRED)) assert.ok(ids.has(id), `${id} is a table action`)
-  // `r` and SPC m are unavailable: the menu has no SPC m layer and `r` runs nothing.
+  // Not given the read writes, `r` and SPC m are unavailable: the menu has no SPC m layer and `r` runs nothing.
   assert.equal(panel.keys.context().readable, false)
   panel.press(' ')
   assert.equal(panel.keys.menu.el.querySelector('[data-key="m"]'), null)
@@ -382,4 +382,43 @@ test('keys: every action of the key table has a dispatch target; read marks are 
   // The focus hint is in the page, in the panel's language.
   assert.equal(panel.keys.hint.textContent, en.keys.focusHint)
   assert.ok(panel.keys.hint.isConnected)
+})
+
+test('keys: r marks the cursor row read, SPC m a everything, SPC m g the group the list stands in; a refusal is told', async () => {
+  const calls = []
+  let refuse = null
+  const read = {
+    one: async (id) => (calls.push(['one', id]), refuse),
+    all: async () => (calls.push(['all']), refuse),
+    group: async (id) => (calls.push(['group', id]), refuse),
+  }
+  const panel = inEpic({ read })
+  assert.equal(panel.keys.context().readable, true)
+  assert.ok(!('read' in NOT_WIRED) && !('read.all' in NOT_WIRED) && !('read.group' in NOT_WIRED))
+  panel.press(' ')
+  assert.ok(panel.keys.menu.el.querySelector('[data-key="m"]'), 'the SPC m layer is offered')
+  panel.press('Escape')
+  assert.equal(panel.press('r').defaultPrevented, true)
+  panel.seq(' ', 'm', 'a')
+  // Inside the epic with a task under the cursor: the group is the epic.
+  panel.seq(' ', 'm', 'g')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls, [['one', 'e1.a'], ['all'], ['group', 'e1']])
+  // A group under the cursor is the one marked.
+  panel.store.dispatch({ type: 'enter', path: ['m:m1'], cursor: 'e1' })
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'm', 'g')
+  // At the root, on the milestone row.
+  panel.store.dispatch({ type: 'enter', path: [], cursor: 'm1' })
+  panel.seq(' ', 'm', 'g')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls.slice(3), [['group', 'e1'], ['group', 'm1']])
+  // A write that did not go through says why on the result line.
+  refuse = { kind: 'refused', code: 'declined' }
+  panel.store.dispatch({ type: 'enter', path: ['m:m1', 'e:e1'], cursor: 'e1.b' })
+  panel.shell.focusPane('list')
+  panel.press('r')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(calls.at(-1), ['one', 'e1.b'])
+  assert.equal(panel.$('.moai-result').textContent, en.refused.declined)
 })
