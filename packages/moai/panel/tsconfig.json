@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "declaration": false,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": []
