@@ -124,11 +124,11 @@ test('a filter that cannot be read is refused with its reason', () => {
   assert.ok(q.parseFilter(['', '  ']).ok)
 })
 
-test('the scopes cycle in the order of the explorer and the note scope is last', () => {
-  assert.deepEqual(q.GREP_SCOPES, ['all', 'id', 'title', 'tag', 'body', 'note'])
+test('the scopes cycle in the order of the explorer, without the note scope nothing loads notes for', () => {
+  assert.deepEqual(q.GREP_SCOPES, ['all', 'id', 'title', 'tag', 'body'])
   assert.equal(q.nextScope('all'), 'id')
-  assert.equal(q.nextScope('note'), 'all')
-  assert.equal(q.prevScope('all'), 'note')
+  assert.equal(q.nextScope('body'), 'all')
+  assert.equal(q.prevScope('all'), 'body')
   assert.equal(q.prevScope('title'), 'id')
   assert.ok(q.sees('all', 'tag') && q.sees('body', 'body') && !q.sees('title', 'body'))
 })
