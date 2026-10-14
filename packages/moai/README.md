@@ -23,7 +23,7 @@ title; `surfaceSize: "compact"` applies only where a host opens it as a modal). 
 Moai button.
 
 Version 2.0 is a keyboard-first explorer modelled on `moai tui`. It has three tabs — **Kanban**, **List** and **Wiki**
-(`Tab` bar, or `SPC g b` / `SPC g l` / `SPC g w`) — and a detail pane that sits below the list or, on a panel at least
+(click the tab bar, or `SPC g b` / `SPC g l` / `SPC g w`) — and a detail pane that sits below the list or, on a panel at least
 640 px wide, on its left; a small button in the toolbar (or `SPC o d`) switches the position. The toolbar and the keys
 cover search (`/`), filter (`SPC f`), sort (`SPC s`), view toggles for deferred, backlog, archived and status columns
 (`SPC v`), list columns (`SPC c`) and the unread mark: **NEW** rows are marked read with `r`, `SPC m g` (group) and
