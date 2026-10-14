@@ -31,8 +31,8 @@ import { PROFILE } from './source.js'
 
 /**
  * The CLI's verdict: the key is `true` or absent. Archive-only rows (`archived: true`, printed by moai 0.17 on
- * `show --archived` rows, or tagged by source.ts withArchive as the index is built) never count: `moai read` resolves active rows only, so their NEW could not be
- * cleared (se-fvou).
+ * the `show --archived` rows `show --all` hides, or tagged by source.ts withArchive as the index is built) never
+ * count: `moai read` resolves active rows only, so their NEW could not be cleared (se-fvou).
  */
 export const isUnread = (row: Row): boolean => row.unread === true && row.archived !== true
 

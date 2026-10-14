@@ -386,7 +386,8 @@ test('moai 0.17 marks its archive rows archived itself: the same meaning, never 
   assert.deepEqual(away.map((row) => row.id), marked)
   const held = archived.find((row) => row.id === marked[0])
   assert.equal(markArchived([held], new Set())[0], held)
-  // A row the clock archived after the active rows were read comes back unmarked, and is tagged by its absence.
+  // A row the clock archived after the archive was read is in its answer unmarked (it was active then) and gone
+  // from the active rows read since: it is tagged by its absence.
   assert.deepEqual(markArchived([held, { id: 'late', status: 'done' }], new Set()).map((row) => row.archived), [true, true])
 })
 

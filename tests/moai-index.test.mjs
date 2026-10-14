@@ -6,7 +6,8 @@ import { panelModule } from './moai-panel-modules.mjs'
 
 const { IssueIndex, LOST, NO_MILESTONE, archiveCandidate, isGroup, parentOf, pathKey, percent } = await panelModule('data/index.ts')
 const { rowsFromPrime } = await panelModule('data/source.ts')
-const tree = JSON.parse(await readFile(new URL('./fixtures/moai/tree-v016.json', import.meta.url), 'utf8'))
+const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
+const tree = await fixture('tree-v016.json')
 const rows = [...tree.rows, ...tree.backlog]
 const index = new IssueIndex(rows)
 const idOf = (title) => rows.find((row) => row.title === title).id
@@ -219,7 +220,7 @@ test('moai shelved_by names the shelf when present, own derivation otherwise', (
 })
 
 test('real 0.17 output: shelved_by and derived_milestone agree with what the index derives without them', async () => {
-  const real = JSON.parse(await readFile(new URL('./fixtures/moai/show-all-v017.json', import.meta.url), 'utf8'))
+  const real = await fixture('show-all-v017.json')
   assert.ok(real.some((row) => row.shelved_by && row.shelved_by !== row.id), 'a row put off by a group above')
   assert.ok(real.some((row) => row.shelved_by === row.id), 'a row put off by itself')
   const told = new IssueIndex(real)
@@ -228,6 +229,10 @@ test('real 0.17 output: shelved_by and derived_milestone agree with what the ind
     assert.equal(told.shelvedAt(at), row.shelved_by, row.id)
     assert.equal(own.shelvedAt(at), row.shelved_by, `${row.id} derived`)
     assert.equal(own.milestoneOf(at), told.milestoneOf(at), `${row.id} milestone`)
+    // Alone, no group above is loaded for the walk to find: only the fields can answer.
+    const lone = new IssueIndex([row])
+    assert.equal(lone.shelvedAt(0), row.shelved_by, `${row.id} alone`)
+    assert.equal(lone.milestoneOf(0), row.derived_milestone, `${row.id} milestone alone`)
   })
 })
 
@@ -238,7 +243,7 @@ test('archived: true is an archive row whatever the clock reads, own derivation 
   assert.equal(archiveCandidate({ id: 'b', status: 'done', status_since: '2026-10-13T00:00:00Z', archived: true }, now, 30), true)
   assert.equal(archiveCandidate({ id: 'c', status: 'done', status_since: '2026-10-13T00:00:00Z' }, now, 30), false)
   // Real 0.17 (archive_days = 30, captured 2026-10-14): the clock read here marks the row moai marks.
-  const real = JSON.parse(await readFile(new URL('./fixtures/moai/show-archived-v017.json', import.meta.url), 'utf8'))
+  const real = await fixture('show-archived-v017.json')
   const at = new Date('2026-10-14T12:10:00Z')
   for (const row of real) {
     const { archived: _a, ...bare } = row

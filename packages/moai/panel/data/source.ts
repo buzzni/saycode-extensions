@@ -231,17 +231,17 @@ export interface ArchiveOptions {
   /**
    * Ids of the active rows already held (`show --all`). `--archived` lists active rows too, and `moai read`
    * resolves only active rows, so an archive-only row must read `archived: true` (read.ts then never draws NEW on
-   * it, se-fvou): moai 0.17 prints that itself, and {@link markArchived} tags by these ids for an older moai.
-   * Without this the rows are returned as moai printed them.
+   * it, se-fvou): moai 0.17 prints that itself, and {@link markArchived} tags by these ids the rows it left
+   * unmarked (all of them on an older moai). Without this the rows are returned as moai printed them.
    */
   active?: ReadonlySet<string>
 }
 
 /**
- * `rows` with `archived: true` on those whose id is not in `active`. moai 0.17 prints the same key itself on
- * `--archived` rows, meaning what the tag means (`show --all` hides the row as the archive): such a row is left as
- * it is, never tagged twice, and one moai left unmarked is still tagged by id — the clock may have archived it
- * after the archive was read (withArchive), and an older moai marks none.
+ * `rows` with `archived: true` on those whose id is not in `active`. moai 0.17 prints the same key itself on the
+ * `--archived` rows `show --all` hides as the archive, meaning what the tag means: such a row is passed through as
+ * moai printed it, whatever `active` holds, and one moai left unmarked is still tagged by id — the clock may have
+ * archived it after the archive was read (withArchive), and an older moai marks none.
  */
 export function markArchived(rows: readonly Row[], active: ReadonlySet<string>): Row[] {
   return rows.map((row) => (row.archived === true || active.has(row.id) ? row : { ...row, archived: true }))
@@ -252,12 +252,14 @@ export type Listed = Pick<Rows, 'rows'> & { truncated?: boolean }
 
 /**
  * The ids of the active rows, to tell the archive's archive-only rows by: `--archived` lists the active rows too,
- * and before moai 0.17 its rows carry no mark of their own ({@link markArchived}). A whole list holds every active row. A cut one (`truncated`: prime's
- * rows) does not, so absence from it is not taken as archived: moai archives only rows that stood done for
- * `archive_days`, so an archive row in any other column is active. The column is the one the row stands in: a
- * group's is its members' (`derived_status`), as moai archives it — the status written on a group does not follow
- * them. A done one is still tagged — at worst a row done lately draws no NEW and takes no read mark until the whole
- * list reads again, where an archived row left untagged would offer a read mark `moai read` refuses.
+ * and before moai 0.17 its rows carry no mark of their own ({@link markArchived}). A whole list holds every active
+ * row. A cut one (`truncated`: prime's rows) does not, so absence from it is not taken as archived: moai archives
+ * only rows that stood done for `archive_days`, so an archive row in any other column is active. The column is the
+ * one the row stands in: a group's is its members' (`derived_status`), as moai archives it — the status written on
+ * a group does not follow them. A done one is still tagged — at worst a row done lately draws no NEW, takes no read
+ * mark and reads as archived (index.ts archiveCandidate, query.ts; the archive rows are only in the index while
+ * archived rows are shown) until the whole list reads again, where an archived row left untagged would offer a
+ * read mark `moai read` refuses.
  */
 export function activeIds(listed: Listed, archive: readonly Row[] = []): Set<string> {
   const active = new Set(listed.rows.map((row) => row.id))

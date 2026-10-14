@@ -75,7 +75,7 @@ TUI에서 뺄 것:
 | 안정 페이징 | **확인됨** | `show --archived -n --sort id --after` | 쪽 나누기 불가. 아카이브는 큰 저장소에서 읽을 수 없다 |
 | 데몬 카탈로그에 새 프로필 7개 | **대기** — happy-cli 쪽(`se-0g4a.anz`). moai 쪽에서는 선언한 읽기 프로필이 모두 rc=0으로 돈다(`read*`는 개인 설정에 써서 실행하지 않음) | `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`, `read-all`, `read-group`. `backlog-all`은 데몬의 `backlog`(= `backlog add`)와 id가 다르다 | 선언 해시가 달라 데몬이 실행하지 않는다(거부 코드로 돌아온다). 전체 행 읽기가 실패해도 목록이 비는 대신 읽을 수 있는 것으로 물러나는 처리는 잘림에 대해서만 구현돼 있다 |
 
-`archived: true`는 패널이 아카이브에만 있는 행에 붙이던 표시(`source.ts` `markArchived`)와 뜻이 같다. moai가 붙인 행은 그대로 두고, moai가 안 붙인 행은 예전처럼 활성 행에 없으면 붙인다(활성 목록을 읽은 뒤 시계가 아카이브한 행, 옛 moai).
+`archived: true`는 패널이 아카이브에만 있는 행에 붙이던 표시(`source.ts` `markArchived`)와 뜻이 같다. moai가 붙인 행은 그대로 두고, moai가 안 붙인 행은 예전처럼 활성 행에 없으면 붙인다(아카이브를 읽은 뒤 시계가 아카이브해 다시 읽은 활성 목록에서 빠진 행, 옛 moai).
 
 또 하나, `moai read`가 **값 없이** 행의 현재 `updated_at`을 쓰는 것은 설계(그린 행의 값)와 다르다. 상류에 값 지정(`read --seen`)을 요청하는 일은 0.17.0에도 **없고** backlog(`se-a5wl`)에 그대로 있다.
 

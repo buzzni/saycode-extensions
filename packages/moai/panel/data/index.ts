@@ -44,13 +44,14 @@ export interface Row {
   // IssueIndex.milestoneOf and query.ts, the archive in archiveCandidate and query.ts); when absent the panel
   // derives the values itself, so an older moai reads the same. The tree's placement (IssueIndex.homeOf) keeps
   // the index's own rule either way.
-  /** The milestone the row stands on (absent, or null or empty: none). */
+  /** The milestone the row stands on (null or empty: none; absent: the index reads it from the row's place). */
   derived_milestone?: string | null
   /** The nearest row that took this one out of the plan: its own id when deferred itself, else a group above. */
   shelved_by?: string
   /**
-   * `true` on a row `show --all` hides as the archive (moai prints it on `show --archived` rows). source.ts
-   * markArchived tags the archive-only rows the same way when an older moai leaves the key out.
+   * `true` on a row `show --all` hides as the archive (moai 0.17 prints it on such rows of `show --archived`).
+   * source.ts markArchived tags the same way an archive row the key is not on yet the rows held now lack: every
+   * archive-only row of an older moai, and one the clock archived after the archive was read.
    */
   archived?: boolean
   [field: string]: unknown

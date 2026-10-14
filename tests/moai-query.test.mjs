@@ -403,6 +403,10 @@ test('real 0.17 output: the lens hides what moai marks, and derives the same wit
   real.forEach((row, at) => {
     if (row.archived === true) assert.equal(told[at], 'archived', row.id)
     else if (row.shelved_by) assert.equal(told[at], 'deferred', row.id)
+    // Alone and with no clock, nothing is left to derive from: only moai's marks hide the row.
+    const alone = q.hiddenBy(row, plain, [row], {})
+    if (row.archived === true) assert.equal(alone, 'archived', `${row.id} alone`)
+    else if (row.shelved_by) assert.equal(alone, 'deferred', `${row.id} alone`)
   })
 })
 

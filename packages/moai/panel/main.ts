@@ -117,8 +117,9 @@ async function loadArchive(): Promise<void> {
   const mine = ++archiving
   archiveRunning = mine
   try {
-    // Read untagged: withArchive tags the archive-only rows against the rows held when it draws, and a cut list
-    // needs the archive's own rows to judge by (source.ts activeIds).
+    // Read without `active`, as moai printed it (moai 0.17 marks its archive rows itself): withArchive tags the
+    // archive-only rows left unmarked against the rows held when it draws, and a cut list needs the archive's own
+    // rows to judge by (source.ts activeIds).
     const loaded = await loadArchived(client, { probe, cancelled: () => mine !== archiving })
     if (mine !== archiving) return
     // The archive's own problem: the board's rows and whatever the board said stand.

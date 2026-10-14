@@ -573,7 +573,8 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   }
   const since = (row: Row): string => str(row.status_since) ?? str(row.updated_at) ?? ''
   const archived = (row: Row): boolean => {
-    // moai 0.17 `archived: true` (by the CLI's own archive_days), or source.ts markArchived's tag on an older one.
+    // moai 0.17 `archived: true` (by the CLI's own archive_days), or source.ts markArchived's tag where moai left
+    // the key out (an older moai, or a row the clock archived after the archive was read).
     if (row.archived === true) return true
     if (!ctx.archiveDays || ctx.archiveDays <= 0 || !ctx.now || column(row) !== 'done') return false
     const now = parseStamp(ctx.now)
