@@ -59,9 +59,10 @@ export interface Rows {
   /** These are prime's rows (and the backlog), not every active row: loadRows, or loadAllRows' fallback ({@link primeRows}). */
   partial: boolean
   /**
-   * Why the backlog read beside prime's rows gave nothing (declined, failed, an answer that is not a list:
-   * `unreadable`): loadAllRows' fallback stands without the backlog then. Absent when it answered, or when the catalog
-   * lacks it (the compat banner tells that).
+   * Why the list stands without the backlog: beside prime's rows its read gave nothing (declined, failed, lacked, an
+   * answer that is not a list: `unreadable`); beside `show --all` only the catalog lacking it does not fail the load.
+   * Absent when it answered. A lack the compat banner names is told there alone (view/shell.ts untold); while the
+   * catalog is undecided this is what says it.
    */
   backlogProblem?: Outcome
 }
@@ -171,9 +172,8 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
     const thoughts = answerOf(backlog)
     const value: Rows = { rows: withBacklog(loaded.value.rows, thoughts, ungrouped), more: loaded.value.more, truncated: cut, partial: true }
     // An answer that is not the list of rows gives nothing too, as rowsFromLists reads it.
-    if (thoughts === undefined) {
-      if (!lacked(backlog)) value.backlogProblem = backlog
-    } else if (!Array.isArray(thoughts)) value.backlogProblem = { kind: 'unreadable' }
+    if (thoughts === undefined) value.backlogProblem = backlog
+    else if (!Array.isArray(thoughts)) value.backlogProblem = { kind: 'unreadable' }
     return { ok: true, value }
   }
   if (listed === undefined) {
@@ -185,7 +185,10 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
   const thoughts = lacked(backlog) ? [] : answerOf(backlog)
   if (thoughts === undefined) return { ok: false, outcome: backlog }
   const loaded = rowsFromLists(listed, thoughts)
-  if (loaded.ok) probe?.observeRows(loaded.value.rows)
+  if (loaded.ok) {
+    probe?.observeRows(loaded.value.rows)
+    if (lacked(backlog)) loaded.value.backlogProblem = backlog
+  }
   return loaded
 }
 

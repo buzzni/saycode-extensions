@@ -411,6 +411,12 @@ test('shell: a list left to prime\'s rows says so while the catalog line cannot,
   assert.match(panel.$('.moai-backlog-problem[role="status"]').textContent, /^The backlog could not be read: .*declined/)
   load({})
   assert.equal([...panel.doc.querySelectorAll('.moai-backlog-problem')].map((node) => node.textContent).join(''), '')
+  // The catalog lacks the backlog read: said here while the catalog is undecided, left to the catalog line once it names it.
+  const backlogText = () => [...panel.doc.querySelectorAll('.moai-backlog-problem')].map((node) => node.textContent).join('')
+  load({ backlogProblem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.match(backlogText(), /^The backlog could not be read: /)
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.backlog-all'] }, degraded: ['backlog'] } })
+  assert.equal(backlogText(), '')
 })
 
 test('shell: a list refusal the compatibility banner tells leaves the error line to the hidden detail\'s own problem', () => {
