@@ -1,0 +1,345 @@
+import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
+import JSZip from 'jszip'
+
+import { createTestHost } from '../packages/test-host/dist/index.js'
+import { panelModule } from './moai-panel-modules.mjs'
+
+const exec = promisify(execFile)
+const root = new URL('..', import.meta.url).pathname
+const cli = join(root, 'packages/sdk/dist/cli.js')
+
+const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
+const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
+
+const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
+  await panelModule('data/source.ts')
+const { IssueIndex, LOST } = await panelModule('data/index.ts')
+
+/** The extension as shipped: packed by the CLI and read back out of the archive (as tests/moai.test.mjs does). */
+async function packMoai() {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-moai-source-'))
+  try {
+    const archivePath = join(temporary, 'moai.saycode-extension')
+    await exec('node', [join(root, 'packages/moai/build.mjs')])
+    await exec('node', [cli, 'pack', join(root, 'packages/moai'), '--output', archivePath])
+    const zip = await JSZip.loadAsync(await readFile(archivePath))
+    const modulePath = join(temporary, 'index.mjs')
+    await writeFile(modulePath, await zip.file('index.js').async('nodebuffer'))
+    return (await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`)).default
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+}
+
+const extension = await packMoai()
+
+async function host() {
+  const starts = []
+  const testHost = createTestHost('buzzni.moai', {
+    async invokeCapability(permission, action, args) {
+      starts.push(args)
+      return { action, operationId: 'op', state: 'accepted' }
+    },
+  })
+  await testHost.activate(extension)
+  return { run: (...args) => testHost.invokeCommand('buzzni.moai.run', args), starts }
+}
+
+const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all']
+const ONE_VALUE = { show: 'id', 'wiki-show': 'slug', read: 'id', 'read-group': 'group', 'show-archived-after': 'after' }
+
+test('every declared profile is runnable through the whitelist, and nothing else is', () => {
+  const declared = manifest.machineCommands.profiles.map((profile) => profile.id).sort()
+  const whitelisted = [...NO_VALUE, ...Object.keys(ONE_VALUE), 'add'].map((name) => `buzzni.moai.${name}`).sort()
+  assert.deepEqual(declared, whitelisted)
+  // The parameter each takes is the one its argv uses.
+  for (const [name, parameter] of Object.entries(ONE_VALUE)) {
+    const profile = manifest.machineCommands.profiles.find((candidate) => candidate.id === `buzzni.moai.${name}`)
+    assert.deepEqual(Object.keys(profile.parameters), [parameter])
+    assert.ok(profile.argv.includes(`{{${parameter}}}`))
+  }
+  for (const profile of manifest.machineCommands.profiles) {
+    assert.deepEqual(profile.argv.slice(0, 3), ['--json', '-C', '{{workspaceRoot}}'])
+    assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
+    // Only `add` writes the tracker; `read*` write the user's own ~/.config/moai/read.
+    assert.equal(profile.writeScope, profile.id === 'buzzni.moai.add' ? 'moai' : undefined, profile.id)
+  }
+})
+
+const declaredProfile = (name) => manifest.machineCommands.profiles.find((profile) => profile.id === `buzzni.moai.${name}`)
+
+test('the archive pages are the size loadArchived counts on, and the shipped catalog entries are matched', () => {
+  // A page shorter than ARCHIVE_PAGE ends the paging, so `-n` and the constant must agree.
+  for (const name of ['show-archived', 'show-archived-after']) {
+    const argv = declaredProfile(name).argv
+    assert.equal(argv[argv.indexOf('-n') + 1], String(ARCHIVE_PAGE), name)
+  }
+  // The daemon (happy-cli 1.1.10-aplus.320) already ships these two; a digest that differs is refused.
+  assert.deepEqual(declaredProfile('wiki-ls').argv.slice(3), ['wiki', 'ls'])
+  assert.deepEqual(declaredProfile('wiki-show').argv.slice(3), ['wiki', 'show', '{{slug}}'])
+  assert.deepEqual(declaredProfile('wiki-show').parameters, { slug: { type: 'string', maxLength: 128 } })
+  // Its `buzzni.moai.backlog` is `backlog add <title>`, a write: the backlog read must not take that id.
+  assert.equal(declaredProfile('backlog'), undefined)
+  assert.deepEqual(declaredProfile('backlog-all').argv.slice(3), ['backlog', 'show', '--all'])
+})
+
+test('profiles that take no value start with no parameters and refuse a value', async () => {
+  const { run, starts } = await host()
+  for (const name of NO_VALUE) {
+    const profileId = `buzzni.moai.${name}`
+    assert.deepEqual(await run(profileId), { action: 'start', operationId: 'op', state: 'accepted' })
+    await assert.rejects(run(profileId, 'x'), /takes no value/)
+    await assert.rejects(run(profileId, ''), /takes no value/)
+  }
+  assert.deepEqual(starts, NO_VALUE.map((name) => ({ profileId: `buzzni.moai.${name}`, parameters: {} })))
+})
+
+test('profiles that take one value map it to their parameter and refuse an empty, missing or flag-like one', async () => {
+  const { run, starts } = await host()
+  for (const [name, parameter] of Object.entries(ONE_VALUE)) {
+    const profileId = `buzzni.moai.${name}`
+    await run(profileId, 'se-1.a')
+    assert.deepEqual(starts.at(-1), { profileId, parameters: { [parameter]: 'se-1.a' } })
+    await assert.rejects(run(profileId), new RegExp(`${parameter} is required`))
+    await assert.rejects(run(profileId, ''), new RegExp(`${parameter} is required`))
+    await assert.rejects(run(profileId, 42), new RegExp(`${parameter} is required`))
+    // `read --all` must not come out of a `read <id>` call.
+    await assert.rejects(run(profileId, '--all'), /cannot start with "-"/)
+  }
+  assert.equal(starts.length, Object.keys(ONE_VALUE).length)
+})
+
+test('add still takes its title; unknown and dangerous profiles are refused', async () => {
+  const { run, starts } = await host()
+  await run('buzzni.moai.add', 'Ship it')
+  assert.deepEqual(starts, [{ profileId: 'buzzni.moai.add', parameters: { title: 'Ship it' } }])
+  await assert.rejects(run('buzzni.moai.add'), /title is required/)
+  for (const profileId of ['buzzni.moai.init', 'buzzni.moai.tui', 'buzzni.moai.wake', 'buzzni.moai.hooks', 'buzzni.moai.editor', 'buzzni.moai.shell', 'buzzni.moai.mv', 'other.status', 42]) {
+    await assert.rejects(run(profileId), /unsupported Moai profile/)
+  }
+  assert.equal(starts.length, 1)
+})
+
+test('the source names every declared profile', () => {
+  assert.deepEqual(Object.values(PROFILE).sort(), manifest.machineCommands.profiles.map((profile) => profile.id).sort())
+  assert.equal(PROFILE.read, 'buzzni.moai.read')
+  assert.equal(PROFILE.readAll, 'buzzni.moai.read-all')
+  assert.equal(PROFILE.readGroup, 'buzzni.moai.read-group')
+})
+
+/** A client that answers each request from `answers[profileId]` (an outcome, or a function of the value). */
+function fakeClient(answers) {
+  const calls = []
+  const cancels = []
+  return {
+    calls,
+    cancels,
+    cancel(key) {
+      cancels.push(key)
+    },
+    async request(profileId, value, options) {
+      calls.push({ profileId, value, priority: options?.priority })
+      const answer = answers[profileId]
+      if (answer === undefined) throw new Error(`unexpected ${profileId}`)
+      return typeof answer === 'function' ? answer(value) : answer
+    },
+  }
+}
+const passed = (output) => ({ kind: 'passed', output })
+
+// Real Moai 0.16.0 output from a throwaway tracker (see the report of se-89fu for how it was made).
+const SHOW_ALL = await fixture('show-all-v016.json')
+const BACKLOG = await fixture('backlog-v016.json')
+const STATUS = await fixture('status-v016.json')
+const ARCHIVED = await fixture('show-archived-v016.json')
+const WIKI_LS = await fixture('wiki-ls-v016.json')
+const WIKI_SHOW = await fixture('wiki-show-v016.json')
+// Real Moai v0.8.0 output (as tests/moai.test.mjs reads it).
+const PRIME = await fixture('prime-v080.json')
+// Hand-written: the `statuses` array is the ASSUMED upstream shape (its `_assumed` key says so).
+const STATUSES_ASSUMED = await fixture('status-statuses-assumed.json')
+
+test('all rows are show --all and the backlog, read at once, backlog rows marked so', async () => {
+  const client = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
+  const loaded = await loadAllRows(client)
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.truncated, false)
+  assert.equal(loaded.value.more, 0)
+  assert.deepEqual(loaded.value.rows.map((row) => [row.id, row.kind]), [
+    ['tracker-0i7e', 'issue'], ['tracker-38yh', 'issue'], ['tracker-4j44', 'issue'], ['tracker-e0ue', 'milestone'], ['tracker-tdv4', 'epic'],
+    ['tracker-m21g', 'backlog'], ['tracker-zwyp', 'backlog'],
+  ])
+  // Done rows and the groups come along, unlike prime.
+  assert.ok(loaded.value.rows.some((row) => row.status === 'done'))
+  assert.equal(loaded.value.rows[0].epic, 'tracker-tdv4')
+  assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
+  assert.deepEqual(client.calls.map((call) => call.priority), [2, 2])
+})
+
+test('a cut show --all falls back to prime with truncated, keeping the backlog', async () => {
+  const client = fakeClient({
+    [PROFILE.showAll]: { kind: 'unreadable', truncated: true },
+    [PROFILE.backlog]: passed(BACKLOG),
+    [PROFILE.prime]: passed(PRIME),
+  })
+  const loaded = await loadAllRows(client)
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.truncated, true)
+  const primeIds = [...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id)
+  assert.deepEqual(loaded.value.rows.map((row) => row.id), [...new Set(primeIds), 'tracker-m21g', 'tracker-zwyp'])
+  assert.equal(loaded.value.more, (PRIME.rest || 0) + (PRIME.others_rest || 0))
+  // A cut answer that still parsed is whole enough: no fallback.
+  const parsed = fakeClient({ [PROFILE.showAll]: { ...passed(SHOW_ALL), truncated: true }, [PROFILE.backlog]: passed([]) })
+  assert.equal((await loadAllRows(parsed)).value.truncated, false)
+})
+
+test('in the cut fallback the backlog rows lose their references to the groups prime does not load', async () => {
+  // Real backlog rows name an epic or a milestone, or inherit an epic from their id parent (`derived_epic`).
+  const thoughts = [
+    { id: 'b-1', kind: 'backlog', status: 'todo', epic: 'e-1', derived_epic: 'e-1' },
+    { id: 'b-2', kind: 'backlog', status: 'todo', milestone: 'm-1' },
+    { id: 'b-3', kind: 'backlog', status: 'todo' },
+  ]
+  const client = fakeClient({ [PROFILE.showAll]: { kind: 'unreadable', truncated: true }, [PROFILE.backlog]: passed(thoughts), [PROFILE.prime]: passed(PRIME) })
+  const loaded = await loadAllRows(client)
+  const index = new IssueIndex(loaded.value.rows)
+  for (const id of ['b-1', 'b-2', 'b-3']) assert.notDeepEqual(index.homeOf(index.find(id)), [LOST], id)
+  assert.ok(loaded.value.rows.every((row) => row.epic === undefined && row.derived_epic === undefined && row.milestone === undefined))
+})
+
+test('twins are kept for the index to decide, and backlog rows are kind backlog whatever they say', () => {
+  // A merge left two lines for `x`: the later one (an epic) is the one moai reads, and `y` stands under it.
+  const all = [{ id: 'x', kind: 'issue', title: 'first' }, { id: 'x', kind: 'epic', title: 'later' }, { id: 'y', kind: 'issue', epic: 'x', derived_epic: 'x' }]
+  const loaded = rowsFromLists(all, [{ id: 'b', kind: 'issue' }, { id: 'y', kind: 'backlog' }])
+  assert.deepEqual(loaded.value.rows.map((row) => [row.id, row.kind]), [['x', 'issue'], ['x', 'epic'], ['y', 'issue'], ['b', 'backlog']])
+  const index = new IssueIndex(loaded.value.rows)
+  assert.equal(index.rows[index.find('x')].title, 'later')
+  assert.deepEqual(index.homeOf(index.find('y')), ['e:x'])
+})
+
+test('a partial answer (non-zero exit, whole JSON printed) is read like a whole one', async () => {
+  // One unreadable line in the tracker ends `show --all` and `backlog show` with 1, the readable rows printed;
+  // a skipped wiki page does the same to `wiki ls`.
+  const partial = (output) => ({ kind: 'failed', output })
+  const loaded = await loadAllRows(fakeClient({ [PROFILE.showAll]: partial(SHOW_ALL), [PROFILE.backlog]: partial(BACKLOG) }))
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.rows.length, SHOW_ALL.length + BACKLOG.length)
+  assert.deepEqual(await loadWikiListing(fakeClient({ [PROFILE.wikiLs]: partial(WIKI_LS) })), { ok: true, value: WIKI_LS })
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: partial(STATUS) })), { ok: true, value: ['todo', 'in_progress', 'review', 'done'] })
+  // A failure with no answer is still the load's failure.
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: { kind: 'failed' }, [PROFILE.backlog]: passed(BACKLOG) })), { ok: false, outcome: { kind: 'failed' } })
+})
+
+test('a failed read of either list is the load failure; a missing board says not-initialized', async () => {
+  const missing = { kind: 'not-initialized' }
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: missing, [PROFILE.backlog]: missing })), { ok: false, outcome: missing })
+  const busy = { kind: 'refused', code: 'workspace-busy' }
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: busy })), { ok: false, outcome: busy })
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed({ not: 'a list' }), [PROFILE.backlog]: passed(BACKLOG) })), { ok: false, outcome: { kind: 'unreadable' } })
+  // show --all alone decides a declined load: the backlog read queued behind it is cancelled, not run.
+  const declined = { kind: 'refused', code: 'declined' }
+  const lone = fakeClient({ [PROFILE.showAll]: declined, [PROFILE.backlog]: passed(BACKLOG) })
+  assert.deepEqual(await loadAllRows(lone), { ok: false, outcome: declined })
+  assert.deepEqual(lone.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
+  assert.deepEqual(lone.cancels, [PROFILE.backlog])
+  const whole = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
+  await loadAllRows(whole)
+  assert.deepEqual(whole.cancels, [])
+  // The cut fallback reports prime's own failure.
+  const cut = fakeClient({ [PROFILE.showAll]: { kind: 'unreadable', truncated: true }, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: missing })
+  assert.deepEqual(await loadAllRows(cut), { ok: false, outcome: missing })
+})
+
+test('loadRows still reads prime alone until the panel switches to loadAllRows', async () => {
+  const client = fakeClient({ [PROFILE.prime]: passed(PRIME) })
+  const loaded = await loadRows(client)
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.truncated, false)
+  assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.prime])
+})
+
+test('the columns come from statuses (assumed shape), else from the counts in the default order', async () => {
+  assert.match(STATUSES_ASSUMED._assumed, /ASSUMED|requested upstream shape/i)
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(STATUSES_ASSUMED) })), { ok: true, value: ['todo', 'in_progress', 'blocked', 'review', 'done'] })
+  // Moai 0.16.0 has no statuses: its counts keys come alphabetically.
+  assert.equal(STATUS.statuses, undefined)
+  assert.deepEqual(statusesFrom(STATUS), { ok: true, value: ['todo', 'in_progress', 'review', 'done'] })
+  assert.deepEqual(statusesFrom({ counts: { blocked: 0, done: 0, todo: 1, wontfix: 0 } }), { ok: true, value: ['todo', 'done', 'blocked', 'wontfix'] })
+  assert.deepEqual(statusesFrom({ statuses: [], counts: { todo: 0 } }), { ok: true, value: ['todo'] })
+  assert.deepEqual(statusesFrom({ total: 0 }), { ok: false, outcome: { kind: 'unreadable' } })
+  assert.deepEqual(statusesFrom({ counts: [3, 4] }), { ok: false, outcome: { kind: 'unreadable' } })
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: { kind: 'not-initialized' } })), { ok: false, outcome: { kind: 'not-initialized' } })
+  // Outside a `.moai/` repository moai 0.16 `status` exits 0 listing the registered projects instead of counts.
+  const glance = { projects: [{ name: 'other', path: '/w/other', state: 'ok' }], problems: [], config: {} }
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(glance) })), { ok: false, outcome: { kind: 'not-initialized' } })
+})
+
+/** `count` rows `r-0000`… sorted by id, served 200 a page after the cursor. */
+function archive(count) {
+  const ids = Array.from({ length: count }, (_, at) => `r-${String(at).padStart(4, '0')}`)
+  const page = (after) => {
+    const from = after === undefined ? 0 : ids.indexOf(after) + 1
+    return passed(ids.slice(from, from + ARCHIVE_PAGE).map((id) => ({ id, status: 'done' })))
+  }
+  return { [PROFILE.showArchived]: () => page(undefined), [PROFILE.showArchivedAfter]: (after) => page(after) }
+}
+
+test('the archive is paged 200 at a time after the last id until a short page', async () => {
+  const client = fakeClient(archive(450))
+  const pages = []
+  const loaded = await loadArchived(client, { onPage: (rows) => pages.push(rows.length) })
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.length, 450)
+  assert.deepEqual(pages, [200, 200, 50])
+  assert.deepEqual(client.calls.map((call) => [call.profileId, call.value]), [
+    [PROFILE.showArchived, undefined], [PROFILE.showArchivedAfter, 'r-0199'], [PROFILE.showArchivedAfter, 'r-0399'],
+  ])
+  assert.ok(client.calls.every((call) => call.priority === 3))
+  // An exact multiple of 200 ends on an empty page.
+  const even = fakeClient(archive(400))
+  assert.equal((await loadArchived(even)).value.length, 400)
+  assert.equal(even.calls.length, 3)
+})
+
+test('a real archive page is one short page; a failed page or a cancel stops the paging', async () => {
+  const real = fakeClient({ [PROFILE.showArchived]: passed(ARCHIVED) })
+  assert.deepEqual((await loadArchived(real)).value.map((row) => row.id), ARCHIVED.map((row) => row.id))
+  const failing = fakeClient({ ...archive(450), [PROFILE.showArchivedAfter]: { kind: 'moai-error', message: 'not found' } })
+  const pages = []
+  assert.deepEqual(await loadArchived(failing, { onPage: (rows) => pages.push(rows.length) }), { ok: false, outcome: { kind: 'moai-error', message: 'not found' } })
+  assert.deepEqual(pages, [200])
+  let stop = false
+  const cancelling = fakeClient(archive(450))
+  const loaded = await loadArchived(cancelling, { onPage: () => (stop = true), cancelled: () => stop })
+  assert.deepEqual(loaded, { ok: false, outcome: { kind: 'cancelled', mayContinue: false } })
+  assert.equal(cancelling.calls.length, 1)
+})
+
+test('the paging also stops on a full page that would not move the cursor on', async () => {
+  // A daemon that ignored `--after` would serve the first page again: its last id is the cursor itself.
+  const first = archive(450)[PROFILE.showArchived]
+  const stuck = fakeClient({ [PROFILE.showArchived]: first, [PROFILE.showArchivedAfter]: () => first() })
+  assert.equal((await loadArchived(stuck)).ok, true)
+  assert.equal(stuck.calls.length, 2)
+  // A full page with no row that has an id gives no cursor at all.
+  const nameless = fakeClient({ [PROFILE.showArchived]: passed(Array.from({ length: ARCHIVE_PAGE }, () => ({ id: 7 }))) })
+  assert.deepEqual(await loadArchived(nameless), { ok: true, value: [] })
+  assert.equal(nameless.calls.length, 1)
+})
+
+test('the wiki listing and pages come back as Moai printed them, at wiki priority', async () => {
+  const client = fakeClient({ [PROFILE.wikiLs]: passed(WIKI_LS), [PROFILE.wikiShow]: (slug) => (slug === 'home' ? passed(WIKI_SHOW) : { kind: 'moai-error', message: `${slug} not found` }) })
+  assert.deepEqual(await loadWikiListing(client), { ok: true, value: WIKI_LS })
+  assert.deepEqual(await loadWikiPage(client, 'home'), { ok: true, value: WIKI_SHOW })
+  assert.deepEqual(await loadWikiPage(client, 'nope'), { ok: false, outcome: { kind: 'moai-error', message: 'nope not found' } })
+  assert.deepEqual(client.calls.map((call) => [call.profileId, call.value, call.priority]), [
+    [PROFILE.wikiLs, undefined, 1], [PROFILE.wikiShow, 'home', 1], [PROFILE.wikiShow, 'nope', 1],
+  ])
+})
