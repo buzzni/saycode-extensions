@@ -3,7 +3,8 @@
 // that fit, and the windowing math of the virtual scroll. No DOM; view/list.ts draws from these and
 // tests/moai-e3-list.test.mjs checks them.
 
-import { archiveCandidate, isBacklog, isGroup, LOST, NO_MILESTONE, pathKey, priorityOf, type IssueIndex, type Keep, type Order, type Path, type Row, type Seg, type Twig } from "../data/index.ts"
+import { archiveCandidate, isBacklog, isGroup, LOST, NO_MILESTONE, pathKey, type IssueIndex, type Keep, type Order, type Path, type Row, type Seg, type Twig } from "../data/index.ts"
+import { orderBy, type SortField as QuerySortField, type SortKey as QuerySortKey } from "../data/query.ts"
 import type { ColumnName, SortField, SortKey, State, ViewSettings } from "../store.ts"
 import { visibleColumns } from "./responsive.ts"
 
@@ -24,6 +25,29 @@ export function statusOf(row: Row): string {
   return typeof status === "string" ? status : ""
 }
 
+/**
+ * What dates a group for the archive (data/index.ts archiveCandidate): the work under it, each by the day it
+ * got to its column. A member that is put off is not counted, but a group that reads done by putting its
+ * remaining members off counts from the day they were put off (moai's `report::Stand::entered`); the group's
+ * own deferral does not take its members out of the count.
+ */
+function stamps(index: IssueIndex, at: number): Row[] {
+  const group = index.rows[at]!
+  const out: Row[] = []
+  for (const member of index.progress(index.dirPath(at)).work) {
+    const row = index.rows[member]!
+    const shelf = index.shelvedAt(member)
+    if (shelf === undefined || shelf === group.id) {
+      out.push(row)
+      continue
+    }
+    const holder = index.find(shelf)
+    const since = holder === undefined ? undefined : index.rows[holder]!.deferred_at
+    if (typeof since === "string") out.push({ id: row.id, status_since: since })
+  }
+  return out
+}
+
 /** What the view toggles keep (`SPC v`): hidden columns, deferred, backlog and archived rows go. */
 export function viewKeep(view: ViewSettings, index: IssueIndex, now: Date = new Date(), archiveDays = ARCHIVE_DAYS): Keep {
   const hidden = new Set(view.hiddenStatuses)
@@ -32,7 +56,8 @@ export function viewKeep(view: ViewSettings, index: IssueIndex, now: Date = new 
     if (hidden.size && hidden.has(statusOf(row))) return false
     if (view.hideDeferred && index.shelvedAt(at) !== undefined) return false
     if (view.hideBacklog && isBacklog(row)) return false
-    return view.showArchived || !archiveCandidate(row, now, archiveDays)
+    if (view.showArchived) return true
+    return !archiveCandidate(row, now, archiveDays, isGroup(row) ? stamps(index, at) : undefined)
   }
 }
 
@@ -51,64 +76,30 @@ export const hidesAnything = (view: ViewSettings): boolean => view.hiddenStatuse
 
 // ── order ──────────────────────────────────────────────────────────────
 
-/** The columns in moai's default order; one the config adds stands after them, by name. */
-export const STATUS_ORDER = ["todo", "in_progress", "review", "done"]
-
 /** The direction a field sorts in when it is first chosen. */
 export const defaultDescending = (field: SortField): boolean => field === "created" || field === "updated"
 
-const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
-const time = (value: unknown): number | undefined => {
-  const at = typeof value === "string" ? Date.parse(value) : NaN
-  return Number.isFinite(at) ? at : undefined
-}
-const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined)
-const statusRank = (row: Row): [number, string] => {
-  const status = statusOf(row)
-  const rank = STATUS_ORDER.indexOf(status)
-  return [rank < 0 ? STATUS_ORDER.length : rank, status]
-}
-
-/** One field's comparison, ascending. A row without the value goes last whatever the direction. */
-function fieldCompare(field: SortField): (a: Row, b: Row, descending: boolean) => number {
-  const missingLast = <T>(get: (row: Row) => T | undefined, compare: (x: T, y: T) => number) => (a: Row, b: Row, descending: boolean) => {
-    const x = get(a)
-    const y = get(b)
-    if (x === undefined || y === undefined) return Number(x === undefined) - Number(y === undefined)
-    return descending ? compare(y, x) : compare(x, y)
-  }
-  switch (field) {
-    case "priority":
-      return missingLast(priorityOf, (x, y) => x - y)
-    case "created":
-      return missingLast((row) => time(row.created_at), (x, y) => x - y)
-    case "updated":
-      return missingLast((row) => time(row.updated_at ?? row.created_at), (x, y) => x - y)
-    case "column":
-      return missingLast(statusRank, (x, y) => x[0] - y[0] || compareText(x[1], y[1]))
-    case "assignee":
-      return missingLast((row) => text(row.assignee), compareText)
-    case "title":
-      return missingLast((row) => text(row.title) ?? row.id, compareText)
-  }
+/** The store's sort fields under the names data/query.ts orders by (its `status` is the store's `column`). */
+const QUERY_KEY: Record<SortField, QuerySortKey> = {
+  priority: "priority",
+  created: "created",
+  updated: "updated",
+  column: "status",
+  assignee: "assignee",
+  title: "title",
 }
 
 /**
- * The rows' order for these sort keys (moai's ORDER BY): field by field, then `(priority, id)` — or only the
- * id when the last field is a date.
+ * The rows' order for these sort keys. It is moai's `order_by` as data/query.ts ports it — the one that
+ * tests/moai-query.test.mjs holds to the order `moai show --sort` prints: field by field (a title compares
+ * without regard to case, an unassigned row goes last when ascending), then `(priority, id)`, or only the id
+ * when the last field is a date. A second implementation here ordered titles by code unit (every capital
+ * before every small letter) and kept a missing value last in both directions.
  */
 export function sortCompare(sort: ReadonlyArray<SortKey>): (a: Row, b: Row) => number {
-  const keys = sort.map((key) => ({ compare: fieldCompare(key.field), descending: key.descending }))
-  const last = sort[sort.length - 1]?.field
-  const priority = fieldCompare("priority")
-  const byPriority = !(last === "created" || last === "updated")
-  return (a, b) => {
-    for (const key of keys) {
-      const order = key.compare(a, b, key.descending)
-      if (order) return order
-    }
-    return (byPriority ? priority(a, b, false) : 0) || compareText(a.id, b.id)
-  }
+  // A field this table does not know (another module's name for one) orders nothing, instead of throwing.
+  const fields: QuerySortField[] = sort.flatMap((key) => (QUERY_KEY[key.field] ? [{ key: QUERY_KEY[key.field], dir: key.descending ? ("desc" as const) : ("asc" as const) }] : []))
+  return (a, b) => orderBy(a, b, fields)
 }
 
 /** {@link sortCompare} over the index's row positions, as {@link IssueIndex.entries} takes it. */
@@ -229,6 +220,11 @@ export const HEAD_SORT: Partial<Record<"priority" | "status" | "title" | RightCo
   assignee: "assignee",
   created: "created",
   updated: "updated",
+}
+
+const time = (value: unknown): number | undefined => {
+  const at = typeof value === "string" ? Date.parse(value) : NaN
+  return Number.isFinite(at) ? at : undefined
 }
 
 /** A date in 6ch: `MM-DD` this year, the year otherwise; empty when unreadable. */

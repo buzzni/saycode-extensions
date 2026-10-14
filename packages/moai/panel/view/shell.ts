@@ -7,7 +7,7 @@
 // The shell reads and dispatches to the store; it does no I/O. Reads, adds and cancels are the caller's
 // (main.ts) and arrive as ShellIntents.
 
-import { INFO_REFUSALS, type Outcome } from "../data/client.ts"
+import { isInformation, type Outcome } from "../data/client.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -15,6 +15,7 @@ import type { Focus, State, Store, Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
 import { mountCrumbs } from "./crumbs.ts"
 import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
+import { segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
 import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents } from "./types.ts"
@@ -73,7 +74,7 @@ export interface Shell {
 export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: (string | Node)[]; info: boolean } | null {
   switch (outcome.kind) {
     case "refused":
-      return { parts: [copy.refused[outcome.code]], info: INFO_REFUSALS.has(outcome.code) }
+      return { parts: [copy.refused[outcome.code]], info: isInformation(outcome) }
     case "not-initialized":
       return { parts: [copy.notInitialized[0], el(doc, "code", {}, "moai init"), copy.notInitialized[1]], info: true }
     case "moai-error":
@@ -145,7 +146,14 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
   // ── under the tab bar: toolbar slot, path line, activity, banners, add field ──
   const toolbar = el(doc, "div", { class: "m-toolbar-slot" })
-  const crumbs = mountCrumbs(doc, copy, (path) => store.dispatch({ type: "enter", path }))
+  const crumbs = mountCrumbs(doc, copy, (path) => {
+    // Going up lands on the place just left, as Backspace does (list.ts leave()).
+    const from = store.getState().path
+    const left = path.length < from.length && path.every((seg, n) => seg === from[n]) ? from[path.length] : undefined
+    store.dispatch(left === undefined ? { type: "enter", path } : { type: "enter", path, cursor: segKey(left) })
+    // The segment that was clicked is gone with the redraw: the focus goes to the list or board it changed.
+    focusPane("list")
+  })
   const activityText = el(doc, "span", { class: "moai-activity", role: "status" })
   const cancel = button(doc, { label: copy.cancel, small: true, onClick: () => intents.cancel() })
   cancel.classList.add("moai-cancel")
@@ -166,10 +174,12 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     }
   })
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
-  const result = el(doc, "p", { class: "moai-result" })
+  // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
+  const result = el(doc, "p", { class: "moai-result", role: "status" })
   const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, more, add, result)
-  // The path, banners and add field belong to the list and board; the wiki tab brings its own head.
-  const head = el(doc, "div", { class: "m-shell-head" }, crumbs.el, notes)
+  // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
+  // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
+  const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
 
   // ── body: one panel for the list and board (they share the cursor, path and detail), one for the wiki ──
   const split = createSplit(doc, {
@@ -187,6 +197,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   split.list.append(mainRoots.list, mainRoots.board)
   const detailRoot = el(doc, "div", { class: "m-pane-detail", tabindex: -1 })
   split.detail.append(detailRoot)
+  // The store's `focus` follows the DOM's: a click or Tab into a pane (not only focusPane) says which pane has
+  // the keys. The reducer ignores a focus that is already the one.
+  split.list.addEventListener("focusin", () => store.dispatch({ type: "focus", focus: "list" }))
+  split.detail.addEventListener("focusin", () => store.dispatch({ type: "focus", focus: "detail" }))
   // Both work tabs control this one panel; its label follows the tab shown.
   const work = el(doc, "div", { class: "m-tabpanel", role: "tabpanel", id: panelDomId("list"), hidden: state.tab === "wiki" }, split.el)
   tabs.el.querySelector(`#${tabDomId("board")}`)?.setAttribute("aria-controls", panelDomId("list"))
@@ -207,7 +221,11 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     enter: (path, cursor) => store.dispatch(cursor === undefined ? { type: "enter", path } : { type: "enter", path, cursor }),
     choose: (id) => intents.choose(id),
     point: (id) => store.dispatch({ type: "cursor", id }),
-    closeDetail: () => store.dispatch({ type: "detail-closed" }),
+    closeDetail: () => {
+      store.dispatch({ type: "detail-closed" })
+      // The Close button is gone with the pane's content; the focus goes back to the list.
+      focusPane("list")
+    },
     setDetailVisible: (visible) => store.dispatch({ type: "detail-visible", visible }),
     toggleExpanded: (path) => store.dispatch({ type: "toggle-expanded", path }),
     refresh: () => intents.refresh(),
@@ -245,24 +263,34 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     work.hidden = tab === "wiki"
     head.hidden = tab === "wiki"
     shownTab = tab
+    const offsets = saved.get(tab) ?? []
+    restoreScroll(offsets.slice(0, 1))
     return () => {
-      restoreScroll(saved.get(tab))
+      restoreScroll(offsets.slice(1))
       if (leaving === "wiki") restoreScroll(saved.get("detail"))
     }
   }
 
   // ── drawing ──
   function showActivity(current: Activity) {
-    activityText.textContent = current.phase === "starting" ? copy.starting : current.phase === "running" ? copy.running : ""
+    const line = current.phase === "starting" ? copy.starting : current.phase === "running" ? copy.running : ""
+    // A live region is read again when it is written, so an unchanged line is left alone.
+    if (activityText.textContent !== line) activityText.textContent = line
     cancel.hidden = !current.cancellable
     status.hidden = current.phase === "idle" && !current.cancellable
   }
 
+  let explained: Outcome | null | undefined
   function explain(outcome: Outcome | null) {
+    // The banners are live regions (role=alert, role=status): the same outcome is not written again on every
+    // store change, or a screen reader would read it again on each cursor move. A failure that happens again
+    // is a new outcome object, so it is told again.
+    if (outcome === explained) return
+    explained = outcome
     notice.replaceChildren()
     error.replaceChildren()
     const said = outcome ? describe(outcome, copy, doc) : null
-    if (said) (said.info ? notice : error).append(...said.parts)
+    if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
   }
 
   function paintLayout(current: State) {
@@ -297,7 +325,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
     showActivity(options.activity())
     hint.hidden = state.board.value !== null
-    explain(state.shown.problem ?? state.board.problem)
+    explain(state.board.problem ?? (state.detail.visible ? null : state.shown.problem))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
 
@@ -343,7 +371,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     },
     refuse(outcome) {
       const said = describe(outcome, copy, doc)
-      result.replaceChildren(...(said?.parts ?? []))
+      result.replaceChildren(...(said ? [el(doc, "span", {}, ...said.parts)] : []))
       result.className = said && !said.info ? "moai-result m-banner m-banner-danger" : "moai-result m-banner"
     },
     input,

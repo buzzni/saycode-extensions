@@ -4,6 +4,7 @@
  * It only draws `state.shown` and the index; closing is the one thing it reports (`intents.closeDetail`).
  * The pure wording lives in view/detail-format.ts.
  */
+import { isInformation } from '../data/client.js'
 import type { IssueIndex, Row } from '../data/index.js'
 import type { State } from '../store.js'
 import { banner, button, chip, el, emptyState } from './components.ts'
@@ -79,14 +80,14 @@ function folded(doc: Document, key: string, title: string, open: Set<string>, ..
   return details
 }
 
-function idList(doc: Document, ids: string[], index: IssueIndex | null, copy: ViewContext['copy'], marks: boolean): HTMLElement {
+function idList(doc: Document, ids: string[], index: IssueIndex | null, copy: ViewContext['copy'], marks: boolean, row?: Row): HTMLElement {
   const list = el(doc, 'ul', { class: 'moai-detail-ids' })
   for (const id of ids) {
     const item = el(doc, 'li')
     const at = index?.find(id)
     const title = at === undefined ? '' : String(index!.rows[at]!.title ?? '')
     if (marks) {
-      const state = blockerState(id, index)
+      const state = blockerState(id, index, row)
       const word = { done: copy.detail.blockerDone, open: copy.detail.blockerOpen, deferred: copy.detail.blockerDeferred, missing: copy.detail.blockerMissing }[state]
       item.append(el(doc, 'span', { class: 'moai-detail-mark', title: word, 'aria-label': word }, BLOCKER_MARK[state]))
     }
@@ -102,9 +103,15 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   styled(doc)
   const view = el(doc, 'div', { class: 'moai-detail', role: 'region', 'aria-label': d.label })
   root.replaceChildren(view)
+  // The pane scrolls in the split's detail container (marked data-keep-scroll), which holds `root`; a view
+  // mounted on a scroller of its own is its own.
+  const scroller = (): HTMLElement => root.closest<HTMLElement>('[data-keep-scroll]') ?? root
   /** Folded sections the user opened, kept per id so a refresh does not close them. */
   const open = new Set<string>()
   let shownId: string | null = null
+  /** What the pane was drawn from: it is drawn again only when one of them changed (a redraw loses a text
+   *  selection and the focus on a folded section's summary, and the shell renders it on every store change). */
+  let drawn: { shown: State['shown']; index: IssueIndex | null } | null = null
 
   function closeButton() {
     const close = button(doc, { label: d.close, variant: 'ghost', small: true, icon: 'x', onClick: () => intents.closeDetail() })
@@ -119,6 +126,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     if (head.priority) chips.append(chip(doc, { label: head.priority }))
     if (head.kind) chips.append(chip(doc, { label: head.kind }))
     if (head.deferred) chips.append(chip(doc, { label: `${d.deferred}: ${head.deferred}`, tone: 'warn' }))
+    else if (head.shelvedBy) chips.append(chip(doc, { label: d.deferredUnder(head.shelvedBy), tone: 'warn' }))
     for (const tag of tagsOf(row)) chips.append(chip(doc, { label: tag }))
     const out: Node[] = [
       el(doc, 'div', { class: 'moai-detail-head' },
@@ -135,7 +143,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
       out.push(list)
     }
     const blockedBy = blockedByOf(row)
-    if (blockedBy.length) out.push(section(doc, d.blockedBy, idList(doc, blockedBy, index, copy, true)))
+    if (blockedBy.length) out.push(section(doc, d.blockedBy, idList(doc, blockedBy, index, copy, true, row)))
     const blocks = blocksOf(row, index)
     if (blocks.length) out.push(section(doc, d.blocks, idList(doc, blocks, index, copy, false)))
     const rollup = rollupOf(row, index)
@@ -147,7 +155,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     }
     const body = typeof row.body === 'string' ? row.body.trim() : ''
     if (body) out.push(section(doc, d.body, renderBody(doc, body)))
-    const children = childrenOf(row)
+    const children = childrenOf(row, index)
     if (children.length) {
       const list = el(doc, 'ul', { class: 'moai-detail-list' })
       for (const child of children) list.append(el(doc, 'li', {}, `${child.id} ${child.title ?? ''}`.trim()))
@@ -175,28 +183,32 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   }
 
   function render(state: State, index: IssueIndex | null) {
+    if (drawn && drawn.shown === state.shown && drawn.index === index) return
+    drawn = { shown: state.shown, index }
     const { value, loading, problem } = state.shown
     // Another row's detail starts at the top; the same row redrawn (a refresh) keeps its place.
     const id = value?.id ?? null
-    const top = id !== null && id === shownId ? root.scrollTop : 0
+    const top = id !== null && id === shownId ? scroller().scrollTop : 0
     shownId = id
     const active = doc.activeElement as HTMLElement | null
     const key = active && view.contains(active) ? active.dataset?.focus : undefined
     const children: Node[] = []
     if (problem) {
       const said = problemText(problem, copy)
-      children.push(banner(doc, 'danger', said ? `${d.problem} ${said}` : d.problem))
+      children.push(banner(doc, isInformation(problem) ? 'info' : 'danger', said ? `${d.problem} ${said}` : d.problem))
     }
     if (value) children.push(...content(value.row, index))
     else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
     else if (!problem) children.push(emptyState(doc, { title: d.none }))
     view.replaceChildren(...children)
-    root.scrollTop = top
+    scroller().scrollTop = top
     if (key !== undefined) view.querySelector<HTMLElement>(`[data-focus="${key}"]`)?.focus({ preventScroll: true })
   }
 
   return {
     render,
-    focus: () => view.querySelector<HTMLElement>('button')?.focus(),
+    // The pane itself takes the focus while it has no control yet (it is still reading), so the focus is
+    // never left behind in the list that asked for it.
+    focus: () => (view.querySelector<HTMLElement>('button') ?? root).focus({ preventScroll: true }),
   }
 }

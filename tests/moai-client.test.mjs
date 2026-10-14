@@ -3,7 +3,7 @@ import { after, test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { PRIORITY, createClient, outcomeOf, refusalOf, requestKey } = await panelModule('data/client.ts')
+const { INFO_REFUSALS, PRIORITY, REFUSAL_CODES, createClient, isInformation, outcomeOf, refusalOf, requestKey } = await panelModule('data/client.ts')
 const { rowsFromPrime } = await panelModule('data/source.ts')
 
 // Runs a test leaves running would poll forever; once every test is over they all end cancelled.
@@ -61,6 +61,33 @@ test('the same read asked twice while it runs is shared, not started again', asy
   bridge.finish(1, passed({ id: 'a-1' }))
   await first
   assert.deepEqual(starts(bridge), [['buzzni.moai.show', 'a-1']])
+})
+
+test('a subscriber that throws does not stop the queue', async () => {
+  const bridge = fakeBridge()
+  const client = createClient(bridge, { sleep: () => flush() })
+  const seen = []
+  let boom = 3
+  client.subscribe(() => {
+    seen.push(client.requests().map((request) => request.phase).join())
+    if (boom-- > 0) throw new Error('subscriber failed')
+  })
+  const logged = console.error
+  console.error = () => {}
+  try {
+    const first = client.request('buzzni.moai.status')
+    const second = client.request('buzzni.moai.show', 'a-1')
+    await flush()
+    bridge.finish(1, passed({ ok: 1 }))
+    assert.deepEqual(await first, { kind: 'passed', output: { ok: 1 } })
+    await flush()
+    // The second request started although subscribers threw while the first was starting, running and settling.
+    assert.deepEqual(starts(bridge), [['buzzni.moai.status'], ['buzzni.moai.show', 'a-1']])
+    bridge.finish(2, passed({ id: 'a-1' }))
+    assert.deepEqual(await second, { kind: 'passed', output: { id: 'a-1' } })
+  } finally {
+    console.error = logged
+  }
 })
 
 test('writes are never shared', async () => {
@@ -148,4 +175,29 @@ test('prime rows become index rows; a folder without a board says so', () => {
   assert.deepEqual(loaded.value.rows.map((row) => [row.id, row.kind]), [['a', 'issue'], ['b', 'issue'], ['c', 'issue']])
   assert.equal(loaded.value.more, 3)
   assert.deepEqual(rowsFromPrime({ no_tracker: true }), { ok: false, outcome: { kind: 'not-initialized' } })
+})
+
+test('prime counts the tasks the running milestone left out (`outside`) among the rows not shown', () => {
+  // `rest` counts over what the milestone let through, so a milestone whose members are all blocked reads
+  // ready: [], rest: 0 — and twenty tasks outside it would otherwise read as "nothing here".
+  const loaded = rowsFromPrime({ picked: [], ready: [], rest: 0, others: [], others_rest: 0, milestone: ['trk-m1'], outside: ['trk-a', 'trk-b'] })
+  assert.equal(loaded.ok, true)
+  assert.equal(loaded.value.more, 2)
+  assert.equal(rowsFromPrime({ picked: [], ready: [], rest: 1, others_rest: 1, outside: 'not a list' }).value.more, 2)
+})
+
+test('which outcomes are information: what the user chose or can retry, never what a machine got wrong', () => {
+  assert.deepEqual([...INFO_REFUSALS].sort(), ['approval-timeout', 'declined', 'workspace-busy'])
+  for (const code of REFUSAL_CODES) assert.equal(isInformation({ kind: 'refused', code }), INFO_REFUSALS.has(code), code)
+  assert.equal(isInformation({ kind: 'not-initialized' }), true)
+  assert.equal(isInformation({ kind: 'cancelled', mayContinue: false }), true)
+  for (const outcome of [{ kind: 'moai-error', message: 'x' }, { kind: 'failed' }, { kind: 'unreadable' }, { kind: 'not-started' }]) {
+    assert.equal(isInformation(outcome), false, outcome.kind)
+  }
+})
+
+test('a failed run says why from stderr, and from stdout when stderr has nothing', () => {
+  assert.deepEqual(outcomeOf({ state: 'failed', stderr: JSON.stringify({ error: 'on stderr' }), stdout: '' }), { kind: 'moai-error', message: 'on stderr' })
+  assert.deepEqual(outcomeOf({ state: 'failed', stderr: '', stdout: JSON.stringify({ error: 'on stdout' }) }), { kind: 'moai-error', message: 'on stdout' })
+  assert.deepEqual(outcomeOf({ state: 'failed', stderr: 'not json', stdout: '' }), { kind: 'failed' })
 })

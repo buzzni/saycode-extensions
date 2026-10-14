@@ -416,7 +416,60 @@ test('a detail asked for a task the next read no longer lists closes instead of 
   await flush()
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr'])
   assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
+  // The pane says to choose a task. (`h2 === null` alone would also hold while it is stuck on "Loading…".)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+  assert.doesNotMatch(panel.$('.moai-detail').textContent, /Loading/)
+})
+
+test('a loaded detail goes when a reload no longer lists its task', async () => {
+  const prime = JSON.parse(PRIME)
+  let listed = PRIME
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': () => listed, 'buzzni.moai.show': SHOW_MOVED }))
+  panel.row('mgd-ogym').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '버튼으로 추가한 할 일')
+  // The task is finished elsewhere: the next read does not list it. Its detail does not stay beside another row.
+  listed = JSON.stringify({ ...prime, picked: prime.picked.filter((row) => row.id !== 'mgd-ogym') })
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.row('mgd-ogym'), undefined)
   assert.equal(panel.$('.moai-detail h2'), null)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+})
+
+test('a key press that moves the cursor while a detail is read does not discard the answer', async () => {
+  let holding = true
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail').textContent, 'Loading…')
+  // ArrowDown moves the cursor without reading a detail (list.ts `point`).
+  panel.$('.moai-list').dispatchEvent(new panel.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
+  holding = false
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일', 'the task that was chosen is shown')
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true', 'the cursor stays where the key left it')
+})
+
+test('closing the detail while its read is still running keeps it closed', async () => {
+  let holding = false
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  // Choosing the same task again reads it again; the pane keeps showing the old answer meanwhile, with its Close.
+  holding = true
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.$('.moai-detail [data-focus="close"]').click()
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+  holding = false
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-detail h2'), null, 'the answer to a read nobody waits for does not reopen the pane')
 })
 
 test('the row with the keyboard focus keeps it when the list redraws', async () => {

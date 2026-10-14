@@ -123,7 +123,10 @@ export function keyToken(event: KeyEventLike): string | null {
   const ctrl = event.ctrlKey ? "C-" : ""
   const alt = event.altKey ? "A-" : ""
   const named = NAMED[key]
-  if (named) return `${ctrl}${alt}${event.shiftKey ? "S-" : ""}${named}`
+  // Shift is part of a named key's token only where the table has one (S-Tab). Space, Enter, Esc and the
+  // arrows are the same key with Shift still down from the capital typed before them (keys.rs: Shift is
+  // dropped for them).
+  if (named) return `${ctrl}${alt}${event.shiftKey && named === "Tab" ? "S-" : ""}${named}`
   // A printable character already carries Shift ('G', '?').
   if ([...key].length === 1) return `${ctrl}${alt}${key}`
   return `${ctrl}${alt}${event.shiftKey ? "S-" : ""}${key}`
@@ -254,7 +257,14 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
       return feed(token, ctx)
     },
     press(key) {
-      return feed(key, options.getContext())
+      const ctx = options.getContext()
+      // A click on an item of a menu that a change of mode already dropped (the overlay stays up until it is
+      // redrawn): that is not a key to run in the new mode ('r' would mark the row read there).
+      if (buffer.length > 0 && heldIn !== ctx.mode) {
+        setBuffer([])
+        return none
+      }
+      return feed(key, ctx)
     },
     state: snapshot,
     reset() {

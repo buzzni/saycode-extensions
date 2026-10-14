@@ -62,6 +62,57 @@ test('groupBoard: hidden statuses, deferred and backlog drop their columns; the 
   assert.deepEqual(ids(kept, 0, 'done'), ['e1.c'])
 })
 
+test('groupBoard: the board is a layout of the list: done rows past the archive age go unless shown, cards follow the sort', () => {
+  const old = new Date(Date.now() - 40 * 86_400_000).toISOString()
+  const rows = [
+    { id: 't1', kind: 'issue', title: 'banana', status: 'todo', priority: 1 },
+    { id: 't2', kind: 'issue', title: 'Apple', status: 'todo', priority: 2 },
+    { id: 't3', kind: 'issue', title: 'cherry', status: 'todo', priority: 0 },
+    { id: 'd1', kind: 'issue', title: 'Old', status: 'done', priority: 2, status_since: old },
+    { id: 'd2', kind: 'issue', title: 'Fresh', status: 'done', priority: 2, status_since: new Date().toISOString() },
+  ]
+  const idx = new IssueIndex(rows)
+  const cards = (model, key) => model.lanes[0].columns.find((c) => c.key === key)?.cards.map((at) => idx.rows[at].id)
+  const hidden = groupBoard(idx, look())
+  assert.deepEqual(cards(hidden, 'done'), ['d2'], 'an archive candidate is not a card')
+  const shown = groupBoard(idx, look({ view: { ...look().view, showArchived: true } }))
+  assert.deepEqual(cards(shown, 'done'), ['d1', 'd2'])
+  assert.deepEqual(cards(groupBoard(idx, look({ cursor: 'd1' })), 'done'), ['d1', 'd2'], 'the cursor card is kept')
+  // Without sort keys: (priority, id). With the list's: its order, a title without regard to case.
+  assert.deepEqual(cards(hidden, 'todo'), ['t3', 't1', 't2'])
+  assert.deepEqual(cards(groupBoard(idx, look({ sort: [{ field: 'title', descending: false }] })), 'todo'), ['t2', 't1', 't3'])
+})
+
+test('groupBoard: a thought that is closed is not a card', () => {
+  const rows = [
+    { id: 'i1', kind: 'backlog', title: 'open idea', status: 'todo' },
+    { id: 'i2', kind: 'backlog', title: 'closed idea', status: 'done' },
+    { id: 't1', kind: 'issue', title: 'work', status: 'todo' },
+  ]
+  const idx = new IssueIndex(rows)
+  const model = groupBoard(idx, look())
+  const cards = model.lanes.flatMap((lane) => lane.columns.flatMap((column) => column.cards.map((at) => idx.rows[at].id)))
+  assert.deepEqual(cards.sort(), ['i1', 't1'])
+  assert.equal(model.total, 2)
+})
+
+test('groupBoard: a repository without milestones has one unnamed lane, not a `(no milestone)` bucket', () => {
+  const rows = [
+    { id: 't1', kind: 'issue', title: 'A', status: 'todo', priority: 2 },
+    { id: 't2', kind: 'issue', title: 'B', status: 'in_progress', priority: 1 },
+  ]
+  const plain = groupBoard(new IssueIndex(rows), look())
+  assert.deepEqual(plain.lanes.map((lane) => lane.seg), [null])
+  assert.equal(plain.total, 2)
+  // And the view draws no lane head for it (the board's own columns are the only heads).
+  const view = mount({ ...initialState(), tab: 'board' }, rows)
+  assert.equal(view.root.querySelector('.m-lane-head:not(.m-lane .m-lane-head)'), null)
+  assert.equal(view.root.querySelectorAll('.m-lane-head').length, view.root.querySelectorAll('.m-lane').length, 'only column heads')
+  // With milestones the bucket is a lane of its own, as before.
+  const withMilestone = groupBoard(index, look())
+  assert.ok(withMilestone.lanes.some((lane) => lane.seg === NO_MILESTONE))
+})
+
 test('groupBoard: inside a place there is one lane holding what is under it', () => {
   const model = groupBoard(index, look({ path: index.pathOf('e1') }))
   assert.equal(model.lanes.length, 1)
@@ -91,7 +142,7 @@ test('board view: columns, lanes, cards, cursor highlight and click', () => {
   assert.equal(lanes.length, 3)
   const status = root.querySelector('.m-board [data-status="in_progress"]')
   assert.equal(status.getAttribute('role'), 'list')
-  assert.match(status.getAttribute('aria-label'), /In progress, 1 cards/)
+  assert.match(status.getAttribute('aria-label'), /^In progress, 1 card$/)
   const card = status.querySelector('.m-card')
   assert.equal(card.dataset.id, 'e1.b')
   assert.equal(card.getAttribute('aria-selected'), 'true')
@@ -104,6 +155,32 @@ test('board view: columns, lanes, cards, cursor highlight and click', () => {
   assert.equal(root.querySelector('[data-id="e2.b"]'), null)
   assert.ok(root.querySelector('[data-status="backlog"] [data-id="b1"]'))
   assert.equal(glyphOf('done'), '✓')
+})
+
+test('board view: one card is always the tab stop, Space is left to the key layer, tags that are not a list are not drawn', () => {
+  const tabbable = (root) => [...root.querySelectorAll('.m-card')].filter((card) => card.getAttribute('tabindex') === '0').map((card) => card.dataset.id)
+  // No cursor (or a cursor that is not a card): the first card in the order drawn can be reached by Tab.
+  const none = mount({ ...initialState(), tab: 'board', cursor: null })
+  assert.equal(tabbable(none.root).length, 1)
+  assert.equal(tabbable(none.root)[0], none.root.querySelector('.m-card').dataset.id)
+  assert.deepEqual(tabbable(mount({ ...initialState(), tab: 'board', cursor: 'e1' }).root).length, 1, 'a cursor on a group is not a card')
+  assert.deepEqual(tabbable(mount({ ...initialState(), tab: 'board', cursor: 'e1.b' }).root), ['e1.b'])
+
+  // Enter chooses; Space is the SPC leader and stays unhandled so the key layer sees it.
+  const { root, chosen, dom } = mount({ ...initialState(), tab: 'board', cursor: 'e1.b' })
+  const card = root.querySelector('[data-id="e1.a"]')
+  const space = new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+  card.dispatchEvent(space)
+  assert.equal(space.defaultPrevented, false)
+  const enter = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  card.dispatchEvent(enter)
+  assert.equal(enter.defaultPrevented, true)
+  assert.deepEqual(chosen, ['e1.a'])
+
+  // A `tags` that is a string or an object (not what the CLI writes) draws no chips and does not throw.
+  const odd = ROWS.map((row) => (row.id === 'e1.a' ? { ...row, tags: 'bug' } : row.id === 'e1.b' ? { ...row, tags: { a: 1 } } : row))
+  const withTags = mount({ ...initialState(), tab: 'board', columns: { ...initialState().columns, tags: true } }, odd)
+  assert.doesNotMatch(withTags.root.querySelector('[data-id="e1.a"]').textContent, /#/)
 })
 
 test('board view: assignee chip only when the column is on; empty board says so', () => {

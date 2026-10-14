@@ -48,13 +48,22 @@ export const mountList: MountPane = (root, ctx): PaneView => {
 
   const noteText = el(doc, "span", {})
   const note = el(doc, "div", { class: "moai-list-note", role: "status", hidden: true }, noteText)
-  const showAll = button(doc, { label: words.showAll, variant: "ghost", small: true, onClick: () => intents.dispatch({ type: "view", view: SHOW_ALL }) })
+  const showAll = button(doc, { label: words.showAll, variant: "ghost", small: true, onClick: () => keepFocus(() => intents.dispatch({ type: "view", view: SHOW_ALL })) })
   note.append(showAll)
   const head = el(doc, "div", { class: "m-row-head moai-list-head", role: "row", "aria-rowindex": 1, hidden: true })
   const body = el(doc, "div", { class: "moai-list-body", role: "rowgroup" })
   const list = el(doc, "div", { class: "m-list moai-list", role: "treegrid", tabindex: 0, "aria-label": words.label }, head, body)
   const empty = el(doc, "div", { class: "moai-list-empty", hidden: true })
   root.replaceChildren(note, list, empty)
+
+  /**
+   * A button of the list that the redraw it causes destroys or hides (the fold toggle, a name-line sort, "Show
+   * all") has the focus when it is clicked; the focus goes back to the list so the arrows keep working.
+   */
+  function keepFocus(act: () => void) {
+    act()
+    list.focus({ preventScroll: true })
+  }
 
   let state: State | null = null
   let model: Model | null = null
@@ -154,7 +163,7 @@ export const mountList: MountPane = (root, ctx): PaneView => {
       const toggle = el(doc, "button", { type: "button", class: "moai-toggle", tabindex: -1, "aria-label": label, title: label, "aria-expanded": String(folder.open) }, icon(doc, "chevron-right", 12))
       toggle.addEventListener("click", (event) => {
         event.stopPropagation()
-        intents.toggleExpanded(folder.path)
+        keepFocus(() => intents.toggleExpanded(folder.path))
       })
       toggle.addEventListener("dblclick", (event) => event.stopPropagation())
       node.append(el(doc, "span", { class: "moai-c-toggle", role: "gridcell" }, toggle))
@@ -209,18 +218,20 @@ export const mountList: MountPane = (root, ctx): PaneView => {
       const on = sorted?.field === field
       if (on) span.setAttribute("aria-sort", sorted!.descending ? "descending" : "ascending")
       const sort = el(doc, "button", { type: "button", class: "moai-head-sort", tabindex: -1, title: words.sortBy(words.heads[column]), "data-sort": field }, `${text}${on ? (sorted!.descending ? "↓" : "↑") : ""}`)
-      sort.addEventListener("click", () => intents.dispatch({ type: "sort", sort: headSort(current.sort, field) }))
+      sort.addEventListener("click", () => keepFocus(() => intents.dispatch({ type: "sort", sort: headSort(current.sort, field) })))
       span.append(sort)
       return span
     }
     const cells: HTMLElement[] = [el(doc, "span", { class: "moai-c-toggle", role: "columnheader" })]
     if (cols.id) cells.push(headCell("m-row-meta moai-c-id", "id", words.heads.id))
     if (cols.priority) cells.push(headCell("moai-c-p", "priority", words.heads.priority))
-    cells.push(headCell("moai-c-st", "status", "◦"))
+    // The status head is only a glyph, so it carries its name; its place among the cells depends on the columns on.
+    const status = headCell("moai-c-st", "status", "◦")
+    status.setAttribute("aria-label", words.heads.status)
+    cells.push(status)
     cells.push(headCell("m-row-title", "title", words.heads.title))
     for (const column of cols.right) cells.push(headCell(column === "created" || column === "updated" ? "m-col m-col-date" : `m-col m-col-${column}`, column, words.heads[column]))
     if (cols.counts) cells.push(headCell("m-row-meta moai-c-counts", "counts", words.heads.counts))
-    cells[3]!.setAttribute("aria-label", words.heads.status)
     head.replaceChildren(...cells)
   }
 
@@ -275,7 +286,9 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     list.setAttribute("aria-rowcount", String(model.lines.length + 1))
 
     note.hidden = model.hidden === 0
-    noteText.textContent = model.hidden ? words.hiddenCount(model.hidden) : ""
+    // A status line is a live region: written only when it says something new.
+    const hiddenText = model.hidden ? words.hiddenCount(model.hidden) : ""
+    if (noteText.textContent !== hiddenText) noteText.textContent = hiddenText
     showAll.hidden = !hidesAnything(current.view)
 
     const nothing = !model.lines.some((line) => line.kind !== "up")
@@ -337,14 +350,23 @@ export const mountList: MountPane = (root, ctx): PaneView => {
         break
       }
       case "ArrowLeft": {
+        // As the TUI's `h`: fold an open folder; else fold the folder this line hangs under and land on it;
+        // else, with nothing to fold, leave the place.
         if (!line) return
         const folder = folderOf(line)
-        if (folder?.open) intents.toggleExpanded(folder.path)
-        else {
-          const parent = parentLine(lines, at)
-          if (parent < 0) return
-          intents.point(lines[parent]!.key)
+        if (folder?.open) {
+          intents.toggleExpanded(folder.path)
+          break
         }
+        const parent = parentLine(lines, at)
+        if (parent >= 0) {
+          const above = folderOf(lines[parent]!)
+          if (above?.open) intents.toggleExpanded(above.path)
+          intents.point(lines[parent]!.key)
+          break
+        }
+        if (!state.path.length) return
+        leave()
         break
       }
       default:
@@ -356,6 +378,11 @@ export const mountList: MountPane = (root, ctx): PaneView => {
   const onScroll = () => paint(false)
   list.addEventListener("keydown", onKey)
   root.addEventListener("scroll", onScroll, { passive: true })
+  // The window is sized from the pane's height, which changes without a store change or a scroll (the panel is
+  // resized, the detail is dragged taller): draw the rows the new height shows. The shell only reports widths.
+  const win = doc.defaultView
+  const observer = win && "ResizeObserver" in win ? new win.ResizeObserver(() => paint(false)) : null
+  observer?.observe(root)
 
   return {
     render,
@@ -364,6 +391,7 @@ export const mountList: MountPane = (root, ctx): PaneView => {
       reveal()
     },
     destroy() {
+      observer?.disconnect()
       list.removeEventListener("keydown", onKey)
       root.removeEventListener("scroll", onScroll)
     },

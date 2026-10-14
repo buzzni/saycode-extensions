@@ -4,8 +4,9 @@
  * milestone a row stands under, `shelvedAt` for deferral. This file only sorts those answers into a grid.
  * Epics and milestones are not cards; they are lane heads.
  */
-import { displayOrder, isBacklog, isWork, LOST, NO_MILESTONE, type IssueIndex, type Path, type Row, type Seg } from '../data/index.js'
-import type { ViewSettings } from '../store.js'
+import { archiveCandidate, displayOrder, isBacklog, isDone, isWork, LOST, NO_MILESTONE, type IssueIndex, type Path, type Row, type Seg } from '../data/index.js'
+import type { SortKey, ViewSettings } from '../store.js'
+import { ARCHIVE_DAYS, sortCompare } from './list-model.ts'
 
 /** The columns a board has when the project's own list of statuses is not known, in board order. */
 export const DEFAULT_STATUSES: readonly string[] = ['todo', 'in_progress', 'review', 'done']
@@ -39,9 +40,14 @@ export interface BoardModel {
 
 export interface BoardLook {
   path: Path
-  view: Pick<ViewSettings, 'hiddenStatuses' | 'hideDeferred' | 'hideBacklog'>
+  /** The list's view toggles, the board is a layout of the same list: done rows past the archive age go unless `showArchived`. */
+  view: Pick<ViewSettings, 'hiddenStatuses' | 'hideDeferred' | 'hideBacklog'> & Partial<Pick<ViewSettings, 'showArchived'>>
   /** The id under the cursor: its column stays even when hidden, so the cursor never vanishes. */
   cursor: string | null
+  /** The list's sort keys, so a card stands where its row stands in the list; left out, moai's default order. */
+  sort?: ReadonlyArray<SortKey>
+  /** What "now" is for the archive age; the clock when left out. */
+  now?: Date
 }
 
 /** The column a row stands in: backlog first, then deferred, then its status. */
@@ -63,35 +69,44 @@ export function statusKeys(rows: readonly Row[], known: readonly string[] = DEFA
   return keys
 }
 
-/** The lane a row stands in at the root: the first step of its home, else the `(no milestone)` lane. */
-function laneOf(index: IssueIndex, at: number): Seg {
+/**
+ * The lane a row stands in at the root: the first step of its home — a milestone, `(no milestone)` or
+ * `(lost)`. A repository that does not use milestones has one lane and no name for it (null: no lane head),
+ * as the TUI's `Site::lane`; `(no milestone)` there would head the only lane with a bucket that does not exist.
+ */
+function laneOf(index: IssueIndex, at: number): Seg | null {
   const first = index.homeOf(at)[0]
-  return first !== undefined && (first.startsWith('m:') || first === LOST) ? first : NO_MILESTONE
+  return first !== undefined && (first.startsWith('m:') || first === LOST) ? first : null
 }
 
 export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly string[] = DEFAULT_STATUSES): BoardModel {
   const { path, view, cursor } = look
+  const now = look.now ?? new Date()
   const all = [BACKLOG, DEFERRED, ...statusKeys(index.rows, known)]
   const hidden = new Set(view.hiddenStatuses)
   const hides = (key: string) =>
     key === BACKLOG ? view.hideBacklog : key === DEFERRED ? view.hideDeferred : hidden.has(key)
 
+  // Work, and a thought that is still open: the TUI board counts only open backlog (a closed one is `unopenable`).
   const cards = index.descendants(path).filter((at) => {
     const row = index.rows[at]!
-    return index.find(row.id) === at && (isWork(row) || isBacklog(row))
+    return index.find(row.id) === at && (isWork(row) || (isBacklog(row) && !isDone(row)))
   })
   const cursorAt = cursor === null ? undefined : index.find(cursor)
   const cursorColumn = cursorAt === undefined ? undefined : columnOf(index, cursorAt)
 
-  // A hidden column goes; a card that has the cursor keeps its column on the board.
+  // A hidden column goes, and so does a row the list would archive; a card that has the cursor keeps its place.
   const shown = (at: number) => {
-    const key = columnOf(index, at)
-    return !hides(key) || at === cursorAt
+    if (at === cursorAt) return true
+    if (hides(columnOf(index, at))) return false
+    // Cards are work and open thoughts: a group is never a card, so no members to date it by.
+    return view.showArchived === true || !archiveCandidate(index.rows[at]!, now, ARCHIVE_DAYS)
   }
   const keys = all.filter((key) => !hides(key) || key === cursorColumn)
   const kept = cards.filter(shown)
 
-  const order = (a: number, b: number) => displayOrder(index.rows[a]!, index.rows[b]!)
+  const compare = look.sort ? sortCompare(look.sort) : displayOrder
+  const order = (a: number, b: number) => compare(index.rows[a]!, index.rows[b]!)
   const make = (seg: Seg | null, members: number[], at?: number): BoardLane => ({
     seg,
     at,
@@ -100,7 +115,7 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
 
   if (path.length) return { keys, lanes: kept.length ? [make(null, kept)] : [], total: kept.length }
 
-  const bySeg = new Map<Seg, number[]>()
+  const bySeg = new Map<Seg | null, number[]>()
   for (const at of kept) {
     const seg = laneOf(index, at)
     const list = bySeg.get(seg)
@@ -110,11 +125,11 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
   // Milestones in the listing's order, `(no milestone)` and `(lost)` after them.
   const order0 = index.entries([]).filter((entry) => entry.dir).map((entry) => entry.seg)
   const segs = [...bySeg.keys()].sort((a, b) => {
-    const rank = (seg: Seg) => (seg === NO_MILESTONE ? 1e6 : seg === LOST ? 1e6 + 1 : order0.indexOf(seg))
+    const rank = (seg: Seg | null) => (seg === null ? -1 : seg === NO_MILESTONE ? 1e6 : seg === LOST ? 1e6 + 1 : order0.indexOf(seg))
     return rank(a) - rank(b)
   })
   const lanes = segs.map((seg) => {
-    const home = seg.startsWith('m:') && seg !== NO_MILESTONE ? index.find(seg.slice(2)) : undefined
+    const home = seg !== null && seg.startsWith('m:') && seg !== NO_MILESTONE ? index.find(seg.slice(2)) : undefined
     return make(seg, bySeg.get(seg)!, home)
   })
   return { keys, lanes, total: kept.length }

@@ -10,6 +10,7 @@ import { createRefresher } from './data/refresh.js'
 import { addTask, loadDetail, loadRows } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { createStore, type State } from './store.js'
+import { listLines, sortOrder, viewKeep } from './view/list-model.js'
 import { PANES } from './view/panes.js'
 import { mountShell, type Activity } from './view/shell.js'
 
@@ -37,19 +38,26 @@ function indexOf(state: State): IssueIndex | null {
   return indexed.index
 }
 
-/** The ids in the order the list draws them now, so a reload can keep the cursor near where it was. */
+/** The ids in the order the list draws them now (its hiding, order and unfolded folders), so a reload can keep the cursor near where it was. */
 function drawnOrder(): string[] {
   const state = store.getState()
   const index = indexOf(state)
   if (!index) return []
-  return index.entries(state.path).flatMap((entry) => (entry.at === undefined ? [] : [index.rows[entry.at]!.id]))
+  const lines = listLines(state, index, viewKeep(state.view, index), sortOrder(state.sort, index))
+  return lines.flatMap((line) => (line.kind === 'row' ? [line.key] : []))
 }
 
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   const loaded = await loadRows(client)
-  if (loaded.ok) store.dispatch({ type: 'board-loaded', data: { rows: loaded.value.rows, more: loaded.value.more, loadedAt: Date.now() }, order: drawnOrder() })
-  else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+  if (loaded.ok) {
+    store.dispatch({ type: 'board-loaded', data: { rows: loaded.value.rows, more: loaded.value.more, loadedAt: Date.now() }, order: drawnOrder() })
+    // The detail on screen was read before this list and stands beside it: when its row has left the list
+    // (finished, moved away) the pane goes with it, as choose() does for a read still running.
+    const state = store.getState()
+    const shown = state.shown.value
+    if (shown && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
+  } else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
 }
 
 const refresher = createRefresher({ load: loadBoard, isVisible: () => document.visibilityState !== 'hidden' })
@@ -63,9 +71,13 @@ async function choose(id: string) {
   const loaded = await loadDetail(client, id)
   // A later choice wins: its own answer settles the detail.
   if (mine !== choice) return
-  // A reload moved the cursor off this row (the row was gone). Nothing else will answer for the detail, so it
-  // closes instead of staying on "Loading…".
-  if (store.getState().cursor !== id) return store.dispatch({ type: 'detail-closed' })
+  const now = store.getState()
+  // The pane was closed while the read ran (Close, or a reload that closed it): the answer is not wanted.
+  if (!now.shown.loading) return
+  // A reload removed the row. Nothing else will answer for the detail, so it closes instead of staying on
+  // "Loading…". The cursor moving elsewhere is the user's own (a key press) and does not cancel the read.
+  const listed = indexOf(now)
+  if (listed && listed.find(id) === undefined) return store.dispatch({ type: 'detail-closed' })
   if (loaded.ok) store.dispatch({ type: 'detail-loaded', data: { id, row: loaded.value } })
   else store.dispatch({ type: 'detail-failed', id, problem: loaded.outcome })
 }

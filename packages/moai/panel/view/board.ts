@@ -8,6 +8,7 @@ import { isDone, type IssueIndex, type Row } from '../data/index.js'
 import type { State } from '../store.js'
 import { BACKLOG, DEFERRED, groupBoard, type BoardLane } from './board-groups.ts'
 import { segLabel } from './crumbs.ts'
+import { statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
@@ -19,11 +20,16 @@ const priorityClass = (priority: number) => `m-p${Math.min(3, Math.max(0, Math.r
 
 function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] {
   const { document: doc, copy, intents } = ctx
-  const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor })
+  const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort })
   if (!model.total) return [emptyState(doc, { icon: 'kanban', title: copy.empty })]
 
   const nameOf = (key: string) =>
     key === BACKLOG ? copy.shell.backlog : key === DEFERRED ? copy.shell.deferred : ((copy.stats as Record<string, string>)[key] ?? key)
+
+  // One card is the tab stop: the one with the cursor, else the first, so the board can be entered by Tab.
+  const cards = model.lanes.flatMap((lane) => lane.columns.flatMap((column) => column.cards))
+  const cursorCard = state.cursor === null ? undefined : cards.find((at) => index.rows[at]!.id === state.cursor)
+  const tabStop = cursorCard ?? cards[0]
 
   const card = (at: number): HTMLElement => {
     const row: Row = index.rows[at]!
@@ -32,6 +38,11 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] 
     const selected = state.cursor === key
     const first = el(doc, 'div', { class: 'm-card-line' })
     first.append(el(doc, 'span', { class: 'm-id' }, row.id))
+    // The status in the card itself, as the TUI draws it (`id glyph pN n/n`): a card in the Deferred or Backlog
+    // column would otherwise not say where it stands. The glyph differs by status, never colour alone.
+    const status = statusOf(row)
+    const { glyph, tone } = statusGlyph(status)
+    first.append(' ', el(doc, 'span', { class: `m-st-${tone}`, title: (copy.stats as Record<string, string>)[status] ?? status }, glyph))
     if (typeof row.priority === 'number') first.append(' ', el(doc, 'span', { class: priorityClass(row.priority) }, `p${row.priority}`))
     if (index.isDir(at)) {
       const [d, w] = index.tally(index.dirPath(at))
@@ -44,16 +55,17 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] 
       const epic = index.epicOf(at)
       if (epic !== undefined) extras.push(chip(doc, { label: index.rows[index.find(epic) ?? -1]?.title ?? epic, tone: 'accent' }))
     }
-    if (state.columns.tags) for (const tag of row.tags ?? []) extras.push(chip(doc, { label: `#${tag}` }))
+    if (state.columns.tags && Array.isArray(row.tags)) for (const tag of row.tags) extras.push(chip(doc, { label: `#${tag}` }))
     if (extras.length) lines.push(el(doc, 'div', { class: 'm-card-line' }, ...extras))
     const node = el(doc, 'div', {
-      class: 'm-card', role: 'listitem', tabindex: selected ? 0 : -1, 'aria-selected': String(selected),
+      class: 'm-card', role: 'listitem', tabindex: at === tabStop ? 0 : -1, 'aria-selected': String(selected),
       'data-id': row.id, 'data-focus': `card:${row.id}`, title: row.title ?? row.id,
     }, ...lines)
     if (done) node.style.opacity = '0.75'
     node.addEventListener('click', () => intents.choose(row.id))
     node.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
+      // Not Space: that is the leader of the SPC menu, which the key layer skips once a card has taken it.
+      if (event.key === 'Enter') {
         event.preventDefault()
         intents.choose(row.id)
       }

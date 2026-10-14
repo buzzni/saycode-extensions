@@ -22,12 +22,14 @@
 .moai-toggle .m-icon { width: 12px; height: 12px; transition: transform .15s; }
 .moai-toggle[aria-expanded="true"] .m-icon { transform: rotate(90deg); }
 .moai-c-id { width: var(--moai-id-w, 10ch); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.moai-c-p { flex: none; width: 2ch; font: 12px var(--mono); }
-.moai-c-st { flex: none; width: 1.5ch; text-align: center; font: 12px var(--mono); }
+/* Longhands, not `font:`: the shorthand would reset the weight .m-p0 and .m-st-in_progress set (components.css). */
+.moai-c-p { flex: none; width: 2ch; font-family: var(--mono); font-size: 12px; }
+.moai-c-st { flex: none; width: 1.5ch; text-align: center; font-family: var(--mono); font-size: 12px; }
 .moai-c-counts { width: 7ch; text-align: right; }
 .moai-twig { color: var(--muted); font-family: var(--mono); white-space: pre; }
 
-.moai-list-head .moai-head { font: inherit; color: inherit; }
+/* The columns are sized in ch of the row font, so their heads keep it; only the title head follows the head line. */
+.moai-list-head .m-row-title.moai-head { font: inherit; color: inherit; }
 .moai-head-sort { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .moai-head-sort:hover { color: var(--text); }
 .moai-list-head [aria-sort] { color: var(--text); }

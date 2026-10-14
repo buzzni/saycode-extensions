@@ -11,7 +11,7 @@ const { MEMORY_KEY, createMemory, normalizeMemory, remember } = await panelModul
 const { createStore, initialState, reduce } = await panelModule('store.ts')
 const { IssueIndex, LOST, NO_MILESTONE } = await panelModule('data/index.ts')
 const { copyFor } = await panelModule('i18n/index.ts')
-const { mountShell, mainWidth } = await panelModule('view/shell.ts')
+const { describe, mountShell, mainWidth } = await panelModule('view/shell.ts')
 const { PANES } = await panelModule('view/panes.ts')
 
 const en = copyFor('en')
@@ -290,6 +290,147 @@ test('shell: choosing a row reads its detail through the shell intents; the add 
   assert.deepEqual(panel.calls.at(-1), ['add', 'New one'])
   panel.shell.say('Enter a task title.', true)
   assert.equal(panel.$('.moai-result').className, 'moai-result m-banner m-banner-danger')
+  assert.equal(panel.$('.moai-result').getAttribute('role'), 'status', 'the result line is a live region')
   panel.shell.refuse({ kind: 'refused', code: 'declined' })
   assert.equal(panel.$('.moai-result').className, 'moai-result m-banner')
+})
+
+test('shell: a panel that opens on the wiki tab starts without the path line and the add field', () => {
+  const storage = fakeStorage()
+  storage.items.set(MEMORY_KEY, JSON.stringify({ tab: 'wiki' }))
+  const panel = boot(storage)
+  assert.equal(panel.$('#m-panel-wiki').hidden, false)
+  assert.equal(panel.$('#m-panel-list').hidden, true)
+  assert.equal(panel.$('.m-shell-head').hidden, true)
+  // And they come back with the list.
+  panel.tab('list').click()
+  assert.equal(panel.$('.m-shell-head').hidden, false)
+})
+
+test('shell: the path line goes up to the place it left, and the focus stays in the list', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'enter', path: ['m:se-m1', 'e:se-e1'], cursor: 'se-e1.a' })
+  const crumb = panel.doc.querySelectorAll('.m-crumb')[1]
+  crumb.focus()
+  crumb.click()
+  assert.deepEqual(panel.store.getState().path, ['m:se-m1'])
+  assert.equal(panel.store.getState().cursor, 'se-e1', 'the cursor lands on the folder just left, as Backspace does')
+  assert.equal(panel.doc.activeElement, panel.$('.moai-list'))
+  // A segment that is not above the place (the current one) changes no cursor rule: it stays.
+  panel.doc.querySelectorAll('.m-crumb')[1].click()
+  assert.equal(panel.store.getState().cursor, 'se-e1')
+})
+
+test('shell: closing the detail hands the focus back to the list', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'enter', path: ['m:se-m1', 'e:se-e1'] })
+  panel.store.dispatch({ type: 'detail-loaded', data: { id: 'se-e1.b', row: ROWS[3] } })
+  const close = panel.$('.moai-detail [data-focus="close"]')
+  close.focus()
+  assert.equal(panel.doc.activeElement, close)
+  close.click()
+  assert.equal(panel.doc.activeElement, panel.$('.moai-list'))
+  assert.equal(panel.store.getState().focus, 'list')
+})
+
+test('shell: a tab comes back with its own scroll, and what the pane decided while drawing stands', () => {
+  const many = Array.from({ length: 300 }, (_, n) => ({ id: `t-${String(n).padStart(3, '0')}`, kind: 'issue', title: `Task ${n}`, status: 'todo', priority: 2 }))
+  const panel = boot(fakeStorage(), { rows: many })
+  const listRoot = panel.$('.m-pane-main[data-pane="list"]')
+  Object.defineProperty(listRoot, 'clientHeight', { configurable: true, get: () => 280 })
+  panel.store.dispatch({ type: 'cursor', id: 't-000' })
+  panel.tab('board').click()
+  // The cursor moves far away while the list is hidden (a card was clicked).
+  panel.store.dispatch({ type: 'cursor', id: 't-250' })
+  panel.tab('list').click()
+  assert.ok(listRoot.scrollTop > 5000, `the list reveals the cursor (scrollTop ${listRoot.scrollTop})`)
+  assert.ok(panel.doc.querySelector('.moai-line[data-key="t-250"]'), 'the cursor row is drawn')
+  // A scroll the user left is still put back when nothing moved: leave and come back.
+  listRoot.scrollTop = 1400
+  panel.tab('board').click()
+  panel.tab('list').click()
+  assert.equal(listRoot.scrollTop, 1400)
+})
+
+test('shell: a failed detail read is told once, in the pane, and does not hide the list problem', () => {
+  const panel = boot(fakeStorage())
+  const declined = { kind: 'refused', code: 'declined' }
+  panel.store.dispatch({ type: 'detail-failed', id: 'se-e1.a', problem: declined })
+  // As information, in the pane that asked; the shell's banners stay for the list.
+  const pane = panel.$('.m-split-detail')
+  assert.equal(pane.querySelectorAll('.m-banner').length, 1)
+  assert.equal(pane.querySelector('.m-banner').getAttribute('role'), 'status')
+  assert.equal(panel.$('.moai-notice').textContent, '')
+  assert.equal(panel.$('.moai-error').textContent, '')
+  // A list problem keeps its place while the detail's stands.
+  panel.store.dispatch({ type: 'board-failed', problem: { kind: 'moai-error', message: 'broken' } })
+  assert.match(panel.$('.moai-error').textContent, /broken/)
+  assert.match(pane.textContent, /confirmation was declined/)
+  // With the pane hidden the shell says it, so a read the user asked for is never silent.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now() } })
+  panel.store.dispatch({ type: 'detail-visible', visible: false })
+  assert.match(panel.$('.moai-notice').textContent, /confirmation was declined/)
+})
+
+test('shell: the missing-board guidance is one sentence in its banner, and a banner is written only when it says something new', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'board-failed', problem: { kind: 'not-initialized' } })
+  const notice = panel.$('.moai-notice')
+  // One child, so the flex banner lays the sentence out as text with the command inside it.
+  assert.equal(notice.children.length, 1)
+  assert.equal(notice.firstElementChild.tagName, 'SPAN')
+  assert.equal(notice.querySelector('code').textContent, 'moai init')
+  panel.shell.refuse({ kind: 'not-initialized' })
+  assert.equal(panel.$('.moai-result').children.length, 1)
+
+  // A live region is read again when it is written: an unchanged problem is left alone.
+  panel.store.dispatch({ type: 'board-failed', problem: { kind: 'moai-error', message: 'broken' } })
+  const alert = panel.$('.moai-error')
+  let writes = 0
+  const observer = new panel.dom.window.MutationObserver((records) => { writes += records.length })
+  observer.observe(alert, { childList: true, subtree: true, characterData: true })
+  panel.store.dispatch({ type: 'cursor', id: 'se-e1.a' })
+  panel.store.dispatch({ type: 'cursor', id: 'se-e1.b' })
+  panel.store.dispatch({ type: 'search', text: 'x' })
+  return Promise.resolve().then(() => {
+    writes += observer.takeRecords().length
+    assert.equal(writes, 0)
+    // A failure that happens again is a new outcome and is told again.
+    panel.store.dispatch({ type: 'board-failed', problem: { kind: 'moai-error', message: 'broken' } })
+    writes += observer.takeRecords().length
+    assert.ok(writes > 0)
+  })
+})
+
+test('shell: the store\'s focus follows the DOM focus into a pane, not only focusPane', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'detail-loaded', data: { id: 'se-e1.b', row: ROWS[3] } })
+  assert.equal(panel.store.getState().focus, 'list')
+  // A click on the detail's folded history focuses its summary (no focusPane call).
+  panel.$('.moai-detail summary').focus()
+  assert.equal(panel.store.getState().focus, 'detail')
+  // Back into the list by a click or Tab.
+  panel.$('.moai-list').focus()
+  assert.equal(panel.store.getState().focus, 'list')
+})
+
+test('shell: every refusal has its words in every language; a cancel that was reaped does not say the run may go on', () => {
+  const doc = new JSDOM('').window.document
+  const codes = ['declined', 'approval-timeout', 'workspace-busy', 'tool-missing', 'unsupported-platform', 'unsupported-daemon']
+  const seen = new Set()
+  for (const lang of ['en', 'ko', 'ja', 'zh']) {
+    const copy = copyFor(lang)
+    for (const code of codes) {
+      const said = describe({ kind: 'refused', code }, copy, doc)
+      assert.equal(typeof said.parts[0], 'string', `${lang} ${code}`)
+      assert.ok(said.parts[0].length > 10, `${lang} ${code} has words`)
+      seen.add(`${lang}|${said.parts[0]}`)
+    }
+  }
+  assert.equal(seen.size, 24, 'no two refusals share a text within a language')
+  assert.equal(describe({ kind: 'refused', code: 'approval-timeout' }, en, doc).info, true)
+  assert.equal(describe({ kind: 'refused', code: 'unsupported-platform' }, en, doc).info, false)
+  const reaped = describe({ kind: 'cancelled', mayContinue: false }, en, doc)
+  assert.deepEqual(reaped.parts, [en.cancelled])
+  assert.deepEqual(describe({ kind: 'cancelled', mayContinue: true }, en, doc).parts, [`${en.cancelled} ${en.mayContinue}`])
 })

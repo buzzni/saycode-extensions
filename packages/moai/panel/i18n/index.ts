@@ -196,8 +196,6 @@ const LIST: Record<Language, ListCopy> = {
 export interface BoardCopy {
   /** Accessible name of the board. */
   label: string
-  /** The stopgap board (view/interim.ts) draws the list under this note. */
-  interimNote: string
   /** Accessible name of a status column: its name and card count. */
   columnLabel: (name: string, count: number) => string
   /** An empty column. */
@@ -207,25 +205,21 @@ export interface BoardCopy {
 const BOARD: Record<Language, BoardCopy> = {
   en: {
     label: 'Board',
-    interimNote: 'The board is on its way; the list stands in for it.',
-    columnLabel: (name, count) => `${name}, ${count} cards`,
+    columnLabel: (name, count) => `${name}, ${count} ${count === 1 ? 'card' : 'cards'}`,
     noCards: 'No cards',
   },
   ko: {
     label: '칸반',
-    interimNote: '칸반은 준비 중이라 목록으로 대신 보여 줍니다.',
     columnLabel: (name, count) => `${name}, 카드 ${count}장`,
     noCards: '카드 없음',
   },
   ja: {
     label: 'カンバン',
-    interimNote: 'カンバンは準備中のため、一覧で代わりに表示します。',
     columnLabel: (name, count) => `${name}、カード ${count} 枚`,
     noCards: 'カードなし',
   },
   zh: {
     label: '看板',
-    interimNote: '看板尚在准备中，暂以列表代替。',
     columnLabel: (name, count) => `${name}，${count} 张卡片`,
     noCards: '没有卡片',
   },
@@ -247,10 +241,11 @@ export interface DetailCopy {
   due: string
   epic: string
   milestone: string
-  tags: string
   blockedBy: string
   blocks: string
   deferred: string
+  /** A row put off because the epic, milestone or parent it stands under is (`shelved_by`). */
+  deferredUnder: (id: string) => string
   /** A blocker's state: finished, still open, put off, or not in the index. */
   blockerDone: string
   blockerOpen: string
@@ -280,7 +275,8 @@ const DETAIL: Record<Language, DetailCopy> = {
     label: 'Details',
     none: 'Choose a task to see its details.',
     assignee: 'Assignee', created: 'Created', updated: 'Updated', started: 'Started', ended: 'Ended', due: 'Due', epic: 'Epic', milestone: 'Milestone',
-    tags: 'Tags', blockedBy: 'Blocked by', blocks: 'Blocks', deferred: 'Deferred',
+    blockedBy: 'Blocked by', blocks: 'Blocks', deferred: 'Deferred',
+    deferredUnder: (id) => `Deferred — under ${id}`,
     blockerDone: 'done', blockerOpen: 'open', blockerDeferred: 'deferred', blockerMissing: 'not found',
     rollup: 'Progress', rollupText: (done, work, percent) => `${done}/${work} done${percent === undefined ? '' : ` · ${percent}%`}`,
     body: 'Description', commits: 'Commits', journal: 'History', noJournal: 'No history yet', work: 'Work log', subtasks: 'Subtasks',
@@ -291,7 +287,8 @@ const DETAIL: Record<Language, DetailCopy> = {
     label: '상세',
     none: '할 일을 고르면 상세가 여기에 나옵니다.',
     assignee: '담당자', created: '만든 시각', updated: '고친 시각', started: '시작', ended: '끝남', due: '마감', epic: '에픽', milestone: '마일스톤',
-    tags: '태그', blockedBy: '막는 것', blocks: '막고 있는 것', deferred: '미룸',
+    blockedBy: '막는 것', blocks: '막고 있는 것', deferred: '미룸',
+    deferredUnder: (id) => `미룸 — ${id} 아래`,
     blockerDone: '끝남', blockerOpen: '열림', blockerDeferred: '미룸', blockerMissing: '없음',
     rollup: '진척', rollupText: (done, work, percent) => `${done}/${work} 완료${percent === undefined ? '' : ` · ${percent}%`}`,
     body: '본문', commits: '커밋', journal: '기록', noJournal: '아직 기록이 없습니다', work: '작업 기록', subtasks: '하위 항목',
@@ -302,7 +299,8 @@ const DETAIL: Record<Language, DetailCopy> = {
     label: '詳細',
     none: 'タスクを選ぶと、ここに詳細が表示されます。',
     assignee: '担当者', created: '作成', updated: '更新', started: '開始', ended: '終了', due: '期限', epic: 'エピック', milestone: 'マイルストーン',
-    tags: 'タグ', blockedBy: 'ブロック元', blocks: 'ブロック先', deferred: '保留',
+    blockedBy: 'ブロック元', blocks: 'ブロック先', deferred: '保留',
+    deferredUnder: (id) => `保留 — ${id} の配下`,
     blockerDone: '完了', blockerOpen: '未完了', blockerDeferred: '保留', blockerMissing: '見つからない',
     rollup: '進捗', rollupText: (done, work, percent) => `${done}/${work} 完了${percent === undefined ? '' : ` · ${percent}%`}`,
     body: '本文', commits: 'コミット', journal: '履歴', noJournal: '履歴はまだありません', work: '作業ログ', subtasks: 'サブタスク',
@@ -313,7 +311,8 @@ const DETAIL: Record<Language, DetailCopy> = {
     label: '详情',
     none: '选择任务后，详情会显示在这里。',
     assignee: '负责人', created: '创建', updated: '更新', started: '开始', ended: '结束', due: '截止', epic: '史诗', milestone: '里程碑',
-    tags: '标签', blockedBy: '被阻塞于', blocks: '阻塞', deferred: '已搁置',
+    blockedBy: '被阻塞于', blocks: '阻塞', deferred: '已搁置',
+    deferredUnder: (id) => `已搁置 — 隶属于 ${id}`,
     blockerDone: '已完成', blockerOpen: '未完成', blockerDeferred: '已搁置', blockerMissing: '未找到',
     rollup: '进度', rollupText: (done, work, percent) => `${done}/${work} 完成${percent === undefined ? '' : ` · ${percent}%`}`,
     body: '正文', commits: '提交', journal: '历史', noJournal: '暂无历史', work: '工作记录', subtasks: '子任务',
@@ -326,7 +325,6 @@ const DETAIL: Record<Language, DetailCopy> = {
 
 export interface Copy {
   hint: string
-  refresh: string
   refreshedAt: (time: string) => string
   empty: string
   more: (n: number) => string
@@ -344,12 +342,6 @@ export interface Copy {
   add: string
   titleRequired: string
   added: (task: { id: string; title?: string }) => string
-  fields: { status: string; priority: string; assignee: string; created: string; id: string; epic: string; milestone: string }
-  children: string
-  noChildren: string
-  journal: string
-  createdEntry: string
-  closeDetail: string
   stats: Record<string, string>
   notStarted: string
   moaiError: (message: string) => string
@@ -365,13 +357,11 @@ export interface Copy {
 
 const en: Copy = {
   hint: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list and details, and every time you add a task.",
-  refresh: 'Refresh', refreshedAt: (time) => `Updated ${time}`, empty: 'Nothing here.', more: (n) => `${n} more not shown`,
+  refreshedAt: (time) => `Updated ${time}`, empty: 'Nothing here.', more: (n) => `${n} more not shown`,
   up: '..', root: 'All', noMilestone: '(no milestone)', lost: '(lost)', loading: 'Loading…',
   starting: 'Starting… approve the confirmation if it is showing.', running: 'Running on the machine…',
   cancel: 'Cancel', cancelled: 'The run was cancelled.', mayContinue: 'Processes on the machine may not have finished yet.',
   placeholder: 'New task title', add: 'Add task', titleRequired: 'Enter a task title.', added: (t) => `Added: ${t.title} (${t.id})`,
-  fields: { status: 'Status', priority: 'Priority', assignee: 'Assignee', created: 'Created', id: 'ID', epic: 'Epic', milestone: 'Milestone' },
-  children: 'Subtasks', noChildren: 'No subtasks', journal: 'History', createdEntry: 'Created', closeDetail: 'Close details',
   stats: { todo: 'To do', in_progress: 'In progress', review: 'Review', done: 'Done' },
   notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
   moaiError: (message) => `Moai reported an error: ${message}`, failed: 'The run failed.', unreadable: 'The run finished, but its result could not be read.',
@@ -389,13 +379,11 @@ const en: Copy = {
 
 const ko: Copy = {
   hint: '이 프로젝트 폴더에서 실행됩니다. 목록·상세는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
-  refresh: '새로고침', refreshedAt: (time) => `${time} 갱신`, empty: '항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`,
+  refreshedAt: (time) => `${time} 갱신`, empty: '항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`,
   up: '..', root: '전체', noMilestone: '(마일스톤 없음)', lost: '(길 잃음)', loading: '불러오는 중…',
   starting: '시작하는 중… 확인 창이 떠 있으면 승인하세요.', running: '머신에서 실행하는 중…',
   cancel: '취소', cancelled: '실행을 취소했습니다.', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.',
   placeholder: '새 할 일 제목', add: '할 일 추가', titleRequired: '할 일 제목을 입력하세요.', added: (t) => `추가했습니다: ${t.title} (${t.id})`,
-  fields: { status: '상태', priority: '우선순위', assignee: '담당자', created: '만든 시각', id: 'ID', epic: '에픽', milestone: '마일스톤' },
-  children: '하위 항목', noChildren: '하위 항목 없음', journal: '기록', createdEntry: '만들었습니다', closeDetail: '상세 닫기',
   stats: { todo: '할 일', in_progress: '진행 중', review: '검토', done: '완료' },
   notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
   moaiError: (message) => `Moai 오류: ${message}`, failed: '실행에 실패했습니다.', unreadable: '실행은 끝났지만 결과를 읽지 못했습니다.',
@@ -413,13 +401,11 @@ const ko: Copy = {
 
 const ja: Copy = {
   hint: 'このプロジェクトのフォルダで実行します。一覧・詳細はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。',
-  refresh: '再読み込み', refreshedAt: (time) => `${time} 更新`, empty: '項目はありません。', more: (n) => `ほかに ${n} 件は表示していません`,
+  refreshedAt: (time) => `${time} 更新`, empty: '項目はありません。', more: (n) => `ほかに ${n} 件は表示していません`,
   up: '..', root: 'すべて', noMilestone: '(マイルストーンなし)', lost: '(迷子)', loading: '読み込み中…',
   starting: '開始しています… 確認画面が表示されていれば承認してください。', running: 'マシンで実行中…',
   cancel: 'キャンセル', cancelled: '実行をキャンセルしました。', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。',
   placeholder: '新しいタスクのタイトル', add: 'タスクを追加', titleRequired: 'タスクのタイトルを入力してください。', added: (t) => `追加しました: ${t.title} (${t.id})`,
-  fields: { status: '状態', priority: '優先度', assignee: '担当者', created: '作成日時', id: 'ID', epic: 'エピック', milestone: 'マイルストーン' },
-  children: 'サブタスク', noChildren: 'サブタスクなし', journal: '履歴', createdEntry: '作成しました', closeDetail: '詳細を閉じる',
   stats: { todo: '未着手', in_progress: '進行中', review: 'レビュー', done: '完了' },
   notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
   moaiError: (message) => `Moai のエラー: ${message}`, failed: '実行に失敗しました。', unreadable: '実行は完了しましたが、結果を読み取れませんでした。',
@@ -437,13 +423,11 @@ const ja: Copy = {
 
 const zh: Copy = {
   hint: '在此项目的文件夹中运行。列表和详情在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
-  refresh: '刷新', refreshedAt: (time) => `${time} 更新`, empty: '没有项目。', more: (n) => `另有 ${n} 项未显示`,
+  refreshedAt: (time) => `${time} 更新`, empty: '没有项目。', more: (n) => `另有 ${n} 项未显示`,
   up: '..', root: '全部', noMilestone: '(无里程碑)', lost: '(无归属)', loading: '加载中…',
   starting: '正在启动… 如果显示了确认窗口，请批准。', running: '正在机器上运行…',
   cancel: '取消', cancelled: '已取消运行。', mayContinue: '机器上的进程可能尚未结束。',
   placeholder: '新任务标题', add: '添加任务', titleRequired: '请输入任务标题。', added: (t) => `已添加: ${t.title} (${t.id})`,
-  fields: { status: '状态', priority: '优先级', assignee: '负责人', created: '创建时间', id: 'ID', epic: '史诗', milestone: '里程碑' },
-  children: '子任务', noChildren: '无子任务', journal: '记录', createdEntry: '已创建', closeDetail: '关闭详情',
   stats: { todo: '待办', in_progress: '进行中', review: '审核', done: '完成' },
   notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
   moaiError: (message) => `Moai 错误: ${message}`, failed: '运行失败。', unreadable: '运行已结束，但无法读取结果。',
