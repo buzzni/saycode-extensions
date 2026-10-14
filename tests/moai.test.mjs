@@ -868,3 +868,120 @@ test('compatibility: a report that says the same is not written again (it is a l
   await flush()
   assert.equal(panel.$('.moai-compat').firstChild, before)
 })
+
+test('a refresh keeps the counts the board showed while its own status read waits, and takes the new ones after', async () => {
+  const status = JSON.parse(STATUS_V016)
+  status.milestones[0] = { ...status.milestones[0], done: 5, total: 9 }
+  let hold = false
+  let approve
+  const answer = board({ 'buzzni.moai.show-all': SHOW_ALL_V016, 'buzzni.moai.backlog-all': BACKLOG_V016, 'buzzni.moai.status': () => JSON.stringify(status) })
+  answer.start = (args) => (hold && args[0] === 'buzzni.moai.status' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
+  const panel = await runPanel(answer)
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '5/9')
+  hold = true
+  status.milestones[0] = { ...status.milestones[0], done: 6, total: 9 }
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '5/9', 'not the rows\' own 1/2 while status waits')
+  approve()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '6/9')
+})
+
+test('compatibility: moai installed while the panel is open takes the install line away', async () => {
+  let missing = true
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = () => (missing ? { action: 'start', state: 'refused', code: 'tool-missing' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), ['Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.'])
+  missing = false
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), [])
+})
+
+test('compatibility: a new report that leaves the sentences as they were does not write them again', async () => {
+  let approve
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
+    if (args[0] === 'buzzni.moai.status') return new Promise((resolve) => { approve = () => resolve(null) })
+    return null
+  }
+  const panel = await runPanel(answer)
+  const before = panel.$('.moai-compat').firstChild
+  assert.equal(before?.textContent, "That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog.")
+  // status answers: moai is found up to date, which the banner does not name.
+  approve()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-compat').firstChild, before, 'the live region is left alone')
+})
+
+test('an archive read that fails with an error is told as an alert, information as status text', async () => {
+  const answer = board()
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-archived' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, "Archived rows could not be read: That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.")
+  assert.equal(panel.$('.moai-archive-problem[role="status"]').textContent, '')
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('while a refresh\'s status read still waits, a refresh asked for reads the rows again and shares that status read', async () => {
+  let hold = false
+  const approvals = []
+  const answer = board()
+  answer.start = (args) => (hold && args[0] === 'buzzni.moai.status' ? new Promise((resolve) => approvals.push(() => resolve(null))) : null)
+  const panel = await runPanel(answer)
+  hold = true
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-refresh').disabled, false)
+  const before = panel.starts().length
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.show-all'], ['buzzni.moai.backlog-all']], 'not swallowed by the load still waiting')
+  assert.equal(approvals.length, 1, 'status is not asked for again')
+  approvals[0]()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('a read mark reads the list again at once, though the status read of the load before still waits', async () => {
+  let hold = false
+  let approve
+  const answer = board({ 'buzzni.moai.show': SHOW_NOTE_BODY, 'buzzni.moai.read': READ_ONE_V016 })
+  answer.start = (args) => (hold && args[0] === 'buzzni.moai.status' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
+  const panel = await runPanel(answer)
+  panel.row('mgd-hmcr').click()
+  await flush()
+  hold = true
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  panel.window.document.body.focus()
+  const before = panel.starts().length
+  press(panel, 'r')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  await flush()
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ['buzzni.moai.show-all'], ['buzzni.moai.backlog-all']])
+  approve()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+})
+
+test('compatibility: the banner speaks Japanese and Chinese too', async () => {
+  const ja = await runPanel(board(), 'ja')
+  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: NEW 表示、列の順序）。moai をアップグレードしてください。'])
+  const zh = await runPanel(board(), 'zh')
+  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：NEW 标记、列的顺序）。请升级 moai。'])
+})

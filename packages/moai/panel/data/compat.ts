@@ -12,7 +12,9 @@
  * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it (or the daemon is too
  *   old for the machine run at all, when the baseline profiles refuse too: the catalog is then `unknown`
  *   as a whole, not 13 missing ones). `tool-missing`: `moai` is not installed there.
- * - `binding-mismatch` is thrown by the start; client.ts carries the code on the `not-started` outcome. A
+ * - `binding-mismatch` comes back as a refusal the panel does not list (the extension answers every SDK refusal
+ *   code as `{state: 'refused', code}`, src/index.ts; an older host may name it in a thrown start's message
+ *   instead); client.ts carries the code on the `not-started` outcome. A
  *   profile whose start named `binding-mismatch` or `unsupported-daemon` is read as missing from the catalog;
  *   one pass of the same profile clears it. A start that failed without naming either says nothing of the
  *   catalog (`unknown`).
@@ -30,7 +32,7 @@ export type Feature = 'all-rows' | 'backlog' | 'archive' | 'wiki' | 'read-marks'
 export interface CompatReport {
   /** `old`: a shape only an older moai prints. `unknown`: nothing seen decides it (or `moai` is missing). */
   moai: 'ok' | 'old' | 'unknown'
-  /** `moai` is not installed where the daemon runs (a `tool-missing` refusal). */
+  /** `moai` is not installed where the daemon runs: a `tool-missing` refusal, and no run started there since. */
   toolMissing: boolean
   catalog: {
     /** `missing`: `missing` names profile ids; `unknown`: nothing asked yet, or the daemon refused everything. */
@@ -95,8 +97,10 @@ export class CompatProbe {
       case 'moai-error':
       case 'not-initialized':
       case 'unreadable':
-        // It ran, so the catalog has the profile (a repository without `.moai/` is a board matter, not this).
+        // It ran, so the catalog has the profile (a repository without `.moai/` is a board matter, not this), and moai
+        // is there: once it is installed after a `tool-missing` refusal, the banner stops asking for it.
         this.seen.set(profile, 'passed')
+        this.toolMissing = false
         return
       case 'cancelled':
         return

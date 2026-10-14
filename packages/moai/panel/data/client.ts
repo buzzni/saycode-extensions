@@ -48,7 +48,8 @@ export type Outcome =
   | { kind: 'refused'; code: RefusalCode }
   /**
    * The start threw, or came back without an operation (an older Desktop, an unknown refusal). `code` is the
-   * refusal code the start named (`binding-mismatch` from a throw's message, or an unknown `refused` code), when it did.
+   * refusal code the start named, when it did: a `refused` code the panel does not list (`binding-mismatch` — the
+   * extension answers every SDK refusal code), or one a thrown start's message names (a host that forwards it).
    */
   | { kind: 'not-started'; code?: string }
   /** Moai says this folder has no `.moai/`; the panel cannot run `moai init` itself. */

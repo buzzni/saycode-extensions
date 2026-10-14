@@ -30,8 +30,9 @@ import { PROFILE } from './source.js'
 // ── judgement ────────────────────────────────────────────────────────
 
 /**
- * The CLI's verdict: the key is `true` or absent. Archive-only rows (`archived: true`, tagged by loadArchived)
- * never count: `moai read` resolves active rows only, so their NEW could not be cleared (se-fvou).
+ * The CLI's verdict: the key is `true` or absent. Archive-only rows (`archived: true`, tagged by source.ts
+ * withArchive as the index is built) never count: `moai read` resolves active rows only, so their NEW could not be
+ * cleared (se-fvou).
  */
 export const isUnread = (row: Row): boolean => row.unread === true && row.archived !== true
 

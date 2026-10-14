@@ -110,6 +110,8 @@ const joins = (row: Row): boolean => {
   return kind === 'issue' || kind === 'backlog'
 }
 export const isDone = (row: Row): boolean => row.status === 'done'
+/** Standing in the done column: a group's column is read from its members (`derived_status`), not the status written on it. */
+export const standsDone = (row: Row): boolean => (isGroup(row) ? (row.derived_status ?? row.status) : row.status) === 'done'
 /** Moai's default columns, in order: what a tracker has when `.moai/config.toml` names none of its own. */
 export const DEFAULT_STATUSES: readonly string[] = ['todo', 'in_progress', 'review', 'done']
 /** Priority as moai reads it: 2 when absent. */
@@ -610,8 +612,7 @@ export function archiveCandidate(row: Row, now: Date, archiveDays: number, membe
   if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
   if (!(archiveDays > 0)) return false
   const group = isGroup(row)
-  const column = group ? (row.derived_status ?? row.status) : row.status
-  if (column !== 'done') return false
+  if (!standsDone(row)) return false
   let since: unknown = row.status_since
   if (group) {
     let latest: number | undefined

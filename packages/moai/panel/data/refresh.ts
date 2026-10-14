@@ -5,7 +5,8 @@
  * of its own, so in a page the default signal is `panelVisibility()`: `document.visibilityState` follows the
  * Desktop window, and an inactive tool tab stays mounted with the panel's iframe under a hidden parent, where
  * its viewport goes 0×0 — so a 0×0 viewport counts as hidden too. A timer that falls due while hidden reads
- * nothing; the signal's change starts the schedule again. A manual refresh (the refresh-time button) reads now and restarts the interval. Reads never overlap:
+ * nothing and looks again every HIDDEN_PROBE_MS until the panel is shown, unless the signal's change starts the
+ * schedule again first. A manual refresh (the refresh-time button) reads now and restarts the interval. Reads never overlap:
  * a refresh asked for while one runs waits for it instead of starting another. After a write, ask for a
  * `fresh` read: a read that started before the write cannot hold its result, so that one is waited out
  * and a new read follows.
@@ -79,11 +80,18 @@ export function createRefresher(options: RefresherOptions): Refresher {
     clear()
     if (stopped || !isVisible() || interval <= 0) return
     const since = lastLoaded === null ? interval : clock.now() - lastLoaded
-    timer = clock.setTimeout(() => {
-      timer = null
-      // Hidden without a word to `visibilityChanged`: read nothing, and wait for it to say shown again.
-      if (isVisible()) background()
-    }, Math.max(0, interval - since))
+    timer = clock.setTimeout(due, Math.max(0, interval - since))
+  }
+
+  /**
+   * The interval is up. Hidden without a word to `visibilityChanged`, it reads nothing and looks again every
+   * HIDDEN_PROBE_MS until the panel is shown: a frame under a hidden parent may hear no event as it hides, and then
+   * the signal hears no change as it is shown again either. A word from the signal (`visibilityChanged`) takes over.
+   */
+  const due = () => {
+    timer = null
+    if (isVisible()) background()
+    else if (!stopped) timer = clock.setTimeout(due, HIDDEN_PROBE_MS)
   }
 
   // A read nobody awaits must not end as an unhandled rejection; the load reports its own failures.

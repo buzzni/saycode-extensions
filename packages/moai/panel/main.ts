@@ -9,7 +9,7 @@ import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, withArchive, type Loaded } from './data/source.js'
+import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -33,8 +33,9 @@ const store = createStore()
 remember(store, createMemory(() => window.localStorage))
 // Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
-// What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): every read the panel
-// makes hands it its outcome, and the shell's banner says what to upgrade, update or install.
+// What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): the list, archive and wiki
+// reads and the read marks hand it their outcomes (the detail and the add do not), and the shell's banner says what
+// to upgrade, update or install.
 const probe = new CompatProbe()
 
 /** `loading`, with the probe's report put in the store once it settles (the store keeps only a changed one). */
@@ -66,9 +67,10 @@ function drawnOrder(): string[] {
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   // The rows and the milestone and epic counts `moai status` prints (they count archived rows too) side by side.
-  // Without the counts the board counts its own rows. The rows do not wait for the counts (their confirmation may
-  // still be open): a failure is told at once, and rows are drawn at once, with the counts put on them when they
-  // come. A load the rows failed does not wait for them at all; the next load shares that read.
+  // Without the counts the board counts its own rows. The load does not wait for the counts (their confirmation may
+  // still be open): a failure is told at once, rows are drawn at once, and the counts are put on them when they come.
+  // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
+  // still running (client.ts); none of the panel's writes — an add with no group, read marks — moves a count.
   const listing = probed(loadAllRows(client, PRIORITY.list, probe))
   const counting = probed(loadTallies(client, PRIORITY.list, probe))
   let counted: Awaited<typeof counting> | undefined
@@ -79,9 +81,12 @@ async function loadBoard(): Promise<void> {
     return
   }
   const { rows, more, truncated } = loaded.value
-  // Counts that came first go in with the rows, so the board is not drawn twice.
-  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(counted?.ok ? { tallies: counted.value } : {}) }
   const before = store.getState()
+  // Counts that came first go in with the rows, so the board is not drawn twice. Until this read's counts come, a
+  // refresh keeps the counts the board showed: its rows alone undercount (they leave the archived members out).
+  const carried = counted === undefined ? before.board.value?.tallies : undefined
+  const counts = counted?.ok ? counted.value : carried
+  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(counts ? { tallies: counts } : {}) }
   const shownBefore = before.shown.value
   // The detail on screen was read before this list and stands beside it: when its row has left the list
   // (finished, moved away) the pane goes with it, as choose() does for a read still running. A detail the list
@@ -94,11 +99,13 @@ async function loadBoard(): Promise<void> {
   // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed). Not while
   // a read still pages: that one would be cancelled and the paging started over.
   if (state.view.showArchived && state.archive === null && archiveRunning === null) void loadArchive()
-  // The load ends with its counts, so a refresh asked for meanwhile joins this one rather than reading status
-  // again, and a `fresh` read after a write waits them out too. A later load's board drops them (store 'tallies').
+  // Counts that come later go on this board only: a later load's board has its own (store 'tallies'). Counts that
+  // match the ones carried (most refreshes) change nothing on screen, so the board is not drawn again for them;
+  // counts that could not be read leave the board counting its own rows, as when they fail first.
   if (counted === undefined) {
-    const tallies = await counting
-    if (tallies.ok) store.dispatch({ type: 'tallies', data, tallies: tallies.value })
+    void counting.then((late) => {
+      if (late.ok ? !sameTallies(late.value, carried) : carried) store.dispatch({ type: 'tallies', data, tallies: late.ok ? late.value : null })
+    })
   }
 }
 
@@ -134,8 +141,9 @@ store.subscribe((state, previous) => {
   }
 })
 
-const refresher = createRefresher({ load: loadBoard, isVisible: () => document.visibilityState !== 'hidden' })
-document.addEventListener('visibilitychange', () => refresher.visibilityChanged())
+// Paused while the panel is out of sight — the Desktop window hidden, or the tool tab it sits in: the refresher's
+// own visibility signal hears both (data/refresh.ts panelVisibility).
+const refresher = createRefresher({ load: loadBoard })
 
 let choice = 0
 async function choose(id: string) {

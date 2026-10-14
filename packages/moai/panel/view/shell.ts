@@ -206,8 +206,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
   // What to upgrade, update or install on that machine (data/compat.ts): the reads that work keep showing.
   const compat = el(doc, "div", { class: "m-banner m-banner-warn moai-compat", role: "status" })
-  // Why the archive could not be read (`SPC v o`): its own line, as the board's rows and their banners stand.
-  const archiveNote = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
+  // Why the archive could not be read (`SPC v o`): its own line, as the board's rows and their banners stand. As for the
+  // board's, an error is an alert and information is polite status text (components.ts banner).
+  const archiveNotice = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
+  const archiveError = el(doc, "div", { class: "m-banner m-banner-danger moai-archive-problem", role: "alert" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
@@ -228,7 +230,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, archiveNote, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, archiveNotice, archiveError, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -352,22 +354,29 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
   }
 
-  let compatTold: CompatReport | null = null
+  let compatSeen: CompatReport | null = null
+  let compatTold = ""
   function explainCompat(report: CompatReport | null) {
-    // A live region: the store keeps a report only when it says something new, so one drawn is not drawn again.
-    if (report === compatTold) return
-    compatTold = report
-    compat.replaceChildren(...compatLines(report, copy.shell.compat).map((line) => el(doc, "p", {}, line)))
+    // A live region: written only when its sentences change. A new report can leave them as they were (moai found
+    // up to date beside a catalog line, a fallback the sentences do not name), and writing them again reads them again.
+    if (report === compatSeen) return
+    compatSeen = report
+    const lines = compatLines(report, copy.shell.compat)
+    const told = lines.join("\n")
+    if (told === compatTold) return
+    compatTold = told
+    compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
   }
 
   let archiveTold: Outcome | null = null
   function explainArchive(outcome: Outcome | null) {
-    // A live region too: written once per outcome, as explain() does.
+    // Live regions too: written once per outcome, as explain() does.
     if (outcome === archiveTold) return
     archiveTold = outcome
+    archiveNotice.replaceChildren()
+    archiveError.replaceChildren()
     const said = outcome ? describe(outcome, copy, doc) : null
-    archiveNote.replaceChildren(...(said ? [el(doc, "span", {}, copy.shell.archiveFailed, " ", ...said.parts)] : []))
-    archiveNote.classList.toggle("m-banner-danger", said !== null && !said.info)
+    if (said) (said.info ? archiveNotice : archiveError).append(el(doc, "span", {}, copy.shell.archiveFailed, " ", ...said.parts))
   }
 
   function paintLayout(current: State) {

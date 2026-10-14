@@ -186,3 +186,12 @@ test('an archive read that failed is its own problem, gone with the next archive
   const clean = reduce(state, { type: 'archive', rows: null })
   assert.equal(reduce(clean, { type: 'archive', rows: null }), clean)
 })
+
+test('late counts that could not be read take the counts the board carried off it', () => {
+  const carried = new Map([['m', [1, 2]]])
+  const data = { rows: [{ id: 'a' }], more: 0, loadedAt: 1, tallies: carried }
+  const state = reduce(initialState(), { type: 'board-loaded', data })
+  const dropped = reduce(state, { type: 'tallies', data, tallies: null })
+  assert.equal('tallies' in dropped.board.value, false)
+  assert.equal(dropped.board.value.rows, data.rows)
+})

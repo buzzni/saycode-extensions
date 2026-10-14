@@ -87,7 +87,7 @@ test('the project list (outside a board) is not read as a shape', () => {
   assert.equal(probe.report().moai, 'unknown')
 })
 
-// show --all failing cancels the backlog read behind it (source.ts), so the backlog profile is never observed here.
+// show --all failing calls off the backlog read beside it (source.ts); what that read already ended with is still observed.
 test('unsupported-daemon on added profiles names them; their features degrade, the rest keeps working', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({
@@ -158,4 +158,14 @@ test('two reports that say the same are the same, so the banner is not drawn aga
   for (const change of [{ moai: 'ok' }, { toolMissing: true }, { catalog: { state: 'missing', missing: [PROFILE.backlog] } }, { degraded: ['all-rows'] }]) {
     assert.equal(sameReport(report(), { ...report(), ...change }), false, JSON.stringify(change))
   }
+})
+
+test('tool-missing goes once a run starts there again (moai installed while the panel is open)', () => {
+  const probe = new CompatProbe()
+  probe.observe(PROFILE.status, refused('tool-missing'))
+  assert.equal(probe.report().toolMissing, true)
+  probe.observe(PROFILE.status, refused('declined'))
+  assert.equal(probe.report().toolMissing, true, 'a refusal that says nothing of the tool keeps it')
+  probe.observe(PROFILE.status, passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }))
+  assert.equal(probe.report().toolMissing, false)
 })

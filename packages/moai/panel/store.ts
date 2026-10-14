@@ -53,7 +53,10 @@ export interface BoardData {
   more: number
   /** `show --all` was cut at the output limit, so these are prime's rows and the backlog (source.ts loadAllRows). */
   truncated?: boolean
-  /** Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies); absent when that read failed. */
+  /**
+   * Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies). Absent when that read failed, or on
+   * the first read until it answers; a later read keeps the counts of the board before it until its own come.
+   */
   tallies?: ReadonlyMap<string, readonly [number, number]>
   /** When the rows were read (ms since epoch). */
   loadedAt: number
@@ -224,10 +227,11 @@ export type Action =
   | { type: 'board-loaded'; data: BoardData; order?: string[] }
   | { type: 'board-failed'; problem: Outcome }
   /**
-   * The status counts that came after the rows of `data` (the board-loaded they belong to). A later read's board
-   * has its own counts, so counts for any board but the one shown are dropped.
+   * The status counts that came after the rows of `data` (the board-loaded they belong to); null when they could not
+   * be read, so the board counts its own rows. A later read's board has its own counts, so counts for any board but
+   * the one shown are dropped.
    */
-  | { type: 'tallies'; data: BoardData; tallies: NonNullable<BoardData['tallies']> }
+  | { type: 'tallies'; data: BoardData; tallies: NonNullable<BoardData['tallies']> | null }
   /** The archive's rows as read (null forgets them); either way an archive problem told before goes. */
   | { type: 'archive'; rows: Row[] | null }
   | { type: 'archive-failed'; problem: Outcome }
@@ -325,10 +329,12 @@ export function reduce(state: State, action: Action): State {
     case 'board-failed':
       // The rows read before stay on screen; the problem is shown beside them.
       return { ...state, board: { ...state.board, loading: false, problem: action.problem } }
-    case 'tallies':
+    case 'tallies': {
       // Only the counts change: the rows, and so the cursor and the drawn order, stay.
       if (state.board.value !== action.data) return state
-      return { ...state, board: { ...state.board, value: { ...action.data, tallies: action.tallies } } }
+      const { tallies: _drawn, ...uncounted } = action.data
+      return { ...state, board: { ...state.board, value: action.tallies ? { ...uncounted, tallies: action.tallies } : uncounted } }
+    }
     case 'archive':
       return state.archive === action.rows && state.archiveProblem === null ? state : { ...state, archive: action.rows, archiveProblem: null }
     case 'archive-failed':

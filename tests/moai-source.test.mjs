@@ -380,3 +380,15 @@ test('a cut list does not make an active row of the archive archive-only by its 
   assert.deepEqual(withArchive(whole, archive).slice(1).map((row) => row.archived), [true, true])
   assert.deepEqual(withArchive(whole, null), whole.rows)
 })
+
+test('a cut list judges a group of the archive by the column it stands in (its members), not the status written on it', () => {
+  // moai leaves `todo` written on a group; its column is its members' (`derived_status`), as moai archives it.
+  const archive = [
+    { id: 'm-old', kind: 'milestone', status: 'todo', derived_status: 'done' },
+    { id: 'e-live', kind: 'epic', status: 'done', derived_status: 'in_progress' },
+    { id: 'e-new', kind: 'epic', status: 'todo' },
+  ]
+  const cut = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: true }
+  assert.deepEqual([...activeIds(cut, archive)].sort(), ['e-live', 'e-new', 'mgd-a'])
+  assert.deepEqual(withArchive(cut, archive).map((row) => [row.id, row.archived === true]), [['mgd-a', false], ['m-old', true], ['e-live', false], ['e-new', false]])
+})
