@@ -46,8 +46,11 @@ export type Outcome =
   /** `truncated`: the daemon flagged a cut at the output limit, yet the stdout still parsed. */
   | { kind: 'passed'; output: unknown; truncated?: true }
   | { kind: 'refused'; code: RefusalCode }
-  /** The start threw, or came back without an operation (an older Desktop, an unknown refusal). */
-  | { kind: 'not-started' }
+  /**
+   * The start threw, or came back without an operation (an older Desktop, an unknown refusal). `code` is the
+   * refusal code the start named (`binding-mismatch` from a throw's message, or an unknown `refused` code), when it did.
+   */
+  | { kind: 'not-started'; code?: string }
   /** Moai says this folder has no `.moai/`; the panel cannot run `moai init` itself. */
   | { kind: 'not-initialized' }
   | { kind: 'moai-error'; message: string }
@@ -149,7 +152,9 @@ export function answerOf(outcome: Outcome): unknown {
 export function refusalOf(started: unknown): Outcome | null {
   if (isRecord(started) && started.state === 'refused') {
     const code = started.code
-    return typeof code === 'string' && (REFUSAL_CODES as readonly string[]).includes(code) ? { kind: 'refused', code: code as RefusalCode } : { kind: 'not-started' }
+    return typeof code === 'string' && (REFUSAL_CODES as readonly string[]).includes(code)
+      ? { kind: 'refused', code: code as RefusalCode }
+      : typeof code === 'string' && code !== '' ? { kind: 'not-started', code } : { kind: 'not-started' }
   }
   if (!isRecord(started) || started.state !== 'accepted' || typeof started.operationId !== 'string') return { kind: 'not-started' }
   return null
@@ -223,8 +228,9 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
     let started: unknown
     try {
       started = await bridge.invokeCommand(COMMAND.run, entry.value === undefined ? [entry.profileId] : [entry.profileId, entry.value])
-    } catch {
-      return { kind: 'not-started' }
+    } catch (error) {
+      const named = /\b(binding-mismatch|unsupported-daemon)\b/.exec(error instanceof Error ? error.message : String(error))
+      return named ? { kind: 'not-started', code: named[1] } : { kind: 'not-started' }
     }
     const refusal = refusalOf(started)
     if (refusal) {

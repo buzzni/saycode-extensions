@@ -1,8 +1,22 @@
-# Moai 0.8.0 managed execution sample
+# Moai 2.0
 
-This first-party sample uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
+This first-party extension uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for these fixed profiles, each `moai --json -C <workspace> …`:
+run, status, and cancel commands for these 13 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
+
+## Compatibility
+
+The extension and `moai` keep independent version numbers. Extension 2.0.0 needs:
+
+| Needs | Version | Notes |
+|---|---|---|
+| Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
+| `moai` CLI | 0.17.0 or later (**assumed**) | with the upstream read and JSON improvements: `unread` in `show --json`, the configured status order, `show --archived` paging. The number is a placeholder until the upstream release is fixed (se-0g4a) |
+| Happy daemon catalog | all 13 profiles | `status`, `prime`, `show`, `add`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
+
+Release order: the `moai` upstream release and the daemon catalog update ship before extension 2.0.0.
+
+## Profiles
 
 | Profile | Runs | For | Writes |
 |---|---|---|---|
@@ -37,10 +51,12 @@ The run command accepts a value only where the profile takes one (`show`, `wiki-
 These declarations are meant to match the Happy daemon's Moai catalog verbatim, so their digests match what the daemon
 runs. The first four, `wiki-ls` and `wiki-show` match the catalog the daemon ships (happy-cli 1.1.10-aplus.320); the
 catalog entries for the others are assumed to be added to match until they are checked live (se-0g4a.anz). The
-catalog's own `buzzni.moai.backlog` is `backlog add <title>`, so the backlog read is `backlog-all`. They start from
-the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs), may launch only
+daemon catalog must carry the new profiles (`show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`,
+`read-all`, `read-group`) before the board can load every row, the archive or read marks on that machine; a daemon
+that does not carry one refuses that run. The catalog's own `buzzni.moai.backlog` is `backlog add <title>`, so the
+backlog read is `backlog-all`. They start from the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs), may launch only
 `git`, and disable stdin.
-The sample deliberately has no init, tui, wake, hooks, editor, or shell entry points.
+The extension deliberately has no init, tui, wake, hooks, editor, or shell entry points.
 
 ## Board panel
 

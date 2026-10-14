@@ -1,0 +1,149 @@
+/**
+ * Compatibility: what the panel can tell about the `moai` CLI and the Happy daemon's catalog from what they
+ * answered, so a banner can say "upgrade moai" or "update the daemon catalog" instead of a broken screen.
+ * No DOM here, and nothing in this module asks anything: loaders hand it the outcomes and shapes they already
+ * read ({@link CompatProbe}), and {@link CompatProbe.report} judges them. The banner is drawn elsewhere.
+ *
+ * Extension and moai versions are independent (README, Compatibility); the extension assumes upstream
+ * improvements (se-0g4a) and a catalog of 13 profiles (se-0g4a.anz). Features that still work keep working:
+ * the fallbacks are in source.ts, this only names which ones are in use.
+ *
+ * What is evidence of what:
+ * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it (or the daemon is too
+ *   old for the machine run at all, when the baseline profiles refuse too: the catalog is then `unknown`
+ *   as a whole, not 13 missing ones). `tool-missing`: `moai` is not installed there.
+ * - `binding-mismatch` is thrown by the start; client.ts carries the code on the `not-started` outcome. A
+ *   profile whose start named `binding-mismatch` or `unsupported-daemon` is read as missing from the catalog;
+ *   one pass of the same profile clears it. A start that failed without naming either says nothing of the
+ *   catalog (`unknown`).
+ * - The shape of `status --json` is the strong sign of an old moai: new moai prints `statuses[]` and the
+ *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`. The `unread` key on
+ *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
+ *   alone say `unknown`, never `old`.
+ */
+import type { Outcome } from './client.js'
+import type { Row } from './index.js'
+import { PROFILE } from './source.js'
+
+export type Feature = 'all-rows' | 'backlog' | 'archive' | 'wiki' | 'read-marks' | 'unread' | 'status-order' | 'tallies'
+
+export interface CompatReport {
+  /** `old`: a shape only an older moai prints. `unknown`: nothing seen decides it (or `moai` is missing). */
+  moai: 'ok' | 'old' | 'unknown'
+  /** `moai` is not installed where the daemon runs (a `tool-missing` refusal). */
+  toolMissing: boolean
+  catalog: {
+    /** `missing`: `missing` names profile ids; `unknown`: nothing asked yet, or the daemon refused everything. */
+    state: 'ok' | 'missing' | 'unknown'
+    missing: string[]
+  }
+  /** Features running on a fallback or off, in a fixed order. */
+  degraded: Feature[]
+}
+
+/** The profiles a daemon of the shipped catalog already has (source.ts header); the rest are the assumed ones. */
+const BASELINE: ReadonlySet<string> = new Set([PROFILE.status, PROFILE.prime, PROFILE.show, PROFILE.add, PROFILE.wikiLs, PROFILE.wikiShow])
+
+const FEATURE_OF: Readonly<Record<string, Feature>> = {
+  [PROFILE.showAll]: 'all-rows',
+  [PROFILE.backlog]: 'backlog',
+  [PROFILE.showArchived]: 'archive',
+  [PROFILE.showArchivedAfter]: 'archive',
+  [PROFILE.wikiLs]: 'wiki',
+  [PROFILE.wikiShow]: 'wiki',
+  [PROFILE.read]: 'read-marks',
+  [PROFILE.readAll]: 'read-marks',
+  [PROFILE.readGroup]: 'read-marks',
+}
+
+const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'unread', 'status-order', 'tallies']
+
+type Seen = 'unsupported' | 'unstarted' | 'failed-start' | 'passed'
+
+export class CompatProbe {
+  private readonly seen = new Map<string, Seen>()
+  private toolMissing = false
+  /** undefined: not seen yet. */
+  private statusShape: { statuses: boolean; tallies: boolean } | undefined
+  private rowsSeen = 0
+  private unreadSeen = false
+
+  /** Hand over what a request to `profile` ended with. Information refusals and failures say nothing here. */
+  observe(profile: string, outcome: Outcome): void {
+    switch (outcome.kind) {
+      case 'refused':
+        if (outcome.code === 'tool-missing') this.toolMissing = true
+        else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, 'unsupported')
+        return
+      case 'not-started':
+        if (outcome.code === 'binding-mismatch' || outcome.code === 'unsupported-daemon') {
+          if (this.seen.get(profile) !== 'passed' && this.seen.get(profile) !== 'unsupported') this.seen.set(profile, 'unstarted')
+        } else if (!this.seen.has(profile)) {
+          this.seen.set(profile, 'failed-start')
+        }
+        return
+      case 'passed':
+      case 'failed':
+      case 'moai-error':
+      case 'not-initialized':
+      case 'unreadable':
+        // It ran, so the catalog has the profile (a repository without `.moai/` is a board matter, not this).
+        this.seen.set(profile, 'passed')
+        return
+      case 'cancelled':
+        return
+    }
+  }
+
+  /** The rows of `show --all` (or `prime`), archive-tagged ones left out. */
+  observeRows(rows: readonly Row[]): void {
+    for (const row of rows) {
+      if (row.archived === true) continue
+      this.rowsSeen += 1
+      if ('unread' in row) this.unreadSeen = true
+    }
+  }
+
+  /** The `status --json` output; anything that is not the counts object (the project list) is not read. */
+  observeStatus(output: unknown): void {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) return
+    const record = output as Record<string, unknown>
+    if (typeof record.counts !== 'object' || record.counts === null) return
+    this.statusShape = {
+      statuses: Array.isArray(record.statuses) && record.statuses.length > 0,
+      tallies: Array.isArray(record.milestones) || Array.isArray(record.epics),
+    }
+  }
+
+  report(): CompatReport {
+    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported' || seen === 'unstarted').map(([id]) => id)
+    const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
+    // A shipped profile refused as unsupported, or nothing passed while a shipped one was refused: the daemon as
+    // a whole is too old (or bound wrong), and 13 missing profiles would say less than that.
+    const wholeDaemon = refused.some((id) => BASELINE.has(id) && (this.seen.get(id) === 'unsupported' || passed === 0))
+    const missing = wholeDaemon ? [] : refused
+    const catalogState: CompatReport['catalog']['state'] = wholeDaemon ? 'unknown' : missing.length > 0 ? 'missing' : passed > 0 ? 'ok' : 'unknown'
+
+    const old = this.statusShape !== undefined && (!this.statusShape.statuses || !this.statusShape.tallies)
+    let moai: CompatReport['moai'] = 'unknown'
+    if (old) moai = 'old'
+    else if (this.statusShape !== undefined) moai = 'ok'
+
+    const degraded = new Set<Feature>()
+    for (const id of refused) {
+      const feature = FEATURE_OF[id]
+      if (feature !== undefined) degraded.add(feature)
+    }
+    if (this.statusShape !== undefined && !this.statusShape.statuses) degraded.add('status-order')
+    if (this.statusShape !== undefined && !this.statusShape.tallies) degraded.add('tallies')
+    // NEW needs the `unread` key; an old moai that prints none leaves the marks off (a 0.16 that prints it keeps them).
+    if (moai === 'old' && this.rowsSeen > 0 && !this.unreadSeen) degraded.add('unread')
+
+    return {
+      moai,
+      toolMissing: this.toolMissing,
+      catalog: { state: catalogState, missing },
+      degraded: ORDER.filter((feature) => degraded.has(feature)),
+    }
+  }
+}

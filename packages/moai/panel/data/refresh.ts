@@ -1,15 +1,24 @@
 /**
  * Automatic refresh: while the panel is visible the list is read again every `intervalMs` (60 s by
- * default); while `isVisible` says hidden it does not poll, and becoming visible after the interval has passed
- * reads at once. In Desktop the panel only sees `document.visibilityState`, which follows the window: an
- * inactive Moai tool tab stays mounted and still counts as visible (a host signal is needed for that).
- * A manual refresh (the refresh-time button) reads now and restarts the interval. Reads never overlap:
+ * default); while it is hidden it does not poll, and becoming visible after the interval has passed reads at
+ * once. Visible means both `isVisible` and the `visibility` signal say so. The host sends no visibility signal
+ * of its own, so in a page the default signal is `panelVisibility()`: `document.visibilityState` follows the
+ * Desktop window, and an inactive tool tab stays mounted with the panel's iframe under a hidden parent, where
+ * its viewport goes 0×0 — so a 0×0 viewport counts as hidden too. A timer that falls due while hidden reads
+ * nothing; the signal's change starts the schedule again. A manual refresh (the refresh-time button) reads now and restarts the interval. Reads never overlap:
  * a refresh asked for while one runs waits for it instead of starting another. After a write, ask for a
  * `fresh` read: a read that started before the write cannot hold its result, so that one is waited out
  * and a new read follows.
  *
  * Timers and visibility are injected so the schedule is tested without a DOM or real time.
  */
+
+/** Whether the panel is on screen, and a way to hear when that changes. */
+export interface VisibilitySignal {
+  shown(): boolean
+  /** Calls `changed` when `shown()` flips; returns the call that stops watching. */
+  watch(changed: () => void): () => void
+}
 
 export interface Clock {
   now(): number
@@ -21,6 +30,8 @@ export interface RefresherOptions {
   load: () => Promise<void>
   intervalMs?: number
   isVisible?: () => boolean
+  /** Defaults to `panelVisibility()` where there is a document, and to none elsewhere; `null` turns it off. */
+  visibility?: VisibilitySignal | null
   clock?: Clock
 }
 
@@ -30,7 +41,7 @@ export interface Refresher {
    * running read is waited out and another one follows it.
    */
   refresh(options?: { fresh?: boolean }): Promise<void>
-  /** Tell it the panel's visibility changed. */
+  /** Tell it the panel's visibility changed (the `visibility` signal does this by itself). */
   visibilityChanged(): void
   setInterval(ms: number): void
   stop(): void
@@ -40,6 +51,9 @@ export interface Refresher {
 
 export const DEFAULT_INTERVAL_MS = 60_000
 
+/** How often a panel hidden by a 0×0 viewport looks at its size again, in case no resize event reaches it. */
+export const HIDDEN_PROBE_MS = 5_000
+
 const systemClock: Clock = {
   now: () => Date.now(),
   setTimeout: (callback, ms) => setTimeout(callback, ms),
@@ -48,7 +62,8 @@ const systemClock: Clock = {
 
 export function createRefresher(options: RefresherOptions): Refresher {
   const clock = options.clock ?? systemClock
-  const isVisible = options.isVisible ?? (() => true)
+  const signal = options.visibility === undefined ? (typeof document === 'undefined' ? null : panelVisibility()) : options.visibility
+  const isVisible = () => (options.isVisible?.() ?? true) && (signal?.shown() ?? true)
   let interval = options.intervalMs ?? DEFAULT_INTERVAL_MS
   let timer: unknown = null
   let inFlight: Promise<void> | null = null
@@ -66,7 +81,8 @@ export function createRefresher(options: RefresherOptions): Refresher {
     const since = lastLoaded === null ? interval : clock.now() - lastLoaded
     timer = clock.setTimeout(() => {
       timer = null
-      background()
+      // Hidden without a word to `visibilityChanged`: read nothing, and wait for it to say shown again.
+      if (isVisible()) background()
     }, Math.max(0, interval - since))
   }
 
@@ -92,14 +108,18 @@ export function createRefresher(options: RefresherOptions): Refresher {
     return inFlight
   }
 
+  const visibilityChanged = () => {
+    if (stopped) return
+    if (!isVisible()) return clear()
+    if (inFlight) return
+    if (lastLoaded !== null && clock.now() - lastLoaded >= interval) background()
+    else schedule()
+  }
+  const unwatch = signal?.watch(visibilityChanged)
+
   return {
     refresh,
-    visibilityChanged() {
-      if (!isVisible()) return clear()
-      if (inFlight) return
-      if (lastLoaded !== null && clock.now() - lastLoaded >= interval) background()
-      else schedule()
-    },
+    visibilityChanged,
     setInterval(ms) {
       interval = ms
       if (!inFlight) schedule()
@@ -107,9 +127,52 @@ export function createRefresher(options: RefresherOptions): Refresher {
     stop() {
       stopped = true
       clear()
+      unwatch?.()
     },
     get lastLoaded() {
       return lastLoaded
+    },
+  }
+}
+
+/**
+ * The panel's own visibility signal: shown while the document is not hidden and the viewport is not 0×0.
+ * Desktop hides an inactive tool tab's parent, which leaves the iframe mounted with a 0×0 viewport and
+ * `visibilityState` still following the window. It listens to `visibilitychange`, `resize` and a
+ * ResizeObserver on the root element where there is one; while the viewport is 0×0 under a visible document
+ * it also looks again every `probeMs`, since a frame under a hidden parent may hear no event. Whether
+ * Electron does shrink and throttle the hidden iframe this way is checked live by spike se-0g4a.zrf.
+ */
+export function panelVisibility(win: Window = window, probeMs = HIDDEN_PROBE_MS): VisibilitySignal {
+  const doc = win.document
+  const shown = () => doc.visibilityState !== 'hidden' && win.innerWidth > 0 && win.innerHeight > 0
+  return {
+    shown,
+    watch(changed) {
+      let last = shown()
+      let probe: number | null = null
+      const check = () => {
+        const now = shown()
+        if (now !== last) {
+          last = now
+          changed()
+        }
+        if (probe !== null) win.clearTimeout(probe)
+        probe = !now && doc.visibilityState !== 'hidden' ? win.setTimeout(() => ((probe = null), check()), probeMs) : null
+      }
+      doc.addEventListener('visibilitychange', check)
+      win.addEventListener('resize', check)
+      const Observer = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver
+      const observer = Observer ? new Observer(check) : null
+      observer?.observe(doc.documentElement)
+      check()
+      return () => {
+        doc.removeEventListener('visibilitychange', check)
+        win.removeEventListener('resize', check)
+        observer?.disconnect()
+        if (probe !== null) win.clearTimeout(probe)
+        probe = null
+      }
     },
   }
 }
