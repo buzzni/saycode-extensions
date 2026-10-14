@@ -106,7 +106,8 @@ export interface KeyWiring {
   destroy(): void
 }
 
-type Handler = (action: DispatchedAction) => void
+/** Runs an action; `false` says it did not use the key, which then does what the browser does with it. */
+type Handler = (action: DispatchedAction) => boolean | void
 
 export function wireKeys(options: KeyWiringOptions): KeyWiring {
   const { document: doc, store, shell, copy } = options
@@ -181,7 +182,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
 
   /** The suggestions the filter has for its caret, shown or not (Tab opens a closed list on its first one). */
   const hintCount = () => bar.hintCount
-  /** A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). */
+  /**
+   * A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). What it does not
+   * read (Tab, S-Tab, ↑) is reported unused, so Tab moves the focus and ↑ the caret as in any input.
+   */
   const inWiki = () => store.getState().tab === "wiki"
   const wikiKey = (): boolean => (current ? panes().wiki?.handleKey?.(current) ?? false : false)
 
@@ -371,14 +375,14 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       store.dispatch({ type: "detail-position", position })
     },
     "prompt.apply": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       // The filter's own Enter applies it (and handles the key), so only the search, which applies as it is typed,
       // gets here.
       promptFrom = undefined
       backToPane()
     },
     "prompt.cancel": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       // Read before the search closes: closing it takes the caret out of it, and that forgets the cursor.
       const from = promptFrom
       promptFrom = undefined
@@ -393,18 +397,18 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       backToPane()
     },
     "prompt.next": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       if (doc.activeElement === bar.filterInput) toolbar({ type: "hint-move", delta: 1, count: hintCount() })
       else toolbar({ type: "scope-next" })
     },
     "prompt.prev": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       if (doc.activeElement === bar.filterInput) toolbar({ type: "hint-move", delta: -1, count: hintCount() })
       else toolbar({ type: "scope-prev" })
     },
     // The filter input moves through its suggestions itself; the search has none.
-    "prompt.up": () => void (inWiki() && wikiKey()),
-    "prompt.down": () => void (inWiki() && wikiKey()),
+    "prompt.up": () => (inWiki() ? wikiKey() : undefined),
+    "prompt.down": () => (inWiki() ? wikiKey() : undefined),
     "prompt.clear": () => editInput(() => ({ text: "", caret: 0 })),
     "prompt.deleteWord": () =>
       editInput((text, caret) => {
@@ -447,9 +451,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     platform,
     getContext: context,
     dispatch: (action) => {
-      handlers[action.id]?.(action)
+      const used = handlers[action.id]?.(action)
       // A toggle the store does not hold (the raw body) changes the menu too: draw it after every action.
       redraw()
+      return used
     },
     onChange: redraw,
   })
@@ -465,6 +470,11 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   win?.addEventListener("focus", showHint)
   win?.addEventListener("blur", showHint)
   doc.addEventListener("focusin", showHint)
+  // A click that puts the caret in an input (prompt) or leaves one changes the mode without a key: a menu or
+  // sequence held in the old mode is dropped then, not left drawn with items that no longer run.
+  const settle = () => router.settle()
+  doc.addEventListener("focusin", settle)
+  doc.addEventListener("focusout", settle)
 
   const unsubscribe = store.subscribe((state, previous) => {
     if (state.toolbar.sortOpen && !previous.toolbar.sortOpen) {
@@ -477,6 +487,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     }
     if (!state.toolbar.sortOpen) sorterFrom = null
     paintSorter()
+    // A tab switch or the sort editor opening is a change of mode: drop a menu held in the old one.
+    router.settle()
     // A toggle run from the menu changes the store without a change of the menu's layer: draw it again.
     redraw()
   })
@@ -517,6 +529,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       win?.removeEventListener("focus", showHint)
       win?.removeEventListener("blur", showHint)
       doc.removeEventListener("focusin", showHint)
+      doc.removeEventListener("focusin", settle)
+      doc.removeEventListener("focusout", settle)
+      help.close()
       menu.el.remove()
       help.el.remove()
       hint.remove()
