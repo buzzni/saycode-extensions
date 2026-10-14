@@ -59,7 +59,7 @@ test('real 0.16 output: no statuses[] is an old moai, yet nothing the panel uses
   assert.equal(report.catalog.state, 'ok')
 })
 
-test('rows without `unread` on an old moai are not named while NEW marks are not drawn', async () => {
+test('rows without `unread` on an old moai name the NEW marks as off (they are drawn)', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({
     [PROFILE.showAll]: passed(withoutUnread(await fixture('show-all-unread-v016.json'))),
@@ -68,7 +68,7 @@ test('rows without `unread` on an old moai are not named while NEW marks are not
   }))
   await loadAllRows(client, undefined, probe)
   await loadStatuses(client, undefined, probe)
-  assert.deepEqual(probe.report().degraded, [])
+  assert.deepEqual(probe.report().degraded, ['unread'])
 })
 
 test('rows without `unread` alone are not proof: moai stays unknown', async () => {

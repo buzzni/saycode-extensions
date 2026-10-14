@@ -24,8 +24,9 @@
  *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`. The `unread` key on
  *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
  *   alone say `unknown`, never `old`.
- * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and what it lacks
- *   (`statuses[]`, maybe `unread`) serves nothing drawn yet, so a 0.16 reads `old` with nothing degraded.
+ * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and `statuses[]` it lacks
+ *   serves nothing drawn yet, so a 0.16 that prints `unread` reads `old` with nothing degraded; one whose rows print
+ *   none leaves the NEW marks off, and that is named.
  */
 import type { Outcome } from './client.js'
 import type { Row } from './index.js'
@@ -64,10 +65,11 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
 
 /**
  * The features the panel uses, in the banner's order; one judged off that is not here is left out of `degraded`.
- * `unread` (NEW marks: read.ts isUnread) and `status-order` (the columns from `status`: source.ts loadStatuses)
- * are told apart below but have no callers yet: put one back here when it is drawn.
+ * `unread` (NEW marks: read.ts isUnread) is drawn (view/unread.ts: list rows, board cards, the detail, the tab badge).
+ * `status-order` (the columns from `status`: source.ts loadStatuses) is told apart below but has no caller yet: put
+ * it back here when it is drawn.
  */
-const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'tallies']
+const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'unread', 'tallies']
 
 type Seen = 'unsupported' | 'passed'
 

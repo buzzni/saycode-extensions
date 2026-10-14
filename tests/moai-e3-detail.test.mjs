@@ -196,6 +196,43 @@ test('pane: nothing chosen, loading and a problem', () => {
   assert.match(root.textContent, /boom/)
 })
 
+test('pane: a tool-missing refusal the compat banner tells is not said again; unsupported-daemon still is (se-p314)', () => {
+  const { root, view } = mount()
+  const missing = { kind: 'refused', code: 'tool-missing' }
+  const told = { toolMissing: true, catalog: { state: 'ok' } }
+  const base = stateWith({ problem: missing })
+  view.render({ ...base, compat: null }, index)
+  assert.match(root.textContent, /\S/)
+  assert.ok(root.querySelector('.m-banner'), 'nobody told it: the detail says it')
+  view.render({ ...base, compat: told }, index)
+  assert.equal(root.querySelector('.m-banner'), null, 'the banner told it: the detail keeps quiet')
+  // A task was chosen and its read refused: the pane does not ask to choose one, it says it has no details.
+  assert.equal(root.querySelector('.m-empty-title').textContent, en.detail.problem)
+  const daemon = stateWith({ problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  view.render({ ...daemon, compat: { toolMissing: false, catalog: { state: 'missing' } } }, index)
+  assert.ok(root.querySelector('.m-banner'), 'the detail read is not heard by the probe: unsupported-daemon is its own')
+})
+
+test('pane: a compat report that tells the pane nothing new does not draw it again (selection and focus stay)', () => {
+  const { root, view } = mount()
+  const row = { ...ROWS[3], body: 'some **body**' }
+  const state = stateWith({ value: { id: row.id, row } })
+  const report = (over = {}) => ({ moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [], ...over })
+  view.render({ ...state, compat: null }, index)
+  const body = root.querySelector('.moai-detail-body')
+  assert.ok(body)
+  view.render({ ...state, compat: report() }, index)
+  view.render({ ...state, compat: report({ moai: 'old', degraded: ['tallies'] }) }, index)
+  assert.equal(root.querySelector('.moai-detail-body'), body, 'no problem on screen: no report changes what the pane draws')
+  // With a refusal on screen the report decides whether the banner draws it: that is a change of the pane.
+  const failed = stateWith({ problem: { kind: 'refused', code: 'tool-missing' } })
+  view.render({ ...failed, compat: report() }, index)
+  assert.ok(root.querySelector('.m-banner'))
+  const banner = root.querySelector('.m-banner')
+  view.render({ ...failed, compat: report({ moai: 'old' }) }, index)
+  assert.equal(root.querySelector('.m-banner'), banner, 'a report that tells the refusal no more than before leaves it be')
+})
+
 test('pane: the focus goes to the pane itself while it has no control, and the scroll is the split container\'s', () => {
   const dom = new JSDOM('<!doctype html><body><div id="scroller" data-keep-scroll><div id="r" tabindex="-1"></div></div></body>')
   const doc = dom.window.document
@@ -279,4 +316,43 @@ test('roll-up: a milestone or epic counts as the list does, with the `moai statu
   assert.deepEqual([rollup.done, rollup.work], counted.tally(counted.dirPath(counted.find('se-e1'))), 'the n/n the list draws')
   // The done members the index does not hold count as done: the statuses add up to the total.
   assert.deepEqual(rollup.byStatus, [['todo', 1], ['in_progress', 1], ['done', 4]])
+})
+
+test('pane: a search keystroke repaints the id and title only; the body and sections stay (se-mzlx)', () => {
+  const { root, view } = mount()
+  const row = { ...ROWS[3], body: 'some **body**' }
+  const state = stateWith({ value: { id: row.id, row } })
+  view.render(state, index)
+  const body = root.querySelector('.moai-detail-body')
+  const journal = root.querySelector('details[data-fold=journal]')
+  const title = root.querySelector('.moai-detail-title')
+  assert.ok(body && journal)
+  assert.equal(title.querySelector('mark'), null)
+  view.render({ ...state, search: { text: 'Boa', scope: 'all', open: true } }, index)
+  assert.ok(title.querySelector('mark'), 'the hit is painted')
+  assert.equal(root.querySelector('.moai-detail-body'), body)
+  assert.equal(root.querySelector('details[data-fold=journal]'), journal)
+  assert.equal(root.querySelector('.moai-detail-title'), title)
+  view.render({ ...state, search: { text: 'Boar', scope: 'all', open: true } }, index)
+  assert.equal(title.querySelector('mark').textContent, 'Boar')
+  view.render({ ...state, search: { text: '', scope: 'all', open: false } }, index)
+  assert.equal(title.querySelector('mark'), null)
+  assert.equal(root.querySelector('.moai-detail-body'), body)
+})
+
+test('pane: NEW first among the chips for an unread row; not for a read or archived one (se-ehdi.zcx)', () => {
+  const { root, view } = mount()
+  const chips = () => root.querySelector('.moai-detail-chips')
+  const row = { ...ROWS[3], unread: true }
+  view.render(stateWith({ value: { id: row.id, row } }), index)
+  assert.equal(chips().firstChild.textContent, 'NEW')
+  view.render(stateWith({ value: { id: ROWS[3].id, row: ROWS[3] } }), index)
+  assert.equal(chips().querySelector('.m-chip-new'), null)
+  // The list's own row says it is unread; the archive tag is only there too.
+  const listed = new IssueIndex(ROWS.map((one) => (one.id === 'se-e1.b' ? { ...one, unread: true } : one)))
+  view.render(stateWith({ value: { id: ROWS[3].id, row: ROWS[3] } }), listed)
+  assert.equal(chips().firstChild.textContent, 'NEW', 'the row is looked up in the list when show did not carry it')
+  const archived = new IssueIndex(ROWS.map((one) => (one.id === 'se-e1.b' ? { ...one, unread: true, archived: true } : one)))
+  view.render(stateWith({ value: { id: row.id, row } }), archived)
+  assert.equal(chips().querySelector('.m-chip-new'), null)
 })

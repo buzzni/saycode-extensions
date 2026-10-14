@@ -202,12 +202,34 @@ const wiki: WikiSource = {
   page: async (slug) => answer(await loadWikiPage(client, slug, probe)),
 }
 
-/** A read-mark write, then the list again: the marks come back with the rows (data/read.ts). */
+/**
+ * The detail on screen again, as `show` prints it now: a read mark changes its `unread`, and nothing else reads the
+ * detail again. The pane and the cursor stay as they are; a choice made meanwhile, or the pane closed, wins.
+ */
+async function reloadDetail(): Promise<void> {
+  const shown = store.getState().shown.value
+  if (!shown) return
+  const mine = choice
+  const loaded = await loadDetail(client, shown.id)
+  if (!loaded.ok || mine !== choice || store.getState().shown.value?.id !== shown.id) return
+  store.dispatch({ type: 'detail-loaded', data: { id: shown.id, row: loaded.value } })
+}
+
+/**
+ * A read-mark write, then the list again, with the detail on screen and (a cut list's) the archive answer: the marks
+ * come back with the rows (data/read.ts).
+ */
 async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
   const done = await writing
   if (!done.ok) return done.outcome
-  // A list read already running started before the write and cannot hold its marks.
-  await refresher.refresh({ fresh: true })
+  // A list read already running started before the write and cannot hold its marks. The detail's `show` row was read
+  // before it too and the list's re-read does not bring it back: read again, its NEW would outlive the mark.
+  await Promise.all([refresher.refresh({ fresh: true }), reloadDetail()])
+  // A cut list stands on prime's rows, which carry no marks; the active rows only the archive's answer holds are NEW
+  // from there (source.ts activeIds), so that answer is read again. A whole list needs none: the rows the archive adds
+  // to it are archive-only, which are never NEW.
+  const now = store.getState()
+  if (now.view.showArchived && now.board.value?.partial === true) void loadArchive()
   return null
 }
 

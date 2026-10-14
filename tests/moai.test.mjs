@@ -621,18 +621,142 @@ test('r marks the row under the cursor read, SPC m a everything, and the list is
   await new Promise((resolve) => setTimeout(resolve, 600))
   await flush()
   assert.equal(reads, 1)
-  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ...LIST_READS])
+  // The detail on screen is read again with the list: `show` printed its `unread` before the mark.
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ...LIST_READS, ['buzzni.moai.show', 'mgd-hmcr']])
   const after = panel.starts().length
   press(panel, ' ', 'm', 'a')
   await new Promise((resolve) => setTimeout(resolve, 600))
   await flush()
-  assert.deepEqual(panel.starts().slice(after), [['buzzni.moai.read-all'], ...LIST_READS])
+  assert.deepEqual(panel.starts().slice(after), [['buzzni.moai.read-all'], ...LIST_READS, ['buzzni.moai.show', 'mgd-hmcr']])
   // No milestone or epic here: SPC m g says where to go instead of writing anything.
   const grouped = panel.starts().length
   press(panel, ' ', 'm', 'g')
   await flush()
   assert.equal(panel.starts().length, grouped)
   assert.equal(panel.$('.moai-result').textContent, 'Move to a milestone or epic to mark its items read.')
+})
+
+/** `moai read`'s answer for `ids`, as it prints them. */
+const readAnswer = (...ids) => JSON.stringify({ read: ids, missing: [], held: [], problems: [], at: '2026-10-14T00:00:00Z' })
+/** The tab badge and the NEW chips a panel draws now: the list row's, the detail's. */
+const newMarks = (panel, id) => ({
+  badge: panel.$('#m-tab-list .m-chip-new')?.textContent ?? null,
+  row: panel.row(id)?.querySelector('.m-chip-new')?.textContent ?? null,
+  detail: panel.$('.moai-detail-chips .m-chip-new')?.textContent ?? null,
+})
+
+test('a read mark takes NEW off the detail on screen as it does off the list row and the tab', async () => {
+  let marked = false
+  const unread = () => (marked ? {} : { unread: true })
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': () => JSON.stringify(JSON.parse(SHOW_ALL).map((row) => (row.id === 'mgd-hmcr' ? { ...row, ...unread() } : row))),
+    // `show` prints the row as it is now: unread until the mark is written.
+    'buzzni.moai.show': () => JSON.stringify({ ...JSON.parse(SHOW_NOTE_BODY), ...unread() }),
+    'buzzni.moai.read': () => { marked = true; return readAnswer('mgd-hmcr') },
+  }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.deepEqual(newMarks(panel, 'mgd-hmcr'), { badge: '1', row: 'NEW', detail: 'NEW' })
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.deepEqual(newMarks(panel, 'mgd-hmcr'), { badge: null, row: null, detail: null }, 'the detail was read again with the list')
+  // The pane and the cursor stayed on the row.
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
+})
+
+test('a read mark in a cut list reads the archive answer again: a row only it holds loses NEW with the rest', async () => {
+  let marked = false
+  let archiveReads = 0
+  const only = () => ({ id: 'mgd-only', kind: 'issue', title: 'Only the archive answer holds me', status: 'in_progress', priority: 2, ...(marked ? {} : { unread: true }) })
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': cut,
+    'buzzni.moai.prime': PRIME,
+    // `--archived` lists the active rows too; the row that is in progress is active, only the cut list lacks it.
+    'buzzni.moai.show-archived': () => { archiveReads++; return JSON.stringify([...JSON.parse(SHOW_ALL), only()]) },
+    'buzzni.moai.read': () => { marked = true; return readAnswer('mgd-only') },
+  }))
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.equal(archiveReads, 1)
+  assert.equal(newMarks(panel, 'mgd-only').row, 'NEW')
+  assert.equal(newMarks(panel, 'mgd-only').badge, '1')
+  panel.row('mgd-only').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await new Promise((resolve) => setTimeout(resolve, 900))
+  await flush()
+  assert.equal(archiveReads, 2, 'the archive answer is read again after the mark')
+  assert.deepEqual(newMarks(panel, 'mgd-only'), { badge: null, row: null, detail: null })
+})
+
+test('a read mark in a whole list does not read the archive again: what it adds there is never NEW', async () => {
+  let archiveReads = 0
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': () => JSON.stringify(JSON.parse(SHOW_ALL).map((row) => (row.id === 'mgd-hmcr' ? { ...row, unread: true } : row))),
+    'buzzni.moai.show-archived': () => { archiveReads++; return SHOW_ALL },
+    'buzzni.moai.read': () => readAnswer('mgd-hmcr'),
+  }))
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.equal(archiveReads, 1)
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await new Promise((resolve) => setTimeout(resolve, 900))
+  await flush()
+  assert.equal(archiveReads, 1)
+})
+
+test('the detail read again after a mark gives way: a row chosen meanwhile keeps the pane, and a closed pane stays closed', async () => {
+  let held = null
+  let release
+  const answer = board({
+    'buzzni.moai.show': (id) => (id === 'mgd-hmcr' ? SHOW_NOTE_BODY : SHOW_MOVED),
+    'buzzni.moai.read': (id) => readAnswer(id),
+  })
+  // The read again of the row `held` names, after the mark, waits on its confirmation until released.
+  answer.start = (args) => (args[0] === 'buzzni.moai.show' && args[1] === held ? new Promise((resolve) => { release = () => resolve(null) }) : null)
+  const panel = await runPanel(answer)
+  const reread = async (id) => {
+    held = id
+    release = undefined
+    panel.window.document.body.focus()
+    press(panel, 'r')
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await flush()
+    assert.equal(typeof release, 'function', `the detail of ${id} is being read again`)
+  }
+  const settle = async () => {
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await flush()
+  }
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  await reread('mgd-hmcr')
+  // Another row is chosen meanwhile, and its own read answers first.
+  panel.row('mgd-ogym').click()
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '버튼으로 추가한 할 일')
+  await settle()
+  assert.equal(panel.$('.moai-detail h2').textContent, '버튼으로 추가한 할 일', 'the row left behind does not take the pane back')
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
+  // The pane is closed while its row is read again: the late answer does not open it.
+  await reread('mgd-ogym')
+  panel.$('.moai-detail [data-focus="close"]').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2'), null)
+  await settle()
+  assert.equal(panel.$('.moai-detail h2'), null, 'a closed pane stays closed')
 })
 
 test('a declined read mark is told on the result line and the list is not read again', async () => {
@@ -912,18 +1036,27 @@ test('compatibility: a backlog refusal that lands after a declined load ended st
   assert.equal(panel.starts().length, before, 'nothing is read again')
 })
 
-test('compatibility: moai 0.16 (no statuses[], the tallies printed) is not asked to upgrade', async () => {
-  const panel = await runPanel(board())
+// The v0.8.0 rows carry no `unread` key, as a moai older than 0.17 prints none; these carry it, as a moai that knows it does.
+const SHOW_ALL_UNREAD = JSON.stringify(JSON.parse(SHOW_ALL).map((row) => ({ ...row, unread: true })))
+
+test('compatibility: moai 0.16 that prints `unread` (no statuses[], the tallies printed) is not asked to upgrade', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_UNREAD }))
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   assert.deepEqual(compatLine(panel), [])
 })
 
+test('compatibility: moai 0.16 whose rows print no `unread` asks to upgrade, naming the NEW marks it leaves off', async () => {
+  const panel = await runPanel(board())
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: NEW marks). Upgrade moai."])
+})
+
 test('compatibility: a status without the tallies asks to upgrade moai, naming the counts, in the panel language', async () => {
-  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }))
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_UNREAD, 'buzzni.moai.status': STATUS_NO_TALLIES }))
   assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: milestone and epic counts). Upgrade moai."])
   // The rows that work keep showing.
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
-  const ko = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ko')
+  const ko = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_UNREAD, 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ko')
   assert.deepEqual(compatLine(ko), ['그 머신의 moai가 이 패널이 기대하는 버전보다 오래되었습니다(대체 방식으로 동작: 마일스톤·에픽 개수). moai를 업그레이드하세요.'])
 })
 
@@ -1059,7 +1192,7 @@ test('an archive read that fails with an error is told as an alert, information 
 })
 
 test('compatibility: an archive profile the catalog lacks is told by the banner, not again on the archive line', async () => {
-  const answer = board()
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => (args[0] === 'buzzni.moai.show-archived' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
   press(panel, ' ', 'v', 'o', 'Escape')
@@ -1137,7 +1270,7 @@ test('a read mark reads the list again at once, though the status read of the lo
   press(panel, 'r')
   await new Promise((resolve) => setTimeout(resolve, 1200))
   await flush()
-  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ['buzzni.moai.show-all'], ['buzzni.moai.backlog-all']])
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr'], ['buzzni.moai.show-all'], ['buzzni.moai.backlog-all'], ['buzzni.moai.show', 'mgd-hmcr']])
   approve()
   await new Promise((resolve) => setTimeout(resolve, 700))
   await flush()
@@ -1145,7 +1278,7 @@ test('a read mark reads the list again at once, though the status read of the lo
 
 test('compatibility: the banner speaks Japanese and Chinese too', async () => {
   const ja = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ja')
-  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
+  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: NEW 表示、マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
   const zh = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'zh')
-  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：里程碑和史诗的计数）。请升级 moai。'])
+  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：NEW 标记、里程碑和史诗的计数）。请升级 moai。'])
 })

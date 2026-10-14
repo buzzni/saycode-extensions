@@ -64,6 +64,7 @@ export interface Tabs {
 export function createTabs(doc: Document, props: TabsProps): Tabs {
   const root = el(doc, "div", { class: "m-tablist", role: "tablist", "aria-label": props.ariaLabel ?? "Moai" })
   const buttons = new Map<TabId, HTMLButtonElement>()
+  const names = new Map<TabId, string>()
   const badges = new Map<TabId, HTMLElement>()
   let selected = props.selected
 
@@ -76,12 +77,14 @@ export function createTabs(doc: Document, props: TabsProps): Tabs {
       id: tabDomId(tab.id),
       "aria-controls": panelDomId(tab.id),
       "data-tab": tab.id,
-      // The label is dropped below 380px (components.css), and a tab with a badge reads its count too.
+      // The label is dropped below 380px (components.css) and `title` then names the tab; with a badge in it the
+      // content would be the whole name, so setBadge names the tab itself.
       title: name,
     })
     button.append(icon(doc, tab.icon, 15), el(doc, "span", {}, name))
     button.addEventListener("click", () => choose(tab.id, false))
     buttons.set(tab.id, button)
+    names.set(tab.id, name)
     root.append(button)
   }
 
@@ -117,20 +120,27 @@ export function createTabs(doc: Document, props: TabsProps): Tabs {
       paint()
     },
     setBadge(id, count) {
+      const button = buttons.get(id)
       const existing = badges.get(id)
       if (!count) {
         existing?.remove()
         badges.delete(id)
-        return
+        button?.removeAttribute("aria-label")
+      } else {
+        const text = count > 99 ? "99+" : String(count)
+        // Written only when it changes: the shell sets the badges on every render.
+        const label = `${names.get(id) ?? ""} ${text}`.trim()
+        if (button && button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label)
+        if (existing) {
+          if (existing.textContent !== text) existing.textContent = text
+        } else {
+          const badge = el(doc, "span", { class: "m-chip m-chip-new" }, text)
+          badges.set(id, badge)
+          button?.append(badge)
+        }
       }
-      const text = count > 99 ? "99+" : String(count)
-      if (existing) {
-        existing.textContent = text
-        return
-      }
-      const badge = el(doc, "span", { class: "m-chip m-chip-new" }, text)
-      badges.set(id, badge)
-      buttons.get(id)?.append(badge)
+      // A count widens the strip: components.css lets the labels give way sooner while one shows.
+      root.toggleAttribute("data-badged", badges.size > 0)
     },
   }
 }

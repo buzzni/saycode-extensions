@@ -7,6 +7,8 @@
 import { isInformation } from '../data/client.js'
 import type { IssueIndex, Row } from '../data/index.js'
 import { sees } from '../data/query.js'
+import { compatTells } from '../data/compat.js'
+import { isUnread } from '../data/read.js'
 import type { State } from '../store.js'
 import { banner, button, chip, el, emptyState } from './components.ts'
 import {
@@ -25,6 +27,7 @@ import {
   workOf,
 } from './detail-format.ts'
 import { renderMarkdown } from './markdown.ts'
+import { newChip } from './unread.ts'
 import { highlight } from './toolbar.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
@@ -111,8 +114,11 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   const open = new Set<string>()
   let shownId: string | null = null
   /** What the pane was drawn from: it is drawn again only when one of them changed (a redraw loses a text
-   *  selection and the focus on a folded section's summary, and the shell renders it on every store change). */
-  let drawn: { shown: State['shown']; index: IssueIndex | null; search: State['search'] } | null = null
+   *  selection and the focus on a folded section's summary, and the shell renders it on every store change).
+   *  `told`: the compat banner tells the refusal shown, the one thing of the compat report the pane draws from. */
+  let drawn: { shown: State['shown']; index: IssueIndex | null; search: State['search']; told: boolean } | null = null
+  /** The id and title lines of the row drawn, with their text: a search repaints these two and nothing else. */
+  let heads: { id: HTMLElement; title: HTMLElement; idText: string; titleText: string } | null = null
   /** `SPC v r`: the body as the markdown it was written in. */
   let raw = false
   let last: { state: State; index: IssueIndex | null } | null = null
@@ -126,18 +132,24 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   function content(row: Row, index: IssueIndex | null, search: State['search']): Node[] {
     const head = headOf(row, copy)
     const chips = el(doc, 'div', { class: 'moai-detail-chips' })
+    // Unread by either copy: `show`'s row, and the row the list holds (a cut list's prime rows print no `unread`, so
+    // there `show` alone knows). The list's row also knows the archive when moai's `show` row does not say it (moai
+    // 0.17 prints `archived: true` on it): archived rows are never NEW.
+    const listed = index?.find(row.id)
+    const held = listed === undefined ? undefined : index!.rows[listed]
+    if ((isUnread(row) || held?.unread === true) && held?.archived !== true) chips.append(newChip(doc))
     if (head.status) chips.append(chip(doc, { label: head.statusLabel, tone: head.tone }))
     if (head.priority) chips.append(chip(doc, { label: head.priority }))
     if (head.kind) chips.append(chip(doc, { label: head.kind }))
     if (head.deferred) chips.append(chip(doc, { label: `${d.deferred}: ${head.deferred}`, tone: 'warn' }))
     else if (head.shelvedBy) chips.append(chip(doc, { label: d.deferredUnder(head.shelvedBy), tone: 'warn' }))
     for (const tag of tagsOf(row)) chips.append(chip(doc, { label: tag }))
+    const idLine = el(doc, 'div', { class: 'moai-detail-id' }, ...painted(head.id, 'id', search))
+    const titleLine = el(doc, 'h2', { class: 'moai-detail-title' }, ...painted(head.title, 'title', search))
+    heads = { id: idLine, title: titleLine, idText: head.id, titleText: head.title }
     const out: Node[] = [
       el(doc, 'div', { class: 'moai-detail-head' },
-        el(doc, 'div', { class: 'moai-detail-headtext' },
-          el(doc, 'div', { class: 'moai-detail-id' }, ...painted(head.id, 'id', search)),
-          el(doc, 'h2', { class: 'moai-detail-title' }, ...painted(head.title, 'title', search)),
-          chips),
+        el(doc, 'div', { class: 'moai-detail-headtext' }, idLine, titleLine, chips),
         closeButton()),
     ]
     const fields = fieldsOf(row, index, copy)
@@ -192,9 +204,25 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
 
   function render(state: State, index: IssueIndex | null) {
     last = { state, index }
-    if (drawn && drawn.shown === state.shown && drawn.index === index && drawn.search === state.search) return
-    drawn = { shown: state.shown, index, search: state.search }
     const { value, loading, problem } = state.shown
+    // A refusal the compat banner already tells is not said twice. The detail's read is not one the probe hears
+    // (heard: false), so only the tool-missing line is the banner's, not unsupported-daemon (se-p314). The report
+    // itself does not key the redraw: a change of it that tells the pane nothing new must not rebuild the pane.
+    const told = problem !== null && compatTells(state.compat, problem, false)
+    if (drawn && drawn.shown === state.shown && drawn.index === index && drawn.told === told) {
+      if (drawn.search === state.search) return
+      // Only the search changed (a keystroke): the hits are painted in the id and title, so repaint those two lines.
+      // The body, the sections and the markdown stay the nodes they were (and so does a text selection in them).
+      const same = drawn.search.text === state.search.text && drawn.search.scope === state.search.scope
+      drawn = { shown: state.shown, index, search: state.search, told }
+      if (same) return
+      if (heads?.id.isConnected && heads.title.isConnected) {
+        heads.id.replaceChildren(...painted(heads.idText, 'id', state.search))
+        heads.title.replaceChildren(...painted(heads.titleText, 'title', state.search))
+        return
+      }
+    }
+    drawn = { shown: state.shown, index, search: state.search, told }
     // Another row's detail starts at the top; the same row redrawn (a refresh) keeps its place.
     const id = value?.id ?? null
     const top = id !== null && id === shownId ? scroller().scrollTop : 0
@@ -202,13 +230,15 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     const active = doc.activeElement as HTMLElement | null
     const key = active && view.contains(active) ? active.dataset?.focus : undefined
     const children: Node[] = []
-    if (problem) {
+    if (problem && !told) {
       const said = problemText(problem, copy)
       children.push(banner(doc, isInformation(problem) ? 'info' : 'danger', said ? `${d.problem} ${said}` : d.problem))
     }
     if (value) children.push(...content(value.row, index, state.search))
     else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
     else if (!problem) children.push(emptyState(doc, { title: d.none }))
+    // A row was chosen and its read refused, and the banner tells why: the pane says only that it has no details.
+    else if (told) children.push(emptyState(doc, { title: d.problem }))
     view.replaceChildren(...children)
     scroller().scrollTop = top
     if (key !== undefined) view.querySelector<HTMLElement>(`[data-focus="${key}"]`)?.focus({ preventScroll: true })

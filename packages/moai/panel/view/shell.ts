@@ -19,6 +19,7 @@ import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
 import { narrow, segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
+import { unreadBadges } from "./unread.ts"
 import { createToolbar, type LiveToolbar } from "./toolbar.ts"
 import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource } from "./types.ts"
 
@@ -111,14 +112,15 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
 }
 
 // Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints. `degraded`
-// holds only the features the panel uses (data/compat.ts ORDER), so `unread` and `status-order` stand here unused.
+// holds only the features the panel uses (data/compat.ts ORDER), so `status-order` stands here unused.
 const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
 const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
 
 /**
  * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
  * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named, and an old moai
- * none of whose fallbacks the panel uses (0.16 lacks only what is not drawn yet) is not asked to upgrade.
+ * none of whose fallbacks the panel uses (a 0.16 that prints `unread` lacks only what is not drawn yet) is not asked
+ * to upgrade.
  */
 export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
   if (!report) return []
@@ -400,6 +402,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     state = store.getState()
     const index = options.index(state)
     if (tabs.selected() !== state.tab) tabs.setSelected(state.tab)
+    // The unread count rides the board and list tabs; with no index there is nothing to count (se-ehdi.zcx).
+    const badges = unreadBadges(index?.rows ?? [])
+    tabs.setBadge("board", badges.board)
+    tabs.setBadge("list", badges.list)
     work.setAttribute("aria-labelledby", tabDomId(state.tab === "board" ? "board" : "list"))
     const left = shownTab
     const putBack = showTab(state.tab)

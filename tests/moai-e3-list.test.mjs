@@ -474,3 +474,25 @@ test('narrow: a day in the filter is the reader\'s own day, not a UTC one', () =
     else process.env.TZ = zone
   }
 })
+
+test('list view: NEW before the name on unread rows only; archived rows and a source that says nothing show none (se-ehdi.zcx)', () => {
+  const rows = ROWS.map((row) => (row.id === 'se-e1.b' ? { ...row, unread: true } : row.id === 'se-e1.c' ? { ...row, unread: true, archived: true } : row))
+  const { lines } = mount(rows, { state: { path: EPIC, view: { ...initialState().view, showArchived: true } } })
+  const chip = (id) => lines().find((line) => line.dataset.key === id).querySelector('.m-chip-new')
+  assert.equal(chip('se-e1.b').textContent, 'NEW')
+  assert.match(lines().find((line) => line.dataset.key === 'se-e1.b').querySelector('.m-row-title').textContent, /^NEW Board$/)
+  assert.equal(chip('se-e1.a'), null, 'a read row')
+  assert.equal(chip('se-e1.c'), null, 'an archive row is never NEW (moai read cannot clear it)')
+  const none = mount(ROWS, { state: { path: EPIC } })
+  assert.equal(none.root.querySelector('.m-chip-new'), null, 'no row carries unread: NEW is off')
+})
+
+test('list view: NEW stands after the branch and before the name (design 4.1)', () => {
+  const rows = ROWS.map((row) => (row.id === 'se-e1.a.x' ? { ...row, unread: true } : row))
+  const { lines } = mount(rows, { state: { path: EPIC, expanded: [pathKey([...EPIC, 'i:se-e1.a'])] } })
+  const title = lines().find((line) => line.dataset.key === 'se-e1.a.x').querySelector('.m-row-title')
+  const [twig, chip] = title.children
+  assert.ok(twig.classList.contains('moai-twig'), 'the row hangs under its folder: it has a branch')
+  assert.ok(chip.classList.contains('m-chip-new'))
+  assert.equal(title.textContent, '└─NEW Rows')
+})
