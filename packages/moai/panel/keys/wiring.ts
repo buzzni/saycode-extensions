@@ -425,9 +425,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       if (doc.activeElement === bar.filterInput) toolbar({ type: "hint-move", delta: -1, count: hintCount() })
       else toolbar({ type: "scope-prev" })
     },
-    // The filter input moves through its suggestions itself; the search has none.
-    "prompt.up": () => (inWiki() ? wikiKey() : undefined),
-    "prompt.down": () => (inWiki() ? wikiKey() : undefined),
+    // The filter input moves through its suggestions itself and the search has none: outside the wiki the key is
+    // not the router's, so the input (or the browser) keeps it.
+    "prompt.up": () => (inWiki() ? wikiKey() : false),
+    "prompt.down": () => (inWiki() ? wikiKey() : false),
     "prompt.clear": () => editInput(() => ({ text: "", caret: 0 })),
     "prompt.deleteWord": () =>
       editInput((text, caret) => {
