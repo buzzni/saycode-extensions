@@ -279,11 +279,10 @@ test('the probe tells its listeners after each thing handed over, until unsubscr
   const unsubscribe = probe.subscribe(() => { told += 1 })
   probe.observe(PROFILE.status, refused('tool-missing'))
   probe.observeStatus({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] })
-  probe.observeRows([{ id: 'a' }])
-  assert.equal(told, 3)
+  assert.equal(told, 2)
   unsubscribe()
   probe.observe(PROFILE.status, passed({ counts: { todo: 0 } }))
-  assert.equal(told, 3)
+  assert.equal(told, 2)
 })
 
 test('a listener that throws does not stop the read that handed the answer over', async (t) => {
@@ -295,6 +294,6 @@ test('a listener that throws does not stop the read that handed the answer over'
   probe.subscribe(() => { heard += 1 })
   const client = clientOf(await everything())
   assert.equal((await loadAllRows(client, undefined, probe)).ok, true)
-  assert.equal(heard, 3, 'show --all, the backlog and the rows were all handed over')
-  assert.equal(errors.length, 3)
+  assert.equal(heard, 2, 'show --all and the backlog were both handed over')
+  assert.equal(errors.length, 2)
 })

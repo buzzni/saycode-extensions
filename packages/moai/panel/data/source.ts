@@ -185,10 +185,7 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
   const thoughts = lacked(backlog) ? [] : answerOf(backlog)
   if (thoughts === undefined) return { ok: false, outcome: backlog }
   const loaded = rowsFromLists(listed, thoughts)
-  if (loaded.ok) {
-    probe?.observeRows(loaded.value.rows)
-    if (lacked(backlog)) loaded.value.backlogProblem = backlog
-  }
+  if (loaded.ok && lacked(backlog)) loaded.value.backlogProblem = backlog
   return loaded
 }
 
