@@ -667,6 +667,15 @@ test('kbdHint: kbd chips with key labels; focus hint text', () => {
   assert.equal(focusHint(document).textContent, '클릭하면 키보드를 쓸 수 있습니다')
 })
 
+test('focus hint: anchored to the bottom so it never covers the tab bar at the top', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const css = await readFile(new URL('style/components.css', panel), 'utf8')
+  const rule = css.split('\n').find((l) => l.startsWith('.m-focus-hint {'))
+  assert.match(rule, /position: fixed/)
+  assert.match(rule, /bottom: \d+px/)
+  assert.doesNotMatch(rule, /\btop:/)
+})
+
 test('keyToken: a Korean input source falls back to event.code (jamo, Process), ASCII keys stay', () => {
   assert.equal(keyToken({ key: 'ㅓ', code: 'KeyJ' }), 'j')
   assert.equal(keyToken({ key: 'ㅎ', code: 'KeyG', shiftKey: true }), 'G')
