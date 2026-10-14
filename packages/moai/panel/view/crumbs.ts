@@ -5,7 +5,7 @@
 
 import { LOST, NO_MILESTONE, type IssueIndex, type Path, type Seg } from "../data/index.ts"
 import type { Copy } from "../i18n/index.ts"
-import type { Sort } from "../data/query.ts"
+import { sameSort, type Sort } from "../data/query.ts"
 import type { State } from "../store.ts"
 import { chip, el } from "./components.ts"
 
@@ -48,10 +48,6 @@ export function sortWords(sort: Sort, copy: Copy): string {
   const words = sort.fields.map((field) => `${copy.shell.sortFields[field.key]}${field.dir === "desc" ? "↓" : "↑"}`).join(", ")
   return sort.reversed ? `${words} ${copy.shell.reversed}` : words
 }
-
-const sameSort = (sort: Sort, other: Sort): boolean =>
-  sort.reversed === other.reversed && sort.fields.length === other.fields.length &&
-  sort.fields.every((field, n) => field.key === other.fields[n]!.key && field.dir === other.fields[n]!.dir)
 
 /** What the view hides, then an order other than the default (the saved one, if any), as one badge; null when there is neither. */
 export function lookBadge(state: Pick<CrumbState, "view" | "sort" | "defaultSort">, copy: Copy): string | null {

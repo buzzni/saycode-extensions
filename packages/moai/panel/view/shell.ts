@@ -350,18 +350,23 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     status.hidden = current.phase === "idle" && !current.cancellable
   }
 
-  let explained: Outcome | null | undefined
-  function explain(outcome: Outcome | null) {
-    // The banners are live regions (role=alert, role=status): the same outcome is not written again on every
-    // store change, or a screen reader would read it again on each cursor move. A failure that happens again
-    // is a new outcome object, so it is told again.
-    if (outcome === explained) return
-    explained = outcome
-    notice.replaceChildren()
-    error.replaceChildren()
-    const said = outcome ? describe(outcome, copy, doc) : null
-    if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
+  // The banners are live regions (role=alert, role=status): each pair is written once per outcome, not again on every
+  // store change, or a screen reader would read it again on each cursor move. A failure that happens again is a new
+  // outcome object, so it is told again. `lead` goes before what describe() says.
+  function teller(noticeEl: HTMLElement, errorEl: HTMLElement, lead?: string) {
+    let last: Outcome | null = null
+    return (outcome: Outcome | null) => {
+      if (outcome === last) return
+      last = outcome
+      noticeEl.replaceChildren()
+      errorEl.replaceChildren()
+      const said = outcome ? describe(outcome, copy, doc) : null
+      if (said) (said.info ? noticeEl : errorEl).append(el(doc, "span", {}, ...(lead ? [lead, " "] : []), ...said.parts))
+    }
   }
+  const explain = teller(notice, error)
+  const explainArchive = teller(archiveNotice, archiveError, copy.shell.archiveFailed)
+  const explainBacklog = teller(backlogNotice, backlogError, copy.shell.backlogFailed)
 
   let compatSeen: CompatReport | null = null
   let compatTold = ""
@@ -376,21 +381,6 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     compatTold = told
     compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
   }
-
-  // Live regions too: each pair is written once per outcome, as explain() does.
-  function told(noticeEl: HTMLElement, errorEl: HTMLElement, lead: string) {
-    let last: Outcome | null = null
-    return (outcome: Outcome | null) => {
-      if (outcome === last) return
-      last = outcome
-      noticeEl.replaceChildren()
-      errorEl.replaceChildren()
-      const said = outcome ? describe(outcome, copy, doc) : null
-      if (said) (said.info ? noticeEl : errorEl).append(el(doc, "span", {}, lead, " ", ...said.parts))
-    }
-  }
-  const explainArchive = told(archiveNotice, archiveError, copy.shell.archiveFailed)
-  const explainBacklog = told(backlogNotice, backlogError, copy.shell.backlogFailed)
 
   function paintLayout(current: State) {
     const detail = current.detail
@@ -437,10 +427,12 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
     // Written only when it changes: it is a live region. A cut list says so here; one the catalog left to prime's rows
     // (BoardData.partial without `truncated`) is told by the compat banner when it names the list, and here while it
-    // cannot (the catalog `unknown`).
+    // cannot (no report yet, or the catalog `unknown`). A catalog `ok`, or `missing` without the whole list, says a
+    // read since found `show --all` (a refresh still waiting on its backlog read, or one that failed on it): the rows
+    // on screen are older than that, and "cannot be read on this machine" is no longer so.
     const board = state.board.value
-    const named = state.compat?.catalog.state === "missing" && state.compat.degraded.includes("all-rows")
-    const cut = board?.truncated === true ? copy.shell.truncated : board?.partial === true && !named ? copy.shell.primeOnly : ""
+    const undecided = state.compat === null || state.compat.catalog.state === "unknown"
+    const cut = board?.truncated === true ? copy.shell.truncated : board?.partial === true && undecided ? copy.shell.primeOnly : ""
     if (truncated.textContent !== cut) truncated.textContent = cut
     explainBacklog(untold(board?.backlogProblem ?? null))
     explainArchive(untold(state.archiveProblem))

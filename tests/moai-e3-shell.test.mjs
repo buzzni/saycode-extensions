@@ -391,6 +391,15 @@ test('shell: a list left to prime\'s rows says so while the catalog line cannot,
   // Once the catalog line names the whole list, it alone tells it.
   panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
   assert.equal(panel.$('.moai-truncated').textContent, '')
+  // A read since found show --all (the catalog lacks only the backlog now, or nothing): the rows on screen are older,
+  // and the whole list is no longer out of reach there.
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.backlog-all'] }, degraded: ['backlog'] } })
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [] } })
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  // The catalog undecided again (a shipped profile refused as unsupported): this banner tells it once more.
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'unknown', missing: [] }, degraded: [] } })
+  assert.equal(panel.$('.moai-truncated').textContent, en.shell.primeOnly)
   // A cut list says it was too large, whatever the catalog says.
   load({ truncated: true })
   assert.equal(panel.$('.moai-truncated').textContent, en.shell.truncated)
@@ -577,6 +586,18 @@ test('memory: the default sort lasts for the session, lives under one key, and i
   assert.deepEqual(store.getState().sort, sort)
   sortDefault.clear()
   assert.equal(sortDefault.get(), null)
+})
+
+test('memory: saving the order on screen as the default (D) leaves the workspace following it at once', () => {
+  const storage = createSessionStorage()
+  const store = createStore()
+  remember(store, createMemory(() => null), createSortDefault(storage), storage)
+  const sort = { fields: [{ key: 'title', dir: 'asc' }], reversed: false }
+  store.dispatch({ type: 'sort', sort })
+  assert.deepEqual(JSON.parse(storage.read(QUERY_KEY)).sort, sort)
+  // Only the default changes (keys/wiring.ts D): the order is now the default, so the workspace keeps none of its own.
+  store.dispatch({ type: 'sort-default', sort })
+  assert.equal(JSON.parse(storage.read(QUERY_KEY)).sort, null)
 })
 
 test('memory: a stored sort that is not usable is no default', () => {

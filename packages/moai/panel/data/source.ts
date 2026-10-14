@@ -59,8 +59,9 @@ export interface Rows {
   /** These are prime's rows (and the backlog), not every active row: loadRows, or loadAllRows' fallback ({@link primeRows}). */
   partial: boolean
   /**
-   * Why the backlog read beside prime's rows gave nothing (declined, failed): loadAllRows' fallback stands without
-   * the backlog then. Absent when it answered, or when the catalog lacks it (the compat banner tells that).
+   * Why the backlog read beside prime's rows gave nothing (declined, failed, an answer that is not a list:
+   * `unreadable`): loadAllRows' fallback stands without the backlog then. Absent when it answered, or when the catalog
+   * lacks it (the compat banner tells that).
    */
   backlogProblem?: Outcome
 }
@@ -169,7 +170,10 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
     const backlog = await read
     const thoughts = answerOf(backlog)
     const value: Rows = { rows: withBacklog(loaded.value.rows, thoughts, ungrouped), more: loaded.value.more, truncated: cut, partial: true }
-    if (thoughts === undefined && !lacked(backlog)) value.backlogProblem = backlog
+    // An answer that is not the list of rows gives nothing too, as rowsFromLists reads it.
+    if (thoughts === undefined) {
+      if (!lacked(backlog)) value.backlogProblem = backlog
+    } else if (!Array.isArray(thoughts)) value.backlogProblem = { kind: 'unreadable' }
     return { ok: true, value }
   }
   if (listed === undefined) {

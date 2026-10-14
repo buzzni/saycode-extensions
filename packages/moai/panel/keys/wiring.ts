@@ -97,7 +97,10 @@ export interface KeyWiringOptions {
   platform?: Platform
   /** The read-mark writes; without them `r` and `SPC m` are not offered (KeyContext.readable). */
   read?: ReadMarks
-  /** Where `D` saves the default sort and an emptied order returns to; defaults to the panel's shared one. */
+  /**
+   * Where `D` saves the default sort; defaults to the panel's shared one. An emptied order returns to the store's
+   * `defaultSort`, which `D` sets and data/memory.ts remember() reads from the same storage at boot: pass both the same one.
+   */
   sortDefault?: SortDefault
 }
 

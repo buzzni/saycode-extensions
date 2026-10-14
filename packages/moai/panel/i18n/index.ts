@@ -134,7 +134,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
     truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
     archiveFailed: 'Archived rows could not be read:',
-    primeOnly: 'Every task cannot be listed on this machine, so only the tasks held and ready to pick up (and the backlog) are shown.',
+    primeOnly: 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up (and the backlog) are shown.',
     backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
   },

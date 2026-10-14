@@ -263,6 +263,10 @@ test('beside prime a backlog read that gave nothing does not fail the load, and 
     assert.equal(none.value.backlogProblem, undefined)
     const read = await loadAllRows(fakeClient({ [PROFILE.showAll]: showAll, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) }))
     assert.equal(read.value.backlogProblem, undefined)
+    // An answer that is not the list of rows gives nothing either, as the whole list's read finds it unreadable.
+    const odd = await loadAllRows(fakeClient({ [PROFILE.showAll]: showAll, [PROFILE.backlog]: passed({ rows: [] }), [PROFILE.prime]: passed(PRIME) }))
+    assert.deepEqual(odd.value.rows.map((row) => row.id), primeIds)
+    assert.deepEqual(odd.value.backlogProblem, { kind: 'unreadable' })
   }
 })
 
