@@ -37,6 +37,17 @@ export interface Row {
   assignee?: string
   assignee_email?: string
   blocked_by?: string[]
+  /** CLI's unread verdict: `true` or absent (see read.ts). */
+  unread?: boolean
+  /**
+   * ASSUMED upstream fields (not in any released moai): the CLI's own derivations. When present the index uses
+   * them; when absent it derives the same values itself.
+   * `derived_milestone`: the milestone the row stands on (null: none). `derived_deferred`: deferral inherited
+   * from itself, parents, epic or milestone. `archive_candidate`: done and older than the CLI's `archive_days`.
+   */
+  derived_milestone?: string | null
+  derived_deferred?: boolean
+  archive_candidate?: boolean
   [field: string]: unknown
 }
 
@@ -436,6 +447,10 @@ export class IssueIndex {
 
   /** The milestone a row actually stands under (read from its place, not its own field). */
   milestoneOf(at: number): string | undefined {
+    // ASSUMED upstream `derived_milestone` wins when the row carries it (null means no milestone).
+    const given = this.rows[at]?.derived_milestone
+    if (typeof given === 'string') return given
+    if (given === null) return undefined
     const seg = this.homes[at]?.find((s) => s.startsWith('m:') && s !== NO_MILESTONE)
     return seg?.slice(2)
   }
@@ -448,6 +463,12 @@ export class IssueIndex {
   /** The row that took this row out of the plan (itself, or an ancestor, epic or milestone); undefined if planned. */
   shelvedAt(at: number): string | undefined {
     return this.shelved[at]
+  }
+
+  /** Is the row out of the plan by deferral? ASSUMED upstream `derived_deferred` wins when present. */
+  isDeferred(at: number): boolean {
+    const given = this.rows[at]?.derived_deferred
+    return typeof given === 'boolean' ? given : this.shelved[at] !== undefined
   }
 
   /** `shelvedAt` for a place known only by id (a blocker): the later row of that id answers. */
@@ -526,6 +547,8 @@ export class IssueIndex {
 
 /** Done, and standing in that column longer than `archiveDays` — what `moai archive` would move. */
 export function archiveCandidate(row: Row, now: Date, archiveDays: number): boolean {
+  // ASSUMED upstream `archive_candidate` (computed with the CLI's own archive_days) wins when present.
+  if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
   if (!isDone(row) || typeof row.status_since !== 'string') return false
   const since = Date.parse(row.status_since)
   return Number.isFinite(since) && now.getTime() - since > archiveDays * 86_400_000

@@ -181,3 +181,40 @@ test('helpers: id parents and archive candidates', () => {
   assert.equal(archiveCandidate({ id: 'a', status: 'done', status_since: '2026-10-01T00:00:00Z' }, now, 30), false)
   assert.equal(archiveCandidate({ id: 'a', status: 'todo', status_since: '2026-01-01T00:00:00Z' }, now, 30), false)
 })
+
+// ASSUMED upstream fields (derived_milestone, derived_deferred, archive_candidate): not in any released moai.
+// Present, the index uses them; absent, it derives the same values itself.
+test('assumed upstream derived_milestone wins when present, own derivation otherwise', () => {
+  const idx = new IssueIndex([
+    { id: 'm1', kind: 'milestone' },
+    { id: 'e1', kind: 'epic', milestone: 'm1' },
+    { id: 'a', kind: 'issue', epic: 'e1' },
+    { id: 'b', kind: 'issue', epic: 'e1', derived_milestone: 'elsewhere' },
+    { id: 'c', kind: 'issue', epic: 'e1', derived_milestone: null },
+  ])
+  assert.equal(idx.milestoneOf(idx.find('a')), 'm1', 'absent: fallback derivation')
+  assert.equal(idx.milestoneOf(idx.find('b')), 'elsewhere', 'string: upstream value')
+  assert.equal(idx.milestoneOf(idx.find('c')), undefined, 'null: no milestone')
+})
+
+test('assumed upstream derived_deferred wins when present, own derivation otherwise', () => {
+  const idx = new IssueIndex([
+    { id: 'p', kind: 'issue', deferred_at: '2026-10-01T00:00:00Z' },
+    { id: 'p.kid', kind: 'issue' },
+    { id: 'free', kind: 'issue' },
+    { id: 'told-yes', kind: 'issue', derived_deferred: true },
+    { id: 'p.told-no', kind: 'issue', derived_deferred: false },
+  ])
+  assert.equal(idx.isDeferred(idx.find('p.kid')), true, 'absent: inherited from parent')
+  assert.equal(idx.isDeferred(idx.find('free')), false)
+  assert.equal(idx.isDeferred(idx.find('told-yes')), true, 'true: upstream value')
+  assert.equal(idx.isDeferred(idx.find('p.told-no')), false, 'false beats own derivation')
+})
+
+test('assumed upstream archive_candidate wins when present, own derivation otherwise', () => {
+  const now = new Date('2026-10-14T00:00:00Z')
+  const old = { id: 'a', status: 'done', status_since: '2026-09-01T00:00:00Z' }
+  assert.equal(archiveCandidate(old, now, 30), true)
+  assert.equal(archiveCandidate({ ...old, archive_candidate: false }, now, 30), false)
+  assert.equal(archiveCandidate({ id: 'b', status: 'todo', archive_candidate: true }, now, 30), true)
+})
