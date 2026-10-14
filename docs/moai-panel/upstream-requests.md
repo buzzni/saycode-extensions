@@ -331,7 +331,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
-| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`. **0.17.0 확인됨** | NEW 칩과 탭 뱃지가 꺼진다. 오류는 아니고, 이제 NEW를 그리므로 호환 배너가 "Upgrade moai (NEW marks)"로 말한다(`se-hd7v`: 배너는 패널이 쓰는 기능만 말한다). 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
+| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`. **0.17.0 확인됨** | NEW 칩과 탭 뱃지가 꺼진다. 오류는 아니고 배너도 없다: 키는 안 읽음 0이면 없어서 부재를 "기능 없음"과 구별할 수 없고 0.16도 `unread`를 찍는다(`se-xee6`, 사람 결정으로 compat `ORDER`에서 뺐다). 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
 | 2 | `status --json`의 **`statuses[]`** (설정 순서) | `statuses: string[]`, `.moai/config.toml` 순서. **0.17.0 확인됨** | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서를 잃는다. 배너는 없다(`se-hd7v`) |
 | 3 | **설정 읽기 JSON** | 칸 이름·`archive_days` 같은 값을 JSON으로. **0.17.0 확인됨**(`config --json`). 패널은 아직 읽지 않는다(선언한 프로필에 없음) | 코드의 기본값(`archive_days = 14`, 칸 4개) |
 | 4 | 파생값 **`derived_milestone`·`shelved_by`·`archived`** (요청 때 이름은 `derived_deferred`·`archive_candidate`) | **0.17.0 확인됨, 이름이 다름.** 행에 `derived_milestone`(문자열), `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`(`show --all`이 아카이브로 숨기는 행에 `true`). 셋 다 해당할 때만 키가 있고 `false`·`null`은 나오지 않는다 | `nav.rs` 규칙을 이식한 인덱스가 클라이언트에서 직접 계산한다. 있으면 그 값이 이긴다 |
@@ -344,15 +344,15 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 패널은 버전 문자열이 아니라 **모양**으로 낡은 moai를 알아본다(`compat.ts`).
 
-- `status --json`에 `statuses[]`나 `milestones[]`/`epics[]`가 없으면 낡은 moai(0.16)로 읽는다. 배너는 패널이 쓰는 기능이 없을 때만 "moai를 올리라"고 말하고, 0.16의 `status`는 배너를 받지 않는다(`se-hd7v`).
-- `unread` 키만 없는 것은 약한 증거라서 "알 수 없음"으로만 둔다.
+- `status --json`에 `statuses[]`나 `milestones[]`/`epics[]`가 없으면 낡은 moai(0.16)로 읽는다. 0.16은 마일스톤·에픽 셈과 아카이브 쪽 나누기를 이미 가졌으므로 배너를 받지 않는다(`se-hd7v`, `se-xee6`). 배너는 패널이 쓰는 기능이 정말 없을 때만 "moai를 올리라"고 말한다. 보드를 대체해서 읽은 이유(backlog 읽기 실패, `show --all` 없음)는 compat이 아니라 셸 배너 `shell.backlogFailed`·`shell.primeOnly`가 말한다(`se-ka0w`).
+- `unread` 키만 없는 것은 증거가 아니다. 판정에 쓰지 않고 "알 수 없음"으로 둔다(`se-xee6`).
 - `moai`가 데몬 쪽에 설치되지 않았으면(`tool-missing`) 따로 알린다.
 
 ### 2.2 우선순위
 
 | 구분 | 항목 |
 |---|---|
-| 없으면 기능이 꺼짐 | 1(NEW 칩·뱃지), 6(아카이브) |
+| 없으면 기능이 꺼짐 | 1(NEW 칩·뱃지, 배너 없음), 6(아카이브) |
 | 없으면 값이 어긋나거나 순서를 잃음 | 2, 7 |
 | 없어도 같은 결과를 클라이언트가 낸다 | 3, 4, 5 |
 | 릴리스와 따로 | 8 |
