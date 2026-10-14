@@ -375,3 +375,15 @@ moai 상류 릴리스 ─┐
 - `0.17.0`은 **실제 릴리스 번호가 아니다.** 지금 확인된 moai는 0.16이고 위 개선은 아직 하나도 릴리스되지 않았다(unread는 미병합 브랜치뿐).
 - 상류 릴리스 번호가 정해지면 바꿀 곳: 확장 `README.md`의 호환성 표(Needs 표의 `moai` CLI 행과 "assumed" 주석), `compat.ts` 헤더의 설명, 이 문서 2절 첫 문장과 3절. 확장 코드는 번호를 비교하지 않고 모양만 보므로 번호가 바뀌어도 동작은 바뀌지 않는다.
 - 상류가 일부만 받아들이면 표의 "없으면" 열이 곧 그 릴리스의 동작이다. 그 경우 호환성 표의 "Notes" 칸을 받아들여진 항목에 맞춰 줄인다.
+
+## Desktop 저장소 후속
+
+`aplus-dev-studio-desktop`을 읽기만 해서 정리했다(`se-vpav`). 이 저장소에서 고칠 것은 없고, **확장 2.0.0 태그가 나온 뒤** Desktop 쪽에서 할 일이다. 순서는 위 3절의 릴리스 순서 끝에 붙는다.
+
+1. `build/official-extensions/catalog.v1.json`의 `buzzni.moai` 항목을 2.0.0, 새 릴리스 태그(이 저장소의 태그이고 확장 버전에서 나오지 않는다), `buzzni.moai-2.0.0.saycode-extension.base64`, 새 sha256으로 바꾼다. 1.1.1 `.base64`는 지운다(남기면 prebuild 검사의 orphan 오류).
+2. `tests/officialExtensionInstaller.test.ts`: 버전·태그·sha, `readInstalledManifest('buzzni.moai', '1.1.1')`, 프로필 4개(`status`·`prime`·`show`·`add`) 다이제스트 `toEqual` 표를 13개로 바꾼다. 같은 다이제스트는 Happy 데몬 카탈로그 쪽과도 같아야 한다(위 1.4절).
+3. `release-notes/unreleased/moai-official-extension.md`의 "buzzni.moai 1.1.1" 문구를 바꾼다.
+4. 서명된 원격 카탈로그로 기존 사용자에게 2.0.0을 보낸다면 그 설명자(`id`, `version`, `releaseUrl`, `archiveUrl`, `sha256`)에도 새 항목이 필요하다. 번들 카탈로그는 부트스트랩용이다.
+5. 1.1.1 → 2.0.0은 자동 교체가 아니라 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동). 실행 중에는 거부된다.
+6. 매니페스트는 `apiVersion 3`, `engines ^1.2.0`이라 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. 이 뱃지를 피하려면 API 4 기능을 쓰는 확장 버전이 따로 필요하다.
+7. 열어 둘 요청(선택): 패널에 가시성·포커스 신호를 주는 포트 메시지, `allow-same-origin` 또는 패널용 저장 API. 지금은 iframe이 `sandbox="allow-scripts"`뿐이라 `localStorage`가 세션 한정이고, 숨은 탭은 0×0 뷰포트로만 짐작한다.
