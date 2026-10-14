@@ -93,16 +93,18 @@ test('the project list (outside a board) is not read as a shape', () => {
   assert.equal(probe.report().moai, 'unknown')
 })
 
-// show --all failing calls off the backlog read beside it (source.ts); what that read already ended with is still observed.
+// A list read the catalog lacks degrades the load (source.ts): prime stands in for show --all, the backlog goes.
 test('unsupported-daemon on added profiles names them; their features degrade, the rest keeps working', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({
     [PROFILE.showAll]: refused('unsupported-daemon'),
     [PROFILE.backlog]: refused('unsupported-daemon'),
+    [PROFILE.prime]: passed({ picked: [{ id: 'trk-flv8', title: 'Held', status: 'in_progress' }], others: [], ready: [], rest: 0, others_rest: 0 }),
     [PROFILE.wikiLs]: passed({ pages: [] }),
     [PROFILE.showArchived]: refused('unsupported-daemon'),
   }))
-  assert.equal((await loadAllRows(client, undefined, probe)).ok, false)
+  const loaded = await loadAllRows(client, undefined, probe)
+  assert.deepEqual([loaded.ok, loaded.value.partial, loaded.value.rows.map((row) => row.id)], [true, true, ['trk-flv8']])
   await loadStatuses(client, undefined, probe)
   await loadWikiListing(client, probe)
   await loadArchived(client, { probe })

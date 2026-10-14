@@ -3,7 +3,8 @@
  * each request carries its own phase, so a slow list refresh does not lock the detail or the add field.
  *
  * - A request is `start` (`buzzni.moai.run`) → poll (`buzzni.moai.status` every `pollMs`) → parse.
- * - A read already queued or running with the same profile and value is shared, not started twice.
+ * - A read already queued or running with the same profile and value is shared, not started twice — unless the caller
+ *   counts a write since that one was asked ({@link RequestOptions.epoch}) and it has already started.
  * - At most `concurrency` runs are in flight; the rest wait in priority order (detail before wiki before
  *   list). The spike (se-0g4a.fjl) found nothing in the SDK, Desktop or daemon that serialises read-only
  *   profiles, so the panel is to run up to 3 at once ({@link PANEL_CLIENT_OPTIONS}) until Desktop is
@@ -98,6 +99,12 @@ export interface RequestOptions {
   priority?: number
   /** Writes are never shared: two adds of the same title are two adds. */
   share?: boolean
+  /**
+   * How many of its writes the caller had seen through when it asked (default 0). A read is shared only with a run of it
+   * asked at that count or a later one, or with one still queued (it has not started): a read asked after a write is
+   * never handed the answer of a run that began before it.
+   */
+  epoch?: number
 }
 
 export interface ClientOptions {
@@ -141,6 +148,10 @@ export function outcomeOf(finished: unknown): Outcome {
   return output === null ? { kind: 'failed' } : { kind: 'failed', output }
 }
 
+/** The refusal code an outcome names: a refusal's, or the one a start that failed named (`not-started`). */
+export const refusalCode = (outcome: Outcome | null): string | undefined =>
+  outcome?.kind === 'refused' || outcome?.kind === 'not-started' ? outcome.code : undefined
+
 /**
  * What a run answered: a pass's output, or the whole answer Moai printed before it ended non-zero on a partial
  * one (see the header). Undefined when the run gave no answer.
@@ -170,6 +181,8 @@ interface Pending extends RequestState {
   attempts: number
   /** Waiting out a `workspace-busy` backoff: queued, but not to be picked yet. */
   held: boolean
+  /** The latest {@link RequestOptions.epoch} it answers for. */
+  epoch: number
 }
 
 /** A shared read Core refused as busy, to be queued again. */
@@ -283,14 +296,18 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
     request(profileId, value, requestOptions = {}) {
       const key = requestKey(profileId, value)
       const priority = requestOptions.priority ?? PRIORITY.list
+      const epoch = requestOptions.epoch ?? 0
       if (requestOptions.share !== false) {
-        const shared = pending.find((entry) => entry.key === key && !entry.cancelled && entry.share)
+        // The latest one: a run asked after a write may stand beside an older one still running.
+        const shared = pending.filter((entry) => entry.key === key && !entry.cancelled && entry.share && (entry.phase === 'queued' || entry.epoch >= epoch)).at(-1)
         if (shared) {
           // Someone now waits on it sooner: a queued shared request moves up.
           if (priority < shared.priority) {
             shared.priority = priority
             notify()
           }
+          // A queued one starts after the writes this caller has seen through, so it answers for them too.
+          if (epoch > shared.epoch) shared.epoch = epoch
           return shared.promise
         }
       }
@@ -298,7 +315,7 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
       const promise = new Promise<Outcome>((done) => (resolve = done))
       const entry: Pending = {
         key, profileId, value, priority, phase: 'queued', operationId: null,
-        seq: seq++, promise, resolve, cancelled: false, share: requestOptions.share !== false, attempts: 0, held: false,
+        seq: seq++, promise, resolve, cancelled: false, share: requestOptions.share !== false, attempts: 0, held: false, epoch,
       }
       pending.push(entry)
       notify()

@@ -132,12 +132,12 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   function content(row: Row, index: IssueIndex | null, search: State['search']): Node[] {
     const head = headOf(row, copy)
     const chips = el(doc, 'div', { class: 'moai-detail-chips' })
-    // Unread by either copy: `show`'s row, and the row the list holds (a cut list's prime rows print no `unread`, so
+    // Unread by either copy: `show`'s row, and the row the list holds (a partial list's prime rows print no `unread`, so
     // there `show` alone knows). The list's row also knows the archive when moai's `show` row does not say it (moai
     // 0.17 prints `archived: true` on it): archived rows are never NEW.
     const listed = index?.find(row.id)
     const held = listed === undefined ? undefined : index!.rows[listed]
-    if ((isUnread(row) || held?.unread === true) && held?.archived !== true) chips.append(newChip(doc))
+    if ((isUnread(row) || (held !== undefined && isUnread(held))) && held?.archived !== true) chips.append(newChip(doc))
     if (head.status) chips.append(chip(doc, { label: head.statusLabel, tone: head.tone }))
     if (head.priority) chips.append(chip(doc, { label: head.priority }))
     if (head.kind) chips.append(chip(doc, { label: head.kind }))
@@ -237,8 +237,13 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     if (value) children.push(...content(value.row, index, state.search))
     else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
     else if (!problem) children.push(emptyState(doc, { title: d.none }))
-    // A row was chosen and its read refused, and the banner tells why: the pane says only that it has no details.
-    else if (told) children.push(emptyState(doc, { title: d.problem }))
+    // A row was chosen and its read refused, and the banner tells why: the pane says only that it has no details,
+    // announced as the banner it stands for would have been (the compat banner was told before, and is not again).
+    else if (told) {
+      const none = emptyState(doc, { title: d.problem })
+      if (!isInformation(problem)) none.setAttribute('role', 'alert')
+      children.push(none)
+    }
     view.replaceChildren(...children)
     scroller().scrollTop = top
     if (key !== undefined) view.querySelector<HTMLElement>(`[data-focus="${key}"]`)?.focus({ preventScroll: true })
