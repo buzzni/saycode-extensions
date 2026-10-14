@@ -1,8 +1,12 @@
 /**
  * Automatic refresh: while the panel is visible the list is read again every `intervalMs` (60 s by
- * default); a hidden panel does not poll, and becoming visible after the interval has passed reads at once.
+ * default); while `isVisible` says hidden it does not poll, and becoming visible after the interval has passed
+ * reads at once. In Desktop the panel only sees `document.visibilityState`, which follows the window: an
+ * inactive Moai tool tab stays mounted and still counts as visible (a host signal is needed for that).
  * A manual refresh (the refresh-time button) reads now and restarts the interval. Reads never overlap:
- * a refresh asked for while one runs waits for it instead of starting another.
+ * a refresh asked for while one runs waits for it instead of starting another. After a write, ask for a
+ * `fresh` read: a read that started before the write cannot hold its result, so that one is waited out
+ * and a new read follows.
  *
  * Timers and visibility are injected so the schedule is tested without a DOM or real time.
  */
@@ -21,8 +25,11 @@ export interface RefresherOptions {
 }
 
 export interface Refresher {
-  /** Reads now (unless a read is running, which it then waits for) and restarts the interval. */
-  refresh(): Promise<void>
+  /**
+   * Reads now (unless a read is running, which it then joins) and restarts the interval. With `fresh`, a
+   * running read is waited out and another one follows it.
+   */
+  refresh(options?: { fresh?: boolean }): Promise<void>
   /** Tell it the panel's visibility changed. */
   visibilityChanged(): void
   setInterval(ms: number): void
@@ -66,7 +73,11 @@ export function createRefresher(options: RefresherOptions): Refresher {
   // A read nobody awaits must not end as an unhandled rejection; the load reports its own failures.
   const background = () => void refresh().catch(() => {})
 
-  function refresh(): Promise<void> {
+  function refresh(how: { fresh?: boolean } = {}): Promise<void> {
+    if (inFlight && how.fresh) {
+      const after = () => refresh()
+      return inFlight.then(after, after)
+    }
     if (inFlight) return inFlight
     clear()
     inFlight = (async () => {

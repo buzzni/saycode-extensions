@@ -78,7 +78,8 @@ async function add(text: string) {
     // The field stays editable while an add runs: clear it only if it still holds what was sent.
     const input = root.querySelector('input')
     if (input?.value === text) input.value = ''
-    await refresher.refresh()
+    // A list read already running started before the add and cannot hold the new task.
+    await refresher.refresh({ fresh: true })
   } finally {
     adding = false
   }

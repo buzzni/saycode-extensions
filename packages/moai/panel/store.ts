@@ -1,6 +1,7 @@
 /**
- * The panel's one state and the actions that change it. The reducer is pure — no DOM, no I/O — so every
- * transition is tested with `node --test`; views subscribe and render from the state they are given.
+ * The panel's one state and the actions that change it. The reducer is pure — no I/O, and no DOM at run
+ * time (it borrows the layout rules from view/responsive.ts and view/split.ts) — so every transition is
+ * tested with `node --test`; views subscribe and render from the state they are given.
  *
  * List and board share the cursor, path, filters and detail (the board is a layout of the list); the
  * wiki tab keeps its own page, trail and search.

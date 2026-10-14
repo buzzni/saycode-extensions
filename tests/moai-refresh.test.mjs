@@ -129,3 +129,24 @@ test('the refresh time reads HH:MM:SS', () => {
   const at = new Date(2026, 9, 14, 9, 5, 7).getTime()
   assert.equal(refreshTime(at, 'en-GB'), '09:05:07')
 })
+
+test('a fresh read after a write waits out a read that started before it, then reads again', async () => {
+  const clock = fakeClock()
+  let loads = 0
+  let release
+  const refresher = createRefresher({ load: () => { loads += 1; return new Promise((resolve) => (release = resolve)) }, clock })
+  const before = refresher.refresh()
+  const fresh = refresher.refresh({ fresh: true })
+  assert.notEqual(before, fresh)
+  release()
+  await before
+  await flush()
+  assert.equal(loads, 2)
+  release()
+  await fresh
+  // Without a running read, fresh reads at once like any refresh.
+  const idle = refresher.refresh({ fresh: true })
+  assert.equal(loads, 3)
+  release()
+  await idle
+})
