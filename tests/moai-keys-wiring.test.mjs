@@ -578,6 +578,52 @@ test('keys: the help open — Enter on a button behind it and a letter in the se
   assert.equal(panel.keys.help.isOpen(), false)
 })
 
+test('keys: the help open — Ctrl+C and Ctrl+D go to the browser: not prevented, the focus stays, the panel stays quiet (se-1fy7)', () => {
+  const panel = inEpic()
+  panel.press('?')
+  const behind = panel.$('.m-toolbar-slot .m-sort button')
+  behind.focus()
+  const copy = panel.press('c', { ctrlKey: true }, behind)
+  assert.equal(copy.defaultPrevented, false, 'the browser copies')
+  assert.equal(panel.doc.activeElement, behind, 'the focus is not taken back')
+  const down = panel.press('d', { ctrlKey: true }, behind)
+  assert.equal(down.defaultPrevented, false)
+  assert.equal(panel.state().cursor, 'e1.a', 'no panel shortcut ran behind the overlay')
+  assert.equal(panel.keys.help.isOpen(), true)
+  // A plain key is still stopped and the focus comes back.
+  assert.equal(panel.press('j', {}, behind).defaultPrevented, true)
+  assert.equal(panel.doc.activeElement, panel.keys.help.el)
+})
+
+test('keys: r and SPC m g see an active row only the archive answer holds when archived rows are shown (se-4f4s)', async () => {
+  const calls = []
+  const read = {
+    one: async (id) => (calls.push(['one', id]), null),
+    all: async () => null,
+    group: async (id) => (calls.push(['group', id]), null),
+  }
+  const panel = inEpic({ read })
+  const extra = [
+    { id: 'e2', kind: 'epic', title: 'Old epic', status: 'done' },
+    { id: 'e1.z', kind: 'issue', title: 'Zeta', epic: 'e1', status: 'done' },
+  ]
+  panel.store.dispatch({ type: 'view', view: { showArchived: true } })
+  panel.store.dispatch({ type: 'archive', rows: [...ROWS, ...extra] })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.z' })
+  panel.shell.focusPane('list')
+  panel.press('r')
+  panel.store.dispatch({ type: 'cursor', id: 'e2' })
+  panel.seq(' ', 'm', 'g')
+  await ticks()
+  assert.deepEqual(calls, [['one', 'e1.z'], ['group', 'e2']])
+  // Archived rows hidden again: the archive answer is not the list's.
+  panel.store.dispatch({ type: 'view', view: { showArchived: false } })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.z' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2)
+})
+
 test('keys: Tab in browse moves the focus unless it runs expandAll on the list (se-h5c7)', () => {
   const panel = inEpic()
   assert.equal(panel.press('Tab').defaultPrevented, true, 'on the list Tab is expandAll')
