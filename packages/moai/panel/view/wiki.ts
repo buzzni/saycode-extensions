@@ -387,6 +387,12 @@ export interface WikiView {
   focusSearch(): void
   focusPane(pane: WikiPane): void
   handleKey(event: KeyboardEvent): boolean
+  /**
+   * A key-table action by its id (keys/wiring.ts), for what handleKey cannot read off the event: `move.top` reached
+   * by `gg`, the page moves, the `SPC w` / `Ctrl-w` focus moves, a letter a Korean input source turned into a
+   * jamo. True when the view did it; `wiki.clear` with nothing to clear is false.
+   */
+  command(action: string): boolean
   setWidth(width: number): void
   setRatio(ratio: number): void
   state(): WikiState
@@ -891,6 +897,66 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     return false
   }
 
+  function command(action: string): boolean {
+    const page = Math.max(LINE_PX, scroller.clientHeight - LINE_PX)
+    const scrollBy = (by: number) => {
+      scroller.scrollTop = Math.max(0, scroller.scrollTop + by)
+    }
+    switch (action) {
+      case "focus.next":
+      case "focus.prev":
+        focusPane(pane === "list" ? "body" : "list")
+        return true
+      case "focus.left":
+        focusPane("list")
+        return true
+      case "focus.right":
+      case "wiki.page":
+        focusPane("body")
+        return true
+      case "move.down":
+      case "move.up":
+        if (pane === "list") moveCursor(action === "move.down" ? 1 : -1)
+        else scrollBy(action === "move.down" ? LINE_PX : -LINE_PX)
+        return true
+      case "move.top":
+      case "move.bottom":
+        if (pane === "list") moveCursor(action === "move.top" ? -Infinity : Infinity)
+        else scroller.scrollTop = action === "move.top" ? 0 : scroller.scrollHeight
+        return true
+      case "move.halfDown":
+      case "move.halfUp":
+      case "move.pageDown":
+      case "move.pageUp":
+        scrollBy((action.endsWith("Down") ? 1 : -1) * (action.startsWith("move.half") ? page / 2 : page))
+        return true
+      case "wiki.enter":
+        if (pane === "list") {
+          if (cursor) void open(cursor)
+        } else if (selected >= 0) void followSelected()
+        else selectLink(1)
+        return true
+      case "wiki.back":
+        void back()
+        return true
+      case "wiki.nextLink":
+      case "wiki.prevLink":
+        selectLink(action === "wiki.nextLink" ? 1 : -1)
+        return true
+      case "wiki.search":
+        focusSearch()
+        return true
+      case "wiki.clear":
+        if (clearLinkSelection()) return true
+        if (query) {
+          setQuery("")
+          return true
+        }
+        return false
+    }
+    return false
+  }
+
   // -- events --
   const onKeyDown = (event: KeyboardEvent): void => {
     handleKey(event)
@@ -1014,6 +1080,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     focusSearch,
     focusPane,
     handleKey,
+    command,
     setWidth,
     setRatio(ratio) {
       split.setRatio("left", ratio)
@@ -1038,7 +1105,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
  * The wiki view in the shell's wiki panel (contract: view/types.ts). Pages come from `ctx.wiki` — read once,
  * the first time the tab shows — and the view's state is saved into the store (`wiki`) as the tab is left and
  * given back from it when the pane is mounted again. Without a source the tab says the wiki cannot be read.
- * The view keeps its own keydown listener (standaloneKeys) until the key router calls handleKey instead.
+ * Its keys come from the key router (keys/wiring.ts), which calls handleKey and command: the view listens for
+ * none itself (standaloneKeys: false), so no key runs twice.
  */
 export const mountWiki: MountPane = (root, ctx): PaneView => {
   const { document: doc, copy, intents } = ctx
@@ -1051,6 +1119,7 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
   let started = false
   const view = createWikiView(doc, {
     loadPage: (slug) => source.page(slug),
+    standaloneKeys: false,
     // An issue id in a page: the list tab, at the place the row is listed, with the row chosen.
     onIssue: (id) => {
       intents.dispatch({ type: "tab", tab: "list" })
@@ -1083,7 +1152,9 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
     },
     focus: () => view.focusPane(view.state().pane),
     handleKey: (event) => view.handleKey(event),
+    command: (action) => view.command(action),
     toggleRaw: () => view.toggleRaw(),
+    raw: () => view.state().raw,
     leave: () => intents.dispatch({ type: "wiki", wiki: view.state() }),
     destroy: () => view.destroy(),
   }

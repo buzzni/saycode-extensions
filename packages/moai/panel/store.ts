@@ -181,6 +181,8 @@ export type Action =
   | { type: 'cursor'; id: string | null }
   | { type: 'focus'; focus: Focus }
   | { type: 'toggle-expanded'; path: Path }
+  /** The unfolded folders all at once (Tab: everything under a group unfolds or folds), as path keys. */
+  | { type: 'expanded'; expanded: string[] }
   | { type: 'detail-visible'; visible: boolean }
   | { type: 'detail-position'; position: DetailPosition }
   /** `position` is the one resized — the split reports the position it shows, which a narrow panel forces to the bottom. */
@@ -244,6 +246,10 @@ export function reduce(state: State, action: Action): State {
       const key = pathKey(action.path)
       const expanded = state.expanded.includes(key) ? state.expanded.filter((k) => k !== key) : [...state.expanded, key]
       return { ...state, expanded }
+    }
+    case 'expanded': {
+      const same = action.expanded.length === state.expanded.length && action.expanded.every((key, n) => key === state.expanded[n])
+      return same ? state : { ...state, expanded: [...action.expanded] }
     }
     case 'detail-visible':
       return { ...state, detail: { ...state.detail, visible: action.visible }, focus: action.visible ? state.focus : 'list' }

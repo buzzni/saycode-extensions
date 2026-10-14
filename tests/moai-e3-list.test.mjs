@@ -223,7 +223,9 @@ function mount(rows, { state: over = {}, width = 800, height = 280, detailVisibl
   store.subscribe(render)
   render()
   const lines = () => [...root.querySelectorAll('.moai-line')]
-  const key = (name, extra = {}) => root.querySelector('.moai-list').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...extra }))
+  // The key router owns the keys (keys/wiring.ts) and hands the list the action a key stands for.
+  const ACTIONS = { ArrowDown: 'move.down', ArrowUp: 'move.up', PageDown: 'move.pageDown', PageUp: 'move.pageUp', Home: 'move.top', End: 'move.bottom', Enter: 'enter', Backspace: 'leave', ArrowRight: 'expand', ArrowLeft: 'collapse', Tab: 'expandAll' }
+  const key = (name) => pane.command(ACTIONS[name])
   return { dom, doc, root, store, pane, calls, lines, key, render, size }
 }
 

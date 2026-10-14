@@ -412,6 +412,40 @@ const TOOLBAR: Record<Language, ToolbarCopy> = {
   },
 }
 
+// ── keys: the key router's words (se-jwl3); the key table's own labels live in keys/table.ts ─────────────
+
+export interface KeysCopy {
+  /** Shown while the panel's frame has no keyboard focus (the host does not give it one). */
+  focusHint: string
+  /** `r`, `SPC m a`, `SPC m g` before the data layer that writes read marks is merged. */
+  readUnavailable: string
+  /** `D` in the sort editor: the panel has nowhere to keep a default order yet. */
+  sortDefaultUnavailable: string
+}
+
+const KEYS: Record<Language, KeysCopy> = {
+  en: {
+    focusHint: 'Click to use the keyboard',
+    readUnavailable: 'Marking items read is not available in the panel yet.',
+    sortDefaultUnavailable: 'Saving a default sort is not available in the panel yet.',
+  },
+  ko: {
+    focusHint: '클릭하면 키보드를 쓸 수 있습니다',
+    readUnavailable: '읽음 표시는 아직 패널에서 쓸 수 없습니다.',
+    sortDefaultUnavailable: '기본 정렬 저장은 아직 패널에서 쓸 수 없습니다.',
+  },
+  ja: {
+    focusHint: 'クリックするとキーボードを使えます',
+    readUnavailable: '既読の記録はまだパネルでは使えません。',
+    sortDefaultUnavailable: '既定の並べ替えの保存はまだパネルでは使えません。',
+  },
+  zh: {
+    focusHint: '点击后即可使用键盘',
+    readUnavailable: '面板中暂时还不能标记为已读。',
+    sortDefaultUnavailable: '面板中暂时还不能保存默认排序。',
+  },
+}
+
 // ── the 1.x words, and the groups put together ───────────────────────────────────────────────────────
 
 export interface Copy {
@@ -445,6 +479,7 @@ export interface Copy {
   board: BoardCopy
   detail: DetailCopy
   toolbar: ToolbarCopy
+  keys: KeysCopy
 }
 
 const en: Copy = {
@@ -466,7 +501,7 @@ const en: Copy = {
     'unsupported-daemon': "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.",
   },
   notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
-  shell: SHELL.en, list: LIST.en, board: BOARD.en, detail: DETAIL.en, toolbar: TOOLBAR.en,
+  shell: SHELL.en, list: LIST.en, board: BOARD.en, detail: DETAIL.en, toolbar: TOOLBAR.en, keys: KEYS.en,
 }
 
 const ko: Copy = {
@@ -488,7 +523,7 @@ const ko: Copy = {
     'unsupported-daemon': '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.',
   },
   notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
-  shell: SHELL.ko, list: LIST.ko, board: BOARD.ko, detail: DETAIL.ko, toolbar: TOOLBAR.ko,
+  shell: SHELL.ko, list: LIST.ko, board: BOARD.ko, detail: DETAIL.ko, toolbar: TOOLBAR.ko, keys: KEYS.ko,
 }
 
 const ja: Copy = {
@@ -510,7 +545,7 @@ const ja: Copy = {
     'unsupported-daemon': 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。',
   },
   notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
-  shell: SHELL.ja, list: LIST.ja, board: BOARD.ja, detail: DETAIL.ja, toolbar: TOOLBAR.ja,
+  shell: SHELL.ja, list: LIST.ja, board: BOARD.ja, detail: DETAIL.ja, toolbar: TOOLBAR.ja, keys: KEYS.ja,
 }
 
 const zh: Copy = {
@@ -532,7 +567,7 @@ const zh: Copy = {
     'unsupported-daemon': '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。',
   },
   notInitialized: ['此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 ', '，然后重试。如果找不到 moai，请使用「设置 → 扩展」的机器工具中显示的 Moai 路径运行。'],
-  shell: SHELL.zh, list: LIST.zh, board: BOARD.zh, detail: DETAIL.zh, toolbar: TOOLBAR.zh,
+  shell: SHELL.zh, list: LIST.zh, board: BOARD.zh, detail: DETAIL.zh, toolbar: TOOLBAR.zh, keys: KEYS.zh,
 }
 
 export const COPY: Record<Language, Copy> = { en, ko, ja, zh }

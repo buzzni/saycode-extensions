@@ -13,9 +13,11 @@
  * - Views read the state they are given and report what the user did through {@link ViewIntents}; they keep
  *   no copy of the store's state. The root they get stays theirs: the shell never writes inside it.
  *   The main pane's root scrolls (overflow: auto) and its scroll offsets survive tab changes.
- * - Keys: until the key router (panel/keys/) calls them, views listen on their own roots. A view that handles
- *   keys exposes {@link PaneView.handleKey} so the router can hand it a key first; `false` means "not mine"
- *   and the key goes on (the wiki's Esc with nothing left to clear moves the focus to the tab bar).
+ * - Keys: the key router (panel/keys/router.ts, wired by panel/keys/wiring.ts) is the one keydown listener; views
+ *   do not listen for keys themselves, so no key runs twice. The router turns a key into an action id and hands
+ *   the pane that has the focus {@link PaneView.command} (the list's and board's moves, going in and out); the
+ *   wiki pane takes its keys through {@link PaneView.handleKey}, where `false` means "not mine" and the key goes
+ *   on (the wiki's Esc with nothing left to clear moves the focus to the tab bar).
  */
 import type { IssueIndex, Path } from '../data/index.js'
 import type { Copy } from '../i18n/index.js'
@@ -87,8 +89,15 @@ export interface PaneView {
    * selected and no search left to clear, which the shell turns into a move to the tab bar.
    */
   handleKey?(event: KeyboardEvent): boolean
-  /** `SPC v r`: the body as raw markdown or rendered (the wiki's page; the router calls it). */
+  /**
+   * A key-table action for this pane (keys/table.ts ids: `move.down`, `enter`, `expand`, `focus.next`, …), from
+   * the key router. Returns true when the pane did it, false when the action is not one it knows.
+   */
+  command?(action: string, args?: Readonly<Record<string, string | number>>): boolean
+  /** `SPC v r`: the body as raw markdown or rendered (the wiki's page, the detail's body; the router calls it). */
   toggleRaw?(): void
+  /** The body is shown as raw markdown now (the `SPC v r` menu item's state). */
+  raw?(): boolean
   /** The pane's tab was left: save what should come back with it into the store (the wiki's page and trail). */
   leave?(): void
   destroy?(): void

@@ -13,6 +13,7 @@ const { copyFor } = await panelModule('i18n/index.ts')
 const { mountShell } = await panelModule('view/shell.ts')
 const { PANES } = await panelModule('view/panes.ts')
 const { mountWiki } = await panelModule('view/wiki.ts')
+const { wireKeys } = await panelModule('keys/wiring.ts')
 
 const en = copyFor('en')
 const old = new Date(Date.now() - 40 * 86_400_000).toISOString()
@@ -42,6 +43,8 @@ function boot({ rows = ROWS, wiki, store = createStore() } = {}) {
     wiki,
   })
   store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
+  // The one keydown listener, as main.ts wires it.
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other' })
   const $ = (selector) => doc.querySelector(selector)
   const listed = () => [...doc.querySelectorAll('.m-pane-main[data-pane="list"] .moai-line')].map((line) => line.dataset.key)
   const type = (input, text) => {
@@ -49,7 +52,7 @@ function boot({ rows = ROWS, wiki, store = createStore() } = {}) {
     input.dispatchEvent(new dom.window.InputEvent('input', { bubbles: true }))
   }
   const key = (target, init) => target.dispatchEvent(new dom.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
-  return { dom, doc, store, shell, $, listed, type, key, tab: (id) => $(`[role="tab"][data-tab="${id}"]`) }
+  return { dom, doc, store, shell, keys, $, listed, type, key, tab: (id) => $(`[role="tab"][data-tab="${id}"]`) }
 }
 
 const ticks = async (n = 5) => {

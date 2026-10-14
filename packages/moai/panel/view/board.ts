@@ -2,13 +2,14 @@
  * The kanban: status columns (with Backlog and deferred in front), milestone lanes at the root, cards of up
  * to three lines. Which card goes where is board-groups.ts (on the IssueIndex's rules); this file draws it
  * with the shared components. It reads state and reports a click as `intents.choose`; moving a card
- * between columns is not part of 2.0.
+ * between columns is not part of 2.0. Keys are the key router's (panel/keys/): it calls command() — j/k
+ * within a column, h/l to the next column, Enter to show the card — and the cards listen for none.
  */
 import { isDone, type IssueIndex, type Row } from '../data/index.js'
 import type { State } from '../store.js'
-import { BACKLOG, DEFERRED, groupBoard, type BoardLane } from './board-groups.ts'
+import { BACKLOG, DEFERRED, groupBoard, type BoardLane, type BoardModel } from './board-groups.ts'
 import { segLabel } from './crumbs.ts'
-import { narrow, statusGlyph, statusOf } from './list-model.ts'
+import { narrow, segKey, statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
@@ -18,11 +19,8 @@ export const glyphOf = (key: string): string => (key === BACKLOG ? '◇' : key =
 
 const priorityClass = (priority: number) => `m-p${Math.min(3, Math.max(0, Math.round(priority)))}`
 
-function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] {
+function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardModel): HTMLElement[] {
   const { document: doc, copy, intents } = ctx
-  // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
-  const narrowed = narrow(state, index)
-  const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: narrowed.match, reveal: narrowed.searching })
   if (!model.total) return [emptyState(doc, { icon: 'kanban', title: copy.empty })]
 
   const nameOf = (key: string) =>
@@ -65,13 +63,6 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] 
     }, ...lines)
     if (done) node.style.opacity = '0.75'
     node.addEventListener('click', () => intents.choose(row.id))
-    node.addEventListener('keydown', (event) => {
-      // Not Space: that is the leader of the SPC menu, which the key layer skips once a card has taken it.
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        intents.choose(row.id)
-      }
-    })
     return node
   }
 
@@ -105,20 +96,110 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] 
   return [wrap]
 }
 
+/** Where the cursor card stands: its lane, column and place in the column; null when the cursor is not a card. */
+function locate(model: BoardModel, index: IssueIndex, cursor: string | null): { lane: number; column: number; at: number } | null {
+  if (cursor === null) return null
+  for (let lane = 0; lane < model.lanes.length; lane++) {
+    const columns = model.lanes[lane]!.columns
+    for (let column = 0; column < columns.length; column++) {
+      const at = columns[column]!.cards.findIndex((card) => index.rows[card]!.id === cursor)
+      if (at >= 0) return { lane, column, at }
+    }
+  }
+  return null
+}
+
 export const mountBoard: MountPane = (root, ctx): PaneView => {
   const doc = ctx.document
   const pane = el(doc, 'div', { class: 'm-board-pane', 'aria-label': ctx.copy.board.label })
   root.replaceChildren(pane)
   let cursor: string | null = null
+  let drawn: { state: State; index: IssueIndex; model: BoardModel } | null = null
+
+  /** A key-table action (keys/wiring.ts): moves stay inside the cursor's column, h/l go to the next column that has cards. */
+  function command(action: string): boolean {
+    if (!drawn) return false
+    const { state, index, model } = drawn
+    const point = (card: number | undefined) => {
+      if (card !== undefined) ctx.intents.point(index.rows[card]!.id)
+    }
+    const first = model.lanes.flatMap((lane) => lane.columns.flatMap((column) => column.cards))[0]
+    const here = locate(model, index, state.cursor)
+    const page = Math.max(1, Math.floor((root.clientHeight || 720) / 80))
+    switch (action) {
+      case 'move.down':
+      case 'move.up':
+      case 'move.pageDown':
+      case 'move.pageUp':
+      case 'move.top':
+      case 'move.bottom': {
+        if (!here) {
+          point(first)
+          return true
+        }
+        const cards = model.lanes[here.lane]!.columns[here.column]!.cards
+        const step = { 'move.down': 1, 'move.up': -1, 'move.pageDown': page, 'move.pageUp': -page, 'move.top': -Infinity, 'move.bottom': Infinity }[action]
+        point(cards[Math.max(0, Math.min(cards.length - 1, here.at + step))])
+        return true
+      }
+      case 'move.halfDown':
+      case 'move.halfUp': {
+        const half = Math.max(40, Math.floor((root.clientHeight || 720) / 2))
+        root.scrollTop = Math.max(0, root.scrollTop + (action === 'move.halfDown' ? half : -half))
+        return true
+      }
+      case 'expand':
+      case 'collapse': {
+        if (!here) {
+          point(first)
+          return true
+        }
+        const columns = model.lanes[here.lane]!.columns
+        const delta = action === 'expand' ? 1 : -1
+        for (let next = here.column + delta; next >= 0 && next < columns.length; next += delta) {
+          const cards = columns[next]!.cards
+          if (cards.length) {
+            point(cards[Math.min(here.at, cards.length - 1)])
+            break
+          }
+        }
+        return true
+      }
+      case 'enter': {
+        if (!here) return true
+        ctx.intents.choose(state.cursor!)
+        if (ctx.layout().detailVisible) ctx.focusPane('detail')
+        return true
+      }
+      case 'leave': {
+        const path = state.path
+        if (path.length) ctx.intents.enter(path.slice(0, -1), segKey(path[path.length - 1]!))
+        return true
+      }
+    }
+    return false
+  }
+
   return {
     render(state, index) {
       const active = doc.activeElement as HTMLElement | null
       const key = active && pane.contains(active) ? active.dataset?.focus : undefined
-      pane.replaceChildren(...(index ? draw(ctx, state, index) : []))
+      if (index) {
+        // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
+        const narrowed = narrow(state, index)
+        const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: narrowed.match, reveal: narrowed.searching })
+        drawn = { state, index, model }
+        pane.replaceChildren(...draw(ctx, state, index, model))
+      } else {
+        drawn = null
+        pane.replaceChildren()
+      }
       if (key !== undefined) {
-        for (const node of pane.querySelectorAll<HTMLElement>('[data-focus]')) {
-          if (node.dataset.focus === key) { node.focus({ preventScroll: true }); break }
-        }
+        // A focused card follows the cursor a key moved, so the focus ring and the selection stay one card.
+        const want = key.startsWith('card:') && state.cursor !== null ? [`card:${state.cursor}`, key] : [key]
+        const nodes = [...pane.querySelectorAll<HTMLElement>('[data-focus]')]
+        const node = want.map((one) => nodes.find((n) => n.dataset.focus === one)).find((n) => n !== undefined)
+        node?.focus({ preventScroll: true })
       }
       // The card with the cursor stays in view when the cursor moves.
       if (state.cursor !== cursor) {
@@ -127,6 +208,7 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
         if (selected && typeof selected.scrollIntoView === 'function') selected.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       }
     },
+    command,
     focus() {
       const target = pane.querySelector<HTMLElement>('.m-card[aria-selected="true"]') ?? pane.querySelector<HTMLElement>('.m-card')
       ;(target ?? (pane.closest('[tabindex]') as HTMLElement | null))?.focus({ preventScroll: false })

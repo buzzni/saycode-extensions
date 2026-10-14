@@ -6,8 +6,8 @@
 // Thousands of rows stay fast: every line has the same height, so only the lines in and near the viewport
 // of the pane root's own scroll exist in the DOM (absolutely placed in a body as tall as all of them). The
 // keyboard focus stays on the list itself and points at the cursor row with aria-activedescendant, so
-// redrawing the window never drops it. The global key layer (panel/keys/) owns the vim keys; this view
-// handles only arrows, Home/End, Enter and Backspace, and leaves an event it handled `defaultPrevented`.
+// redrawing the window never drops it. The key router (panel/keys/) owns every key; it calls command() with
+// the action a key stands for (moves in drawn order, going in and out, unfolding), so no key runs twice.
 
 import { pathKey, priorityOf, type IssueIndex, type Keep, type Order, type Path } from "../data/index.ts"
 import { sortEdit, sees, type SortKey } from "../data/query.ts"
@@ -332,71 +332,91 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     }
   }
 
-  // ── input ──
+  // ── commands (the key router's actions: panel/keys/wiring.ts; this view has no keydown listener) ──
 
-  function onKey(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || !model || !state) return
+  /** Every folder at and under `path`, as path keys: what Tab unfolds or folds at once. */
+  function foldersUnder(index: IssueIndex, path: Path): string[] {
+    const keys = [pathKey(path)]
+    for (const at of index.descendants(path)) if (index.isDir(at)) keys.push(pathKey(index.dirPath(at)))
+    return keys
+  }
+
+  function command(action: string): boolean {
+    if (!model || !state) return false
     const lines = model.lines
     const at = state.cursor === null ? -1 : model.at.get(state.cursor) ?? -1
     const line = at < 0 ? undefined : lines[at]
     const page = Math.max(1, Math.floor(viewport() / ROW_HEIGHT) - 1)
-    switch (event.key) {
-      case "ArrowDown":
-      case "ArrowUp":
-      case "PageDown":
-      case "PageUp": {
-        const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : event.key === "PageDown" ? page : -page
+    switch (action) {
+      case "move.down":
+      case "move.up":
+      case "move.pageDown":
+      case "move.pageUp": {
+        const step = action === "move.down" ? 1 : action === "move.up" ? -1 : action === "move.pageDown" ? page : -page
         intents.point(moveKey(lines, line ? line.key : null, step))
-        break
+        return true
       }
-      case "Home":
+      case "move.top":
         intents.point(lines[0]?.key ?? null)
-        break
-      case "End":
+        return true
+      case "move.bottom":
         intents.point(lines[lines.length - 1]?.key ?? null)
-        break
-      case "Enter":
-        if (!line) return
-        open(line)
-        break
-      case "Backspace":
-        if (!state.path.length) return
-        leave()
-        break
-      case "ArrowRight": {
-        const folder = line && folderOf(line)
-        if (!folder || folder.open) return
-        intents.toggleExpanded(folder.path)
-        break
+        return true
+      // Half a page with the cursor left where it is ("adrift"); the next j/k brings the view back to it.
+      case "move.halfDown":
+      case "move.halfUp": {
+        const half = Math.max(ROW_HEIGHT, Math.floor(viewport() / 2))
+        root.scrollTop = Math.max(0, root.scrollTop + (action === "move.halfDown" ? half : -half))
+        paint(false)
+        return true
       }
-      case "ArrowLeft": {
+      case "enter":
+        if (line) open(line)
+        return true
+      case "leave":
+        leave()
+        return true
+      case "expand": {
+        const folder = line && folderOf(line)
+        if (folder && !folder.open) intents.toggleExpanded(folder.path)
+        return true
+      }
+      case "collapse": {
         // As the TUI's `h`: fold an open folder; else fold the folder this line hangs under and land on it;
         // else, with nothing to fold, leave the place.
-        if (!line) return
+        if (!line) return true
         const folder = folderOf(line)
         if (folder?.open) {
           intents.toggleExpanded(folder.path)
-          break
+          return true
         }
         const parent = parentLine(lines, at)
         if (parent >= 0) {
           const above = folderOf(lines[parent]!)
           if (above?.open) intents.toggleExpanded(above.path)
           intents.point(lines[parent]!.key)
-          break
+          return true
         }
-        if (!state.path.length) return
         leave()
-        break
+        return true
       }
-      default:
-        return
+      case "expandAll": {
+        // Tab on a folder: unfold everything under it, or fold it all when it is open.
+        const folder = line && folderOf(line)
+        if (!folder) return true
+        const under = foldersUnder(model.index, folder.path)
+        const inside = new Set(under)
+        const expanded = folder.open
+          ? state.expanded.filter((key) => !inside.has(key))
+          : [...state.expanded, ...under.filter((key) => !state!.expanded.includes(key))]
+        intents.dispatch({ type: "expanded", expanded })
+        return true
+      }
     }
-    event.preventDefault()
+    return false
   }
 
   const onScroll = () => paint(false)
-  list.addEventListener("keydown", onKey)
   root.addEventListener("scroll", onScroll, { passive: true })
   // The window is sized from the pane's height, which changes without a store change or a scroll (the panel is
   // resized, the detail is dragged taller): draw the rows the new height shows. The shell only reports widths.
@@ -406,13 +426,13 @@ export const mountList: MountPane = (root, ctx): PaneView => {
 
   return {
     render,
+    command,
     focus() {
       list.focus({ preventScroll: true })
       reveal()
     },
     destroy() {
       observer?.disconnect()
-      list.removeEventListener("keydown", onKey)
       root.removeEventListener("scroll", onScroll)
     },
   }

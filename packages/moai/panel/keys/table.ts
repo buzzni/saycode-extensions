@@ -54,6 +54,11 @@ export interface KeyContext {
   sort?: ReadonlyArray<{ field: SortField; desc: boolean }>
   /** List columns shown (SPC c). A missing field reads as shown. */
   cells?: Partial<Record<CellField, boolean>>
+  /**
+   * The read marks can be written (`r`, `SPC m a`, `SPC m g`). Missing reads as true; the panel passes false until
+   * the data layer that writes them is merged, so the menu leaves the items out and the help dims them.
+   */
+  readable?: boolean
 }
 
 export type StateId =
@@ -188,7 +193,7 @@ const BROWSE: ReadonlyArray<Binding> = [
   ...CTRL_W,
   { action: "search.open", keys: ["/"], label: "검색", group: "search" },
   { action: "clear", keys: ["Esc"], label: "걸린 검색·필터 해제", group: "search" },
-  { action: "read", keys: ["r"], label: "커서 행 읽음", group: "read" },
+  { action: "read", keys: ["r"], label: "커서 행 읽음", group: "read", when: (c) => c.readable !== false },
   { action: "help", keys: ["?"], label: "단축키 도움말", group: "other", verdict: "추가" },
 ]
 
@@ -315,8 +320,8 @@ const MENU: ReadonlyArray<Binding> = [
   ...sortBindings,
   { action: "sort.edit", keys: ["SPC s e"], label: "정렬 편집…", group: "sort", modes: BROWSE_ONLY },
   ...cellBindings,
-  { action: "read.all", keys: ["SPC m a"], label: "모두 읽음", group: "read", modes: BROWSE_ONLY },
-  { action: "read.group", keys: ["SPC m g"], label: "그룹 읽음", group: "read", modes: BROWSE_ONLY },
+  { action: "read.all", keys: ["SPC m a"], label: "모두 읽음", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
+  { action: "read.group", keys: ["SPC m g"], label: "그룹 읽음", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
   {
     action: "option.detailAt",
     keys: ["SPC o d"],
@@ -384,6 +389,7 @@ const WIKI: ReadonlyArray<Binding> = [
   ...MOTION,
   { action: "wiki.enter", keys: ["Enter"], label: "페이지 열기 / 링크 선택·이동", group: "wiki" },
   { action: "wiki.back", keys: ["Backspace", "h", "Left"], label: "건너온 길 되감기", group: "wiki" },
+  { action: "wiki.page", keys: ["l", "Right"], label: "목록에서 본문으로", group: "wiki", motion: true },
   { action: "wiki.nextLink", keys: ["Tab"], label: "다음 링크", group: "wiki" },
   { action: "wiki.prevLink", keys: ["S-Tab"], label: "이전 링크", group: "wiki" },
   { action: "wiki.search", keys: ["/"], label: "제목·본문 검색", group: "search" },

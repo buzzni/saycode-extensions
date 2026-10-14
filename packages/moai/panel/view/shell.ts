@@ -18,7 +18,7 @@ import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
 import { narrow, segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
-import { createToolbar } from "./toolbar.ts"
+import { createToolbar, type LiveToolbar } from "./toolbar.ts"
 import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource } from "./types.ts"
 
 export interface Activity {
@@ -71,6 +71,14 @@ export interface Shell {
   /** The panel's width changed. A ResizeObserver on the shell calls this; tests call it by hand. */
   setWidth(width: number): void
   layout(): PaneLayout
+  /** The views in the panes, for the key router (panel/keys/wiring.ts) to hand its actions to. */
+  panes(): { list: PaneView; board: PaneView; detail: PaneView; wiki: PaneView | null }
+  /** Move the keyboard focus into a pane of the shown tab (its view's focus()). */
+  focusPane(area: Focus): void
+  /** Move the keyboard focus to the selected tab of the tab bar: the way out of the wiki, whose Tab cycles its links. */
+  focusTabs(): void
+  /** The search / filter / sort toolbar (its inputs: `/` and `SPC f` put the caret in them). */
+  toolbar: LiveToolbar
   destroy(): void
 }
 
@@ -255,14 +263,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const detailView = options.panes.detail(detailRoot, ctx)
   const wikiView = options.panes.wiki?.(wiki, ctx) ?? null
   if (!wikiView) wiki.append(emptyState(doc, { icon: "book-open", title: copy.shell.wikiPlaceholder }))
-  // Inside the wiki, Tab cycles the page's links, so a keyboard cannot Tab out of it: an Esc the wiki did not
-  // use (no link selected, no search to clear — its handleKey returned false and left the event alone) moves
-  // the focus to the tab bar instead.
-  wiki.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return
-    event.preventDefault()
-    tabs.el.querySelector<HTMLElement>(`#${tabDomId(store.getState().tab)}`)?.focus()
-  })
+  // Inside the wiki, Tab cycles the page's links, so a keyboard cannot Tab out of it: an Esc the wiki does not
+  // use (no link selected, no search to clear) moves the focus to the tab bar. The key router does that
+  // (keys/wiring.ts `wiki.clear`): it is the one keydown listener.
+  const focusTabs = () => tabs.el.querySelector<HTMLElement>(`#${tabDomId(store.getState().tab)}`)?.focus()
 
   // ── tab switching: each tab keeps its scroll offsets (display:none drops them) ──
   const containers: Record<Tab, HTMLElement> = { list: mainRoots.list, board: mainRoots.board, wiki }
@@ -399,6 +403,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     slots: { toolbar, actions },
     setWidth,
     layout,
+    panes: () => ({ list: mainViews.list, board: mainViews.board, detail: detailView, wiki: wikiView }),
+    focusPane,
+    focusTabs,
+    toolbar: bar,
     destroy() {
       unsubscribe()
       observer?.disconnect()

@@ -26,6 +26,7 @@ import {
 import type { Row } from "../data/index.ts"
 import { copyFor, type HiddenReason, type Language, type ToolbarCopy } from "../i18n/index.ts"
 import { button, chip, el, icon, iconButton, menu, searchBox, textInput } from "./components.ts"
+import { kbdHint } from "./help.ts"
 
 // ---- strings: the i18n catalogue's toolbar group (i18n/index.ts) ---------------------------------------
 
@@ -367,7 +368,12 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
       box.input.focus()
     },
   })
-  const bar = el(doc, "div", { class: "m-toolbar" }, icon(doc, "filter", 14), filterWrap, sortWrap, openSearch)
+  openSearch.setAttribute("aria-keyshortcuts", "/")
+  // The key that opens the search, next to its button (keys/table.ts `/`); the open search box carries its own.
+  const searchShortcut = kbdHint(doc, "/")
+  searchShortcut.setAttribute("aria-hidden", "true")
+  sortButton.setAttribute("aria-keyshortcuts", "Space s e")
+  const bar = el(doc, "div", { class: "m-toolbar" }, icon(doc, "filter", 14), filterWrap, sortWrap, openSearch, searchShortcut)
 
   // Chips of the parsed filter (comma is OR inside one chip, a repeated key is AND between chips).
   const chips = el(doc, "div", { class: "m-chips", style: "display:flex;flex-wrap:wrap;gap:4px;padding:0 8px" })
@@ -390,6 +396,7 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
     searchRow.dataset.open = String(state.searchOpen)
     searchRow.hidden = !state.searchOpen
     openSearch.hidden = state.searchOpen
+    searchShortcut.hidden = state.searchOpen
     write(box.input, state.searchText)
     if (box.select && box.select.value !== state.scope) box.select.value = state.scope
 

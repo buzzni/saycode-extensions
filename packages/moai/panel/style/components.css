@@ -116,7 +116,7 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
 .m-help-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; font-size: 13px; }
 .m-help-row[data-available="false"] { opacity: .45; }
 .m-help-keys, .m-kbd-hint { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
-.m-focus-hint { padding: 4px 8px; color: var(--muted); font-size: 12px; text-align: center; }
+.m-focus-hint { position: fixed; top: 6px; right: 8px; z-index: 30; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--surface); color: var(--muted); font-size: 12px; text-align: center; cursor: pointer; }
 
 /* ---- Chips (5.5) ---- */
 .m-chip {

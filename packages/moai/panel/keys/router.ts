@@ -15,6 +15,8 @@
 //     unknown or unavailable key is ignored, a toggle item keeps the menu open, an action item closes it, a motion key
 //     the layer does not carry closes the menu and moves. Auto-repeats of SPC or of a key inside the menu are ignored.
 //   - a key pressed inside an open modal dialog (the shortcut help) is the dialog's (attachKeyRouter).
+//   - Enter or Space on a focused button, link, checkbox, radio or summary is the control's own (its click), unless
+//     a sequence or the SPC menu is held (attachKeyRouter).
 
 import {
   KEY_TABLE,
@@ -46,6 +48,8 @@ export interface KeyEventLike {
   /** The event target is editable. When absent, `target` is checked with isEditableTarget(). */
   editable?: boolean
   target?: unknown
+  /** The DOM event itself (attachKeyRouter fills it), for a dispatch that hands the key on (the wiki's handleKey). */
+  source?: unknown
 }
 
 export interface DispatchedAction {
@@ -333,13 +337,44 @@ function inModal(target: unknown): boolean {
   return typeof el?.closest === "function" && el.closest('[aria-modal="true"]:not([hidden])') != null
 }
 
+const CLICKABLE_INPUTS = new Set(["button", "checkbox", "radio", "reset", "submit", "image"])
+
+/**
+ * A control that Enter or Space activates itself (a button, a link, a checkbox or radio, a <summary>). The router
+ * leaves those keys to it: running `enter` and preventDefault there would swallow the control's click.
+ */
+export function isActivatable(target: unknown): boolean {
+  if (!target || typeof target !== "object") return false
+  const el = target as ElementLike & { hasAttribute?: (name: string) => boolean; getAttribute?: (name: string) => string | null }
+  const tag = (el.tagName ?? "").toUpperCase()
+  if (tag === "BUTTON" || tag === "SUMMARY") return true
+  if (tag === "A") return el.hasAttribute?.("href") === true
+  if (tag === "INPUT") return CLICKABLE_INPUTS.has((el.type ?? "text").toLowerCase())
+  const role = el.getAttribute?.("role")
+  return role === "button" || role === "checkbox" || role === "radio" || role === "link" || role === "menuitem" || role === "menuitemcheckbox" || role === "tab"
+}
+
+export interface AttachOptions {
+  /**
+   * Sees every keydown first; true takes it from the router (an overlay that keeps the panel quiet while it is
+   * open, even when the focus has left it). It calls preventDefault itself when it wants that.
+   */
+  intercept?: (event: KeyboardEventLike) => boolean
+}
+
 /**
  * Wire the router to a document's keydown. A key a component already handled (defaultPrevented: the tab strip's
- * arrows, the split resizer) or pressed inside a modal dialog is left alone. Returns the function that unwires it.
+ * arrows, the split resizer), pressed inside a modal dialog, or an Enter / Space on a focused control that clicks
+ * on it (isActivatable) is left alone. Returns the function that unwires it.
  */
-export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => void {
+export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter, options: AttachOptions = {}): () => void {
   const onKeyDown = (event: KeyboardEventLike): void => {
     if (event.defaultPrevented || inModal(event.target)) return
+    if (options.intercept?.(event)) return
+    if ((event.key === "Enter" || event.key === " ") && isActivatable(event.target)) {
+      const held = router.state()
+      if (held.menu === null && held.pending.length === 0) return
+    }
     const result = router.handle({
       key: event.key,
       ctrlKey: event.ctrlKey,
@@ -351,6 +386,8 @@ export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => vo
       code: event.code,
       repeat: event.repeat,
       editable: isEditableTarget(event.target),
+      target: event.target,
+      source: event,
     })
     if (result.preventDefault) event.preventDefault()
   }

@@ -9,6 +9,7 @@ import { createMemory, remember } from './data/memory.js'
 import { createRefresher } from './data/refresh.js'
 import { addTask, loadDetail, loadRows } from './data/source.js'
 import { copyFor } from './i18n/index.js'
+import { wireKeys } from './keys/wiring.js'
 import { createStore, type State } from './store.js'
 import { listLines, narrow, sortOrder } from './view/list-model.js'
 import { PANES } from './view/panes.js'
@@ -137,6 +138,9 @@ const shell = mountShell(root, {
   },
 })
 client.subscribe(() => shell.activity(activity()))
+// The one keydown listener: keys → the key table's actions → the store and the panes (keys/wiring.ts), with the
+// SPC menu, the shortcut help and the "click to use the keyboard" hint.
+wireKeys({ document, store, shell, copy })
 
 void (async () => {
   try {
