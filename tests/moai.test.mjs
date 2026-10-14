@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, test } from 'node:test'
+import { afterEach, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { JSDOM } from 'jsdom'
@@ -27,12 +27,14 @@ async function packMoai() {
   const temporary = await mkdtemp(join(tmpdir(), 'saycode-moai-'))
   try {
     const archivePath = join(temporary, 'moai.saycode-extension')
+    // The panel is built from panel/ into dist/panel.html first, as `npm run pack` does.
+    await exec('node', [join(root, 'packages/moai/build.mjs')])
     await exec('node', [cli, 'pack', join(root, 'packages/moai'), '--output', archivePath])
     const zip = await JSZip.loadAsync(await readFile(archivePath))
     const modulePath = join(temporary, 'index.mjs')
     await writeFile(modulePath, await zip.file('index.js').async('nodebuffer'))
     const extension = (await import(`${pathToFileURL(modulePath).href}?test=${Date.now()}`)).default
-    return { extension, panelHtml: await zip.file('panel.html').async('string') }
+    return { extension, panelHtml: await zip.file('dist/panel.html').async('string'), files: Object.keys(zip.files) }
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
@@ -40,7 +42,6 @@ async function packMoai() {
 
 const packed = await packMoai()
 const extension = packed.extension
-const packedPanelHtml = async () => packed.panelHtml
 
 test('Moai fixture covers install, approval, and rollback lifecycle expectations', () => {
   assert.equal(lifecycle.install.initialState, 'disabled')
@@ -86,10 +87,13 @@ test('Moai extension forwards approved run, status, and cancel calls', async () 
   ])
 })
 
-const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
-const PANEL_IDS = ['hint', 'check', 'refresh', 'task', 'add', 'cancel', 'spinner', 'status', 'counts', 'result', 'notice', 'error', 'board', 'detail', 'back', 'detail-title', 'detail-meta', 'detail-body', 'detail-children', 'detail-journal']
+
+const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const panelWindows = []
-after(() => { for (const window of panelWindows) window.close() })
+// Each test closes its panels: the 60 s refresh timer would otherwise hold the process open (root `after`
+// hooks wait for an idle event loop). A read that settles after its window closed would still start that
+// timer, so a window stops taking timers before it closes.
+afterEach(() => { for (const window of panelWindows.splice(0)) { window.stopTimers(); window.close() } })
 
 const fixture = async (name) => readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8')
 // Real Moai v0.8.0 output, read up front: file I/O inside a handler would outlast the panel's flushes.
@@ -97,38 +101,75 @@ const PRIME = await fixture('prime-v080.json')
 const PRIME_NO_TRACKER = await fixture('prime-no-tracker-v080.json')
 const SHOW_NOTE_BODY = await fixture('show-note-body-v080.json')
 const SHOW_MOVED = await fixture('show-moved-v080.json')
-const EMPTY_BOARD = JSON.stringify({ picked: [], ready: [], rest: 0, others: [], others_rest: 0 })
+const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
+
+const accepted = (operationId) => ({ action: 'start', operationId, state: 'accepted' })
+const passed = (operationId, stdout) => ({ action: 'status', operationId, state: 'passed', stdout, stderr: '', exitCode: 0 })
 
 /**
- * Runs the packed panel in a real DOM, wrapped the way Desktop's panel document wraps it. The board loads its
- * list when it opens; unless `board` is null, that first load is answered with `board` (an empty board by
- * default) before `invokeCommand` sees any call, so a test observes only what it does itself.
+ * Runs the packed panel in a real DOM, wrapped the way Desktop's panel document wraps it. Each start gets
+ * `op-N`; `answer(profileId, value)` gives the finished status for it (or null to keep it running).
  */
-async function runPanel(invokeCommand, language = 'en', board = EMPTY_BOARD) {
-  const html = await packedPanelHtml()
-  let opening = board !== null
-  const respond = async (command, args) => {
-    if (opening && command === 'buzzni.moai.run' && args[0] === 'buzzni.moai.prime') return { action: 'start', operationId: 'opening-board', state: 'accepted' }
-    if (opening && command === 'buzzni.moai.status' && args[0] === 'opening-board') {
-      opening = false
-      return { action: 'status', operationId: 'opening-board', state: 'passed', stdout: board, stderr: '', exitCode: 0 }
+async function runPanel(answer, language = 'en') {
+  const calls = []
+  const runs = new Map()
+  let next = 0
+  const invokeCommand = async (command, args) => {
+    calls.push([command, args])
+    if (command === 'buzzni.moai.run') {
+      const reply = await answer.start?.(args)
+      if (reply) return reply
+      const id = `op-${++next}`
+      runs.set(id, args)
+      return accepted(id)
     }
-    return invokeCommand(command, args)
+    if (command === 'buzzni.moai.cancel') {
+      runs.set(args[0], 'cancelled')
+      return { action: 'cancel', operationId: args[0], state: 'cancelled' }
+    }
+    const run = runs.get(args[0])
+    if (run === 'cancelled') return { action: 'status', operationId: args[0], state: 'cancelled', remoteMayContinue: true }
+    const finished = answer(run[0], run[1])
+    return finished === null ? { action: 'status', operationId: args[0], state: 'running' } : { operationId: args[0], ...finished }
   }
-  const dom = new JSDOM(`<!doctype html><html lang="${language}"><head></head><body>${html}</body></html>`, {
+  const dom = new JSDOM(`<!doctype html><html lang="${language}"><head></head><body>${packed.panelHtml}</body></html>`, {
     runScripts: 'dangerously',
     // Arguments cross a MessagePort in Desktop; copying them here also keeps assertions in this realm.
-    beforeParse(window) { window.saycodePanel = { ready: Promise.resolve(), invokeCommand: (command, args) => respond(command, structuredClone(args)) } },
+    beforeParse(window) {
+      window.saycodePanel = { ready: Promise.resolve(), invokeCommand: (command, args) => invokeCommand(command, structuredClone(args)) }
+      const timers = new Set()
+      const set = window.setTimeout.bind(window)
+      const clear = window.clearTimeout.bind(window)
+      let stopped = false
+      window.setTimeout = (callback, ms, ...rest) => {
+        if (stopped) return 0
+        const id = set((...args) => { timers.delete(id); callback(...args) }, ms, ...rest)
+        timers.add(id)
+        return id
+      }
+      window.clearTimeout = (id) => { timers.delete(id); clear(id) }
+      window.stopTimers = () => { stopped = true; for (const id of timers) clear(id); timers.clear() }
+    },
   })
   panelWindows.push(dom.window)
   await flush()
-  const ids = Object.fromEntries(PANEL_IDS.map((id) => [id, dom.window.document.getElementById(id)]))
-  return Object.assign(ids, {
-    window: dom.window,
+  const $ = (selector) => dom.window.document.querySelector(selector)
+  return {
+    window: dom.window, calls, $,
+    rows: () => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].map((row) => row.dataset.id),
+    row: (id) => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].find((row) => row.dataset.id === id),
+    starts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
     pressEnter(isComposing) {
-      ids.task.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true }))
+      $('.moai-add input').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true }))
     },
-  })
+  }
+}
+
+const stdoutFor = (outputs) => (profile, value) => {
+  const out = outputs[profile]
+  if (out === undefined) return null
+  const text = typeof out === 'function' ? out(value) : out
+  return text === null ? null : (typeof text === 'string' ? passed('', text) : text)
 }
 
 test('a project tool opens the Moai board panel in the work area instead of a machine settings button', async () => {
@@ -136,7 +177,8 @@ test('a project tool opens the Moai board panel in the work area instead of a ma
   const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
   assert.equal(open?.panelId, 'buzzni.moai.panel')
   // The host owns the panel title; compact asks for the small modal preset where a host still opens a modal.
-  assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'panel.html', surfaceSize: 'compact' }])
+  // The panel is built from panel/ into one file (build.mjs).
+  assert.deepEqual(parsed.contributes.panels, [{ id: 'buzzni.moai.panel', title: 'Moai', entrypoint: 'dist/panel.html', surfaceSize: 'compact' }])
   assert.deepEqual(parsed.contributes.projectTools, [{ id: 'buzzni.moai.board', title: 'Moai', command: 'buzzni.moai.open' }])
   assert.equal(parsed.contributes.machineActions, undefined)
   // Project tools need a Desktop with engine 1.2.0; an older one refuses the manifest instead of misreading it.
@@ -147,416 +189,143 @@ test('a project tool opens the Moai board panel in the work area instead of a ma
   assert.equal(await host.invokeCommand('buzzni.moai.open', []), null)
 })
 
-test('the board shows task counts from a status run, polling until it finishes', async () => {
-  const calls = []
-  let polls = 0
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-1', state: 'accepted' }
-    polls += 1
-    return polls < 2
-      ? { action: 'status', operationId: 'op-1', state: 'running' }
-      : { action: 'status', operationId: 'op-1', state: 'passed', stdout: JSON.stringify({ counts: { todo: 3, in_progress: 1, review: 0, done: 5 }, total: 9 }), exitCode: 0 }
-  })
-  elements.check.click()
-  await flush()
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  await flush()
-  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.status']])
-  assert.deepEqual(calls.slice(1).map(([command, args]) => [command, args]), [['buzzni.moai.status', ['op-1']], ['buzzni.moai.status', ['op-1']]])
-  assert.equal(elements.counts.hidden, false)
-  assert.deepEqual([...elements.counts.querySelectorAll('li')].map((chip) => [chip.querySelector('.stat-value').textContent, chip.querySelector('.stat-label').textContent]),
-    [['3', 'To do'], ['1', 'In progress'], ['0', 'Review'], ['5', 'Done']])
-  assert.equal(elements.error.textContent, '')
-  assert.equal(elements.check.disabled, false)
+test('the packed panel is one file: inline script and style only, under the 512 KiB panel limit', () => {
+  assert.ok(packed.files.includes('dist/panel.html'))
+  assert.ok(!packed.files.includes('panel.html'))
+  assert.ok(Buffer.byteLength(packed.panelHtml) <= 512 * 1024)
+  assert.doesNotMatch(packed.panelHtml, /<script[^>]+src=|<link[^>]+stylesheet|<!-- moai-(style|script) -->/i)
+  assert.equal(packed.panelHtml.match(/<script>/g).length, 1)
+  // Rows and titles are user text: the panel writes them with textContent, never as markup.
+  assert.doesNotMatch(packed.panelHtml, /innerHTML|insertAdjacentHTML|outerHTML|electron|ipcRenderer/)
 })
 
-test('adding a task needs a title and reports the created task', async () => {
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-2', state: 'accepted' }
-    return { action: 'status', operationId: 'op-2', state: 'passed', stdout: JSON.stringify({ id: 'shop-7', title: 'Fix checkout', status: 'todo' }), exitCode: 0 }
-  }, 'ko')
-  elements.add.click()
-  await flush()
-  assert.equal(calls.length, 0)
-  assert.equal(elements.error.textContent, '할 일 제목을 입력하세요.')
-  elements.task.value = '  Fix checkout  '
-  elements.add.click()
-  await flush()
-  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.add', 'Fix checkout']])
-  assert.equal(elements.result.textContent, '추가했습니다: Fix checkout (shop-7)')
-  assert.equal(elements.task.value, '')
+test('opening the board reads the list once, draws it by priority and shows when it was read', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
+  assert.deepEqual(panel.starts(), [['buzzni.moai.prime']])
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.match(panel.$('.moai-refresh').textContent, /^↻ \d{2}:\d{2}:\d{2}$/)
+  assert.match(panel.$('.moai-refresh').title, /^Updated \d{2}:\d{2}:\d{2}$/)
+  assert.equal(panel.$('.moai-error').textContent, '')
+  for (const [command] of panel.calls) assert.match(command, /^buzzni\.moai\.(run|status|cancel)$/)
 })
 
-test('a refused or unsupported start is explained and leaves the board usable', async () => {
-  const elements = await runPanel(async () => { throw new Error('capability.invoke machine.run/start failed: binding-mismatch') })
-  elements.check.click()
-  await flush()
-  assert.equal(elements.error.textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
-  assert.equal(elements.check.disabled, false)
-  assert.equal(elements.add.disabled, false)
+test('the board follows the host document language', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }), 'ja')
+  assert.equal(panel.$('.moai-add-button').textContent, 'タスクを追加')
+  assert.equal(panel.$('.moai-add input').placeholder, '新しいタスクのタイトル')
 })
 
-test('a failed run shows the reason Moai gave', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-3', state: 'accepted' }
-    : { action: 'status', operationId: 'op-3', state: 'failed', stdout: JSON.stringify({ code: 'no_actor', error: 'the git user details are not there' }), exitCode: 1 })
-  elements.task.value = 'Write docs'
-  elements.add.click()
+test('choosing a task shows its details beside the list, with history and status moves', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': (id) => (id === 'mgd-hmcr' ? SHOW_NOTE_BODY : SHOW_MOVED) }), 'ko')
+  panel.row('mgd-hmcr').click()
   await flush()
-  assert.equal(elements.error.textContent, 'Moai reported an error: the git user details are not there')
+  assert.deepEqual(panel.starts().at(-1), ['buzzni.moai.show', 'mgd-hmcr'])
+  assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
+  // The list stays: the detail no longer replaces it.
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  const detail = panel.$('.moai-detail')
+  assert.equal(detail.hidden, false)
+  assert.equal(detail.querySelector('h2').textContent, '가이드 첫 할 일')
+  const meta = Object.fromEntries([...detail.querySelectorAll('dt')].map((term) => [term.textContent, term.nextElementSibling.textContent]))
+  assert.equal(meta['상태'], '할 일')
+  assert.equal(meta['우선순위'], 'P2')
+  assert.equal(meta['ID'], 'mgd-hmcr')
+  assert.equal(detail.querySelector('.moai-body').textContent, '본문 첫 줄\n둘째 줄')
+  assert.deepEqual([...detail.querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '메모 하나'])
+
+  panel.row('mgd-ogym').click()
+  await flush()
+  assert.deepEqual([...panel.$('.moai-detail').querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '할 일 → 진행 중'])
+  panel.$('.moai-close').click()
+  assert.equal(panel.$('.moai-detail').hidden, true)
 })
 
-test('the board follows the host document language and only talks to its own commands', async () => {
-  const elements = await runPanel(async () => null, 'ja')
-  assert.equal(elements.hint.textContent, 'このプロジェクトのフォルダで実行します。一覧・詳細・状態はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。')
-  assert.equal(elements.check.textContent, '状態を表示')
-  const html = await packedPanelHtml()
-  for (const command of html.matchAll(/invokeCommand\('([^']+)'/g)) assert.match(command[1], /^buzzni\.moai\./)
-  assert.doesNotMatch(html, /electron|ipcRenderer|innerHTML/)
+test('a refused read is explained where it happened; user choices are information, machine problems errors', async () => {
+  for (const [code, info] of [['declined', true], ['workspace-busy', true], ['tool-missing', false], ['unsupported-daemon', false]]) {
+    const answer = stdoutFor({})
+    answer.start = () => ({ action: 'start', state: 'refused', code })
+    const panel = await runPanel(answer, 'ko')
+    const notice = panel.$('.moai-notice').textContent
+    const error = panel.$('.moai-error').textContent
+    assert.ok(info ? notice && !error : error && !notice, code)
+  }
+  const answer = stdoutFor({})
+  answer.start = () => { throw new Error('capability.invoke machine.run/start failed: binding-mismatch') }
+  const panel = await runPanel(answer)
+  assert.equal(panel.$('.moai-error').textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
+  assert.equal(panel.$('.moai-refresh').disabled, false)
 })
 
-// Real Moai v0.8.0 output: errors go to stderr, and status outside a `.moai/` repository lists projects instead of counts.
-const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
-const NOT_INITIALIZED_EN = 'This project has no Moai board yet. On that machine, run moai init once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'
-
-/** The init guidance is information, not an error: it renders in the info banner with the command as code. */
-function assertInitGuidance(elements, text) {
-  assert.equal(elements.notice.hidden, false)
-  assert.equal(elements.notice.textContent, text)
-  assert.equal(elements.notice.querySelector('code')?.textContent, 'moai init')
-  assert.ok(elements.notice.classList.contains('info'))
-  assert.doesNotMatch(elements.notice.textContent, /`/)
-  assert.equal(elements.error.textContent, '')
-}
-
-test('adding to a project without a Moai board explains how to start one', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-4', state: 'accepted' }
-    : { action: 'status', operationId: 'op-4', state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 })
-  elements.task.value = 'Write docs'
-  elements.add.click()
-  await flush()
-  assertInitGuidance(elements, NOT_INITIALIZED_EN)
-})
-
-test('status in a project without a Moai board explains how to start one', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-5', state: 'accepted' }
-    : { action: 'status', operationId: 'op-5', state: 'passed', stdout: JSON.stringify({ projects: [], problems: [], config: '/home/me/.config/moai/config.toml' }), stderr: '', exitCode: 0 }, 'ko')
-  elements.check.click()
-  await flush()
-  assertInitGuidance(elements, '이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 moai init을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.')
-  assert.equal(elements.result.textContent, '')
-  assert.equal(elements.counts.hidden, true)
+test('a project without a Moai board says how to start one, from prime or from a failed run', async () => {
+  for (const reply of [PRIME_NO_TRACKER, { state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }]) {
+    const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': reply }))
+    const notice = panel.$('.moai-notice')
+    assert.equal(notice.querySelector('code')?.textContent, 'moai init')
+    assert.match(notice.textContent, /^This project has no Moai board yet\./)
+    assert.equal(panel.$('.moai-error').textContent, '')
+  }
 })
 
 test('a failed run shows the reason Moai printed on stderr', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-6', state: 'accepted' }
-    : { action: 'status', operationId: 'op-6', state: 'failed', stdout: '', stderr: JSON.stringify({ code: 'no_actor', error: 'the git user details are not there' }), exitCode: 1 })
-  elements.task.value = 'Write docs'
-  elements.add.click()
-  await flush()
-  assert.equal(elements.error.textContent, 'Moai reported an error: the git user details are not there')
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'config.toml: bad column' }), exitCode: 1 } }))
+  assert.equal(panel.$('.moai-error').textContent, 'Moai reported an error: config.toml: bad column')
 })
 
-test('Enter in the title field adds the task, since the sandboxed panel cannot submit forms', async () => {
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-7', state: 'accepted' }
-    return { action: 'status', operationId: 'op-7', state: 'passed', stdout: JSON.stringify({ id: 'm1-x', title: 'Ship it', status: 'todo' }), exitCode: 0 }
-  })
-  elements.task.value = 'Ship it'
-  elements.pressEnter(false)
+test('adding needs a title, takes Enter but not while an IME composes, and refreshes the list', async () => {
+  let listed = PRIME
+  const panel = await runPanel(stdoutFor({
+    'buzzni.moai.prime': () => listed,
+    'buzzni.moai.add': (title) => {
+      listed = JSON.stringify({ ...JSON.parse(PRIME), ready: [...JSON.parse(PRIME).ready, { id: 'mgd-new1', title, status: 'todo', priority: 1 }] })
+      return JSON.stringify({ id: 'mgd-new1', title, status: 'todo' })
+    },
+  }), 'ko')
+  panel.$('.moai-add-button').click()
   await flush()
-  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.add', 'Ship it']])
-  // An IME composing Hangul also reports Enter; that keystroke must not add the half-typed title.
-  calls.length = 0
-  elements.task.value = '한글'
-  elements.pressEnter(true)
+  assert.equal(panel.$('.moai-result').textContent, '할 일 제목을 입력하세요.')
+  panel.$('.moai-add input').value = '  새 일  '
+  panel.pressEnter(true)
   await flush()
-  assert.equal(calls.length, 0)
-  assert.doesNotMatch(await packedPanelHtml(), /<form|'submit'/)
+  assert.equal(panel.starts().length, 1)
+  panel.pressEnter(false)
+  await flush()
+  assert.deepEqual(panel.starts().slice(1), [['buzzni.moai.add', '새 일'], ['buzzni.moai.prime']])
+  assert.equal(panel.$('.moai-result').textContent, '추가했습니다: 새 일 (mgd-new1)')
+  assert.equal(panel.$('.moai-add input').value, '')
+  assert.deepEqual(panel.rows(), ['mgd-new1', 'mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
 
-test('a cancel ends the run at once and says when processes may still be running on the machine', async () => {
-  // The Happy runner never reports a cancelled group reaped on macOS, so the board must not wait for it;
-  // the daemon's workspace write lock refuses an overlapping write until the old group settles.
-  const calls = []
-  const elements = await runPanel(async (command) => {
-    calls.push(command)
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-8', state: 'accepted' }
-    return { action: 'status', operationId: 'op-8', state: 'cancelled', remoteMayContinue: true, descendantsReaped: false }
-  }, 'ko')
-  elements.check.click()
-  await flush()
-  assert.deepEqual(calls, ['buzzni.moai.run', 'buzzni.moai.status'])
-  assert.equal(elements.status.textContent, '실행을 취소했습니다. 머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.')
-  assert.equal(elements.error.textContent, '')
-  assert.equal(elements.check.disabled, false)
-  assert.equal(elements.add.disabled, false)
-})
-
-test('a cancel whose processes are reaped says only that the run was cancelled', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-9', state: 'accepted' }
-    : { action: 'status', operationId: 'op-9', state: 'cancelled', remoteMayContinue: false, descendantsReaped: true })
-  elements.check.click()
-  await flush()
-  assert.equal(elements.status.textContent, 'The run was cancelled.')
-})
-
-test('the board leaves the title to the host and keeps the guidance out of the chat', async () => {
-  const html = await packedPanelHtml()
-  assert.doesNotMatch(html, /<h1/)
-  // Init stays a user action on the machine (spec: separate high-risk capability), never a chat request.
-  assert.doesNotMatch(html, /\bAI\b|chat|채팅|チャット|聊天/i)
-})
-
-test('cancel appears only once the run has an operation id, and the spinner only while it runs', async () => {
+test('until a run is accepted the panel says it may wait for the confirmation; cancel shows only once it runs', async () => {
   let accept
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return new Promise((resolve) => { accept = resolve })
-    if (command === 'buzzni.moai.cancel') return { action: 'cancel', operationId: 'op-10', state: 'cancelled' }
-    return calls.some(([name]) => name === 'buzzni.moai.cancel')
-      ? { action: 'status', operationId: 'op-10', state: 'cancelled', remoteMayContinue: false }
-      : { action: 'status', operationId: 'op-10', state: 'running' }
-  })
-  assert.equal(elements.cancel.hidden, true)
-  assert.equal(elements.spinner.hidden, true)
-  elements.check.click()
+  const answer = (profile) => (profile === 'buzzni.moai.prime' ? null : null)
+  answer.start = () => new Promise((resolve) => { accept = () => resolve(null) })
+  const panel = await runPanel(answer)
+  assert.equal(panel.$('.moai-activity').textContent, 'Starting… approve the confirmation if it is showing.')
+  assert.equal(panel.$('.moai-cancel').hidden, true)
+  accept()
   await flush()
-  // Waiting on the confirmation dialog: nothing to cancel yet.
-  assert.equal(elements.cancel.hidden, true)
-  assert.equal(elements.spinner.hidden, false)
-  assert.equal(elements.check.disabled, true)
-  accept({ action: 'start', operationId: 'op-10', state: 'accepted' })
+  assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine…')
+  assert.equal(panel.$('.moai-cancel').hidden, false)
+  panel.$('.moai-cancel').click()
+  await new Promise((resolve) => setTimeout(resolve, 600))
   await flush()
-  assert.equal(elements.cancel.hidden, false)
-  assert.equal(elements.cancel.disabled, false)
-  elements.cancel.click()
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  await flush()
-  assert.deepEqual(calls.find(([name]) => name === 'buzzni.moai.cancel'), ['buzzni.moai.cancel', ['op-10']])
-  assert.equal(elements.status.textContent, 'The run was cancelled.')
-  assert.equal(elements.cancel.hidden, true)
-  assert.equal(elements.spinner.hidden, true)
+  assert.deepEqual(panel.calls.find(([command]) => command === 'buzzni.moai.cancel'), ['buzzni.moai.cancel', ['op-1']])
+  assert.equal(panel.$('.moai-notice').textContent, 'The run was cancelled. Processes on the machine may not have finished yet.')
+  assert.equal(panel.$('.moai-cancel').hidden, true)
+  assert.equal(panel.$('.moai-activity').textContent, '')
 })
 
-test('a new run clears the previous counts, notice, and error', async () => {
-  let mode = 'init'
-  const elements = await runPanel(async (command) => {
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-11', state: 'accepted' }
-    return mode === 'init'
-      ? { action: 'status', operationId: 'op-11', state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }
-      : { action: 'status', operationId: 'op-11', state: 'passed', stdout: JSON.stringify({ counts: { todo: 1, in_progress: 0, review: 0, done: 0 } }), exitCode: 0 }
-  })
-  elements.check.click()
+test('Refresh reads the list again and keeps the cursor on the same task', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_MOVED }))
+  panel.row('mgd-ogym').click()
   await flush()
-  assert.equal(elements.notice.hidden, false)
-  mode = 'ok'
-  elements.check.click()
+  panel.$('.moai-refresh').click()
   await flush()
-  assert.equal(elements.notice.hidden, true)
-  assert.equal(elements.counts.hidden, false)
-})
-
-test('a refused start comes back as a result with its code, so the panel can explain it', async () => {
-  // The panel bridge carries only an error message, so the command returns the refusal instead of throwing it.
-  let failure
-  const host = createTestHost('buzzni.moai', { async invokeCapability() { throw failure } })
-  await host.activate(extension)
-  failure = Object.assign(new Error('capability.invoke machine.run/start failed: declined'), { code: 'declined' })
-  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), { action: 'start', state: 'refused', code: 'declined' })
-  failure = Object.assign(new Error('busy'), { code: 'workspace-busy' })
-  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.add', 'Ship it']), { action: 'start', state: 'refused', code: 'workspace-busy' })
-  // Unknown or missing codes stay failures, as before.
-  failure = Object.assign(new Error('later'), { code: 'something-new' })
-  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /later/)
-  failure = new Error('capability failed')
-  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /capability failed/)
-})
-
-const REFUSALS = {
-  declined: { where: 'notice', en: 'The run did not start: the confirmation was declined.', ko: '확인 창에서 거부해 실행하지 않았습니다.', ja: '確認画面で拒否されたため、実行しませんでした。', zh: '已在确认窗口中拒绝，因此未运行。' },
-  'approval-timeout': { where: 'notice', en: 'The confirmation was not answered in time, so nothing ran. Try again.', ko: '확인 창에 시간 안에 응답하지 않아 실행하지 않았습니다. 다시 시도하세요.', ja: '確認画面に時間内に応答がなかったため、実行しませんでした。もう一度お試しください。', zh: '未在规定时间内回应确认窗口，因此未运行。请重试。' },
-  'workspace-busy': { where: 'notice', en: 'Another change is still running in this folder on that machine. Try again when it finishes.', ko: '그 머신의 이 폴더에서 다른 변경이 아직 실행 중입니다. 끝난 뒤 다시 시도하세요.', ja: 'そのマシンのこのフォルダでは、別の変更がまだ実行中です。終了してからもう一度お試しください。', zh: '该机器的此文件夹中仍有其他更改正在运行。请在其结束后重试。' },
-  'tool-missing': { where: 'error', en: 'Moai is not installed on that machine. Install it for that machine under Machine tools in Settings → Extensions.', ko: '그 머신에 Moai가 설치되어 있지 않습니다. 설정 → 확장의 머신 도구에서 그 머신에 Moai를 설치하세요.', ja: 'そのマシンに Moai がインストールされていません。設定 → 拡張機能のマシンツールから、そのマシンに Moai をインストールしてください。', zh: '该机器上未安装 Moai。请在「设置 → 扩展」的机器工具中为该机器安装 Moai。' },
-  'unsupported-platform': { where: 'error', en: "Moai cannot run on that machine's operating system.", ko: '그 머신의 운영체제에서는 Moai를 실행할 수 없습니다.', ja: 'そのマシンの OS では Moai を実行できません。', zh: '该机器的操作系统无法运行 Moai。' },
-  'unsupported-daemon': { where: 'error', en: "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.", ko: '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.', ja: 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。', zh: '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。' },
-}
-
-test('each refusal code is explained in all four languages; user choices are information, machine problems errors', async () => {
-  for (const [code, expected] of Object.entries(REFUSALS)) {
-    for (const language of ['en', 'ko', 'ja', 'zh']) {
-      const calls = []
-      const elements = await runPanel(async (command) => { calls.push(command); return { action: 'start', state: 'refused', code } }, language)
-      elements.check.click()
-      await flush()
-      const other = expected.where === 'notice' ? 'error' : 'notice'
-      assert.equal(elements[expected.where].textContent, expected[language], `${code} in ${language}`)
-      assert.equal(elements[other].textContent, '', `${code} in ${language} stays out of #${other}`)
-      if (expected.where === 'notice') assert.equal(elements.notice.hidden, false)
-      assert.deepEqual(calls, ['buzzni.moai.run'], 'a refused run is never polled')
-      assert.equal(elements.check.disabled, false)
-      assert.equal(elements.cancel.hidden, true)
-    }
-  }
-})
-
-test('refusals without a specific message keep the generic not-started explanation', async () => {
-  for (const code of ['binding-mismatch', 'invalid-request', 'something-new']) {
-    const elements = await runPanel(async () => ({ action: 'start', state: 'refused', code }))
-    elements.check.click()
-    await flush()
-    assert.equal(elements.error.textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
-  }
-})
-
-const groups = (elements) => [...elements.board.querySelectorAll('section.group')].map((group) => [
-  group.querySelector('h2').textContent,
-  [...group.querySelectorAll('button.task')].map((item) => item.querySelector('.task-title').textContent),
-])
-
-test('the board lists in-progress, review and to-do tasks from prime when it opens', async () => {
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-p', state: 'accepted' }
-    return { action: 'status', operationId: 'op-p', state: 'passed', stdout: PRIME, stderr: '', exitCode: 0 }
-  }, 'ko', null)
-  await flush()
-  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.prime']])
-  assert.deepEqual(groups(elements), [['진행 중', ['버튼으로 추가한 할 일']], ['검토', ['리뷰할 일']], ['할 일', ['가이드 첫 할 일']]])
-  assert.equal(elements.board.hidden, false)
-  assert.equal(elements.detail.hidden, true)
+  assert.deepEqual(panel.starts().map(([profile]) => profile), ['buzzni.moai.prime', 'buzzni.moai.show', 'buzzni.moai.prime'])
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
 })
 
 test('a truncated list says how many more tasks there are', async () => {
-  const board = JSON.stringify({ picked: [], ready: [{ id: 'a-1', title: 'First', status: 'todo', priority: 2 }], rest: 4, others: [], others_rest: 2 })
-  const elements = await runPanel(async () => null, 'en', board)
-  assert.match(elements.board.textContent, /6 more not shown/)
-})
-
-test('an empty board says so instead of showing empty sections', async () => {
-  const elements = await runPanel(async () => null, 'en')
-  assert.deepEqual(groups(elements), [])
-  assert.match(elements.board.textContent, /No open tasks/)
-})
-
-test('opening a project without a Moai board explains how to start one', async () => {
-  const elements = await runPanel(async () => null, 'en', PRIME_NO_TRACKER)
-  assertInitGuidance(elements, NOT_INITIALIZED_EN)
-  assert.deepEqual(groups(elements), [])
-})
-
-test('choosing a task shows its details in the same panel, and Back returns to the list', async () => {
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: 'op-s', state: 'accepted' }
-    return { action: 'status', operationId: 'op-s', state: 'passed', stdout: SHOW_NOTE_BODY, stderr: '', exitCode: 0 }
-  }, 'ko', PRIME)
-  const item = [...elements.board.querySelectorAll('button.task')].find((button) => button.textContent.includes('가이드 첫 할 일'))
-  item.click()
-  await flush()
-  assert.deepEqual(calls[0], ['buzzni.moai.run', ['buzzni.moai.show', 'mgd-hmcr']])
-  assert.equal(elements.board.hidden, true)
-  assert.equal(elements.detail.hidden, false)
-  assert.equal(elements['detail-title'].textContent, '가이드 첫 할 일')
-  const meta = Object.fromEntries([...elements['detail-meta'].querySelectorAll('dt')].map((term) => [term.textContent, term.nextElementSibling.textContent]))
-  assert.equal(meta['상태'], '할 일')
-  assert.equal(meta['우선순위'], 'P2')
-  assert.equal(meta['담당자'], 'dev')
-  assert.equal(meta['ID'], 'mgd-hmcr')
-  assert.equal(elements['detail-body'].textContent, '본문 첫 줄\n둘째 줄')
-  const journal = [...elements['detail-journal'].querySelectorAll('li')].map((entry) => entry.querySelector('.journal-text').textContent)
-  assert.deepEqual(journal, ['만들었습니다', '메모 하나'])
-  assert.match(elements['detail-children'].textContent, /하위 항목 없음/)
-  assert.equal(elements.window.document.activeElement, elements.back)
-
-  elements.back.click()
-  assert.equal(elements.detail.hidden, true)
-  assert.equal(elements.board.hidden, false)
-  assert.equal(elements.window.document.activeElement.textContent.includes('가이드 첫 할 일'), true)
-})
-
-test('a status move in the history reads as from and to states', async () => {
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? { action: 'start', operationId: 'op-m', state: 'accepted' }
-    : { action: 'status', operationId: 'op-m', state: 'passed', stdout: SHOW_MOVED, stderr: '', exitCode: 0 }, 'en', PRIME)
-  ;[...elements.board.querySelectorAll('button.task')].find((button) => button.textContent.includes('mgd-ogym')).click()
-  await flush()
-  const journal = [...elements['detail-journal'].querySelectorAll('li')].map((entry) => entry.querySelector('.journal-text').textContent)
-  assert.deepEqual(journal, ['Created', 'To do → In progress'])
-  assert.equal(elements['detail-body'].hidden, true)
-})
-
-test('adding a task refreshes the list', async () => {
-  const calls = []
-  const elements = await runPanel(async (command, args) => {
-    calls.push([command, args])
-    if (command === 'buzzni.moai.run') return { action: 'start', operationId: `op-${args[0]}`, state: 'accepted' }
-    return args[0] === 'op-buzzni.moai.add'
-      ? { action: 'status', operationId: args[0], state: 'passed', stdout: JSON.stringify({ id: 'mgd-new', title: 'New one', status: 'todo' }), exitCode: 0 }
-      : { action: 'status', operationId: args[0], state: 'passed', stdout: JSON.stringify({ picked: [], ready: [{ id: 'mgd-new', title: 'New one', status: 'todo', priority: 2 }], rest: 0, others: [], others_rest: 0 }), exitCode: 0 }
-  })
-  elements.task.value = 'New one'
-  elements.add.click()
-  await flush()
-  await flush()
-  assert.deepEqual(calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args[0]), ['buzzni.moai.add', 'buzzni.moai.prime'])
-  assert.deepEqual(groups(elements), [['To do', ['New one']]])
-  assert.equal(elements.result.textContent, 'Added: New one (mgd-new)')
-})
-
-test('Refresh reloads the list, and task buttons wait while a run is in flight', async () => {
-  let accept
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? new Promise((resolve) => { accept = resolve })
-    : { action: 'status', operationId: 'op-r', state: 'passed', stdout: PRIME, exitCode: 0 }, 'en', PRIME)
-  elements.refresh.click()
-  await flush()
-  assert.ok([...elements.board.querySelectorAll('button.task')].every((button) => button.disabled))
-  accept({ action: 'start', operationId: 'op-r', state: 'accepted' })
-  await flush()
-  assert.ok([...elements.board.querySelectorAll('button.task')].every((button) => !button.disabled))
-})
-
-test('the hint says the board runs in this project and when it asks for confirmation, in every language', async () => {
-  const hints = {
-    en: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list, details and status, and every time you add a task.",
-    ko: '이 프로젝트 폴더에서 실행됩니다. 목록·상세·상태는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
-    zh: '在此项目的文件夹中运行。列表、详情和状态在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
-  }
-  for (const [language, hint] of Object.entries(hints)) {
-    assert.equal((await runPanel(async () => null, language)).hint.textContent, hint, language)
-  }
-})
-
-test('until the run is accepted the board says it is starting and may be waiting for the confirmation, then that it runs', async () => {
-  let accept
-  let finished = false
-  const elements = await runPanel(async (command) => command === 'buzzni.moai.run'
-    ? new Promise((resolve) => { accept = resolve })
-    : finished
-      ? { action: 'status', operationId: 'op-w', state: 'passed', stdout: JSON.stringify({ counts: { todo: 0, in_progress: 0, review: 0, done: 0 } }), exitCode: 0 }
-      : { action: 'status', operationId: 'op-w', state: 'running' }, 'ko')
-  elements.check.click()
-  await flush()
-  // Nothing has started yet: Desktop may be showing its confirmation.
-  assert.equal(elements.status.textContent, '시작하는 중… 확인 창이 떠 있으면 승인하세요.')
-  accept({ action: 'start', operationId: 'op-w', state: 'accepted' })
-  await flush()
-  assert.equal(elements.status.textContent, '머신에서 실행하는 중…')
-  finished = true
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  await flush()
-  assert.equal(elements.status.textContent, '')
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': JSON.stringify({ ...JSON.parse(PRIME), rest: 3, others_rest: 2 }) }))
+  assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
 })
