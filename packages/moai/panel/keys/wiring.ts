@@ -93,7 +93,10 @@ export interface KeyWiringOptions {
   platform?: Platform
   /** The read-mark writes; without them `r` and `SPC m` are not offered (KeyContext.readable). */
   read?: ReadMarks
-  /** Where `D` saves the default sort and an emptied order returns to; defaults to the panel's shared one. */
+  /**
+   * Where `D` saves the default sort; defaults to the panel's shared one. An emptied order returns to the store's
+   * `defaultSort`, which `D` sets and data/memory.ts remember() reads from the same storage at boot: pass both the same one.
+   */
   sortDefault?: SortDefault
 }
 
@@ -201,8 +204,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   let sorterFrom: Sort | null = null
   const sortKey = (): SortKey => SORT_KEYS[sorterAt]!
   const defaults = options.sortDefault ?? sortDefault
-  // An order emptied of every field is the reset: it goes back to the saved default, else the store's own.
-  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort: sort.fields.length ? sort : (defaults.get() ?? sort) })
+  // An order emptied of every field is the reset: the store puts back the saved default (State.defaultSort).
+  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort })
 
   function paintSorter() {
     for (const row of bar.el.querySelectorAll<HTMLElement>(".m-sort-pop .m-menu-item[data-key]")) {
@@ -478,6 +481,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     "sorter.apply": () => closeSorter(true),
     "sorter.default": () => {
       defaults.set(store.getState().sort)
+      store.dispatch({ type: "sort-default", sort: store.getState().sort })
       say(defaults.persistent ? copy.keys.sortDefaultSaved : copy.keys.sortDefaultSavedSession)
       // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
       closeSorter(true)

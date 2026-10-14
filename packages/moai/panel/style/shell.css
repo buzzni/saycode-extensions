@@ -34,7 +34,7 @@
 .m-shell-notes > * { margin: 8px 8px 0; }
 .m-shell-notes > :last-child { margin-bottom: 8px; }
 .moai-hint, .moai-more { color: var(--muted); font-size: 12px; }
-.moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-compat:empty, .moai-more:empty, .moai-result:empty { display: none; }
+.moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-backlog-problem:empty, .moai-compat:empty, .moai-more:empty, .moai-result:empty { display: none; }
 /* The compatibility banner: one sentence per line, one per thing to fix on that machine. */
 .moai-compat { flex-direction: column; gap: 2px; }
 .moai-compat > p { margin: 0; }

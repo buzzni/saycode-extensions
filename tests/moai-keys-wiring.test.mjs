@@ -884,6 +884,7 @@ test('keys: D in the sort editor saves the order as the default; emptying the or
   assert.equal(panel.$('.moai-result')?.textContent ?? '', en.keys.sortDefaultSavedSession)
   assert.equal(panel.state().toolbar.sortOpen, false, 'D applies, saves and leaves the editor')
   assert.deepEqual(panel.state().sort, sortDefault.get())
+  assert.deepEqual(panel.state().defaultSort, sortDefault.get(), 'the store holds the saved default (store.ts falls back to it)')
   // Take every field out (SPC on each): the reset is the saved default, not priority alone.
   panel.seq(' ', 's', 'e')
   panel.press(' ')

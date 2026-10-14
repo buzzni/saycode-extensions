@@ -13,7 +13,7 @@
  * {@link normalizeMemory} is pure and cleans whatever comes back, so a value from an older or newer panel,
  * or one edited by hand, still boots with usable settings.
  */
-import { DEFAULT_SORT, GREP_SCOPES, SORT_KEYS, formatSort, type Dir, type GrepScope, type Sort, type SortField } from './query.js'
+import { GREP_SCOPES, SORT_KEYS, sameSort, type Dir, type GrepScope, type Sort, type SortField } from './query.js'
 import { COLUMN_DEFAULTS, type ColumnName, type DetailPosition, type Remembered, type State, type Store, type ViewSettings } from '../store.js'
 import { DEFAULT_RATIO, normalizeRatio } from '../view/split.js'
 import { DEFAULT_TAB, normalizeTab } from '../view/tabs.js'
@@ -211,15 +211,13 @@ export function createSortDefault(storage: SettingsStorage = createSessionStorag
 }
 
 /**
- * The panel's one settings storage and one default sort, which {@link remember} and the key wiring (`D`, reset) fall
- * back to so they meet the same default. Session-only today; a persisting backend replaces them here. Callers other
- * than the panel itself (tests) pass their own, so nothing they write reaches the next boot.
+ * The panel's one settings storage and one default sort, which {@link remember} (at boot, into the store's
+ * `defaultSort`) and the key wiring (`D`) fall back to so they meet the same default. Session-only today; a persisting
+ * backend replaces them here. Callers other than the panel itself (tests) pass their own, so nothing they write
+ * reaches the next boot.
  */
 export const settingsStorage: SettingsStorage = createSessionStorage()
 export const sortDefault: SortDefault = createSortDefault(settingsStorage)
-
-/** The same order: the same fields in the same directions, and the same reverse switch. */
-const sameSort = (a: Sort, b: Sort): boolean => a.reversed === b.reversed && formatSort(a.fields) === formatSort(b.fields)
 
 // ── the query settings (E4 se-cv7w.lca) ────────────────────────────────────────────────────────────────
 //
@@ -244,14 +242,14 @@ const COLUMN_NAMES = Object.keys(COLUMN_DEFAULTS) as ColumnName[]
 
 /**
  * The query settings of `state`, read to be written as JSON (the store's own objects, not copies). An order that is
- * `defaultSort` is not kept: toggling a cell does not pin the workspace to the order the default had then, so a
- * later `D` still decides its next opening (moai tui keeps a project's order only once one was chosen there).
+ * the state's `defaultSort` is not kept: toggling a cell does not pin the workspace to the order the default had then,
+ * so a later `D` still decides its next opening (moai tui keeps a project's order only once one was chosen there).
  */
-export function queryOf(state: State, defaultSort: Sort = DEFAULT_SORT): QuerySettings {
+export function queryOf(state: State): QuerySettings {
   return {
     scope: state.search.scope,
     filter: state.filter.applied,
-    sort: sameSort(state.sort, defaultSort) ? null : state.sort,
+    sort: sameSort(state.sort, state.defaultSort) ? null : state.sort,
     columns: state.columns,
     view: state.view,
   }
@@ -259,7 +257,7 @@ export function queryOf(state: State, defaultSort: Sort = DEFAULT_SORT): QuerySe
 
 /** The slices {@link queryOf} reads are the ones `previous` had: the reducer keeps an unchanged slice's object. */
 const sameQuerySlices = (a: State, b: State): boolean =>
-  a.search.scope === b.search.scope && a.filter.applied === b.filter.applied && a.sort === b.sort && a.columns === b.columns && a.view === b.view
+  a.search.scope === b.search.scope && a.filter.applied === b.filter.applied && a.sort === b.sort && a.defaultSort === b.defaultSort && a.columns === b.columns && a.view === b.view
 
 /** Stored query settings (parsed JSON, or anything else) to what can be applied; what is wrong is left out. */
 export function normalizeQuery(value: unknown): Partial<QuerySettings> {
@@ -313,6 +311,7 @@ export function remember(
 ): () => void {
   store.dispatch({ type: 'restore', settings: memory.load() })
   const saved = defaults.get()
+  store.dispatch({ type: 'sort-default', sort: saved })
   if (saved) store.dispatch({ type: 'sort', sort: saved })
   try {
     const text = storage.read(QUERY_KEY)
@@ -320,7 +319,7 @@ export function remember(
   } catch {
     // Unreadable: the panel starts from its defaults.
   }
-  const written = (state: State) => JSON.stringify(queryOf(state, defaults.get() ?? DEFAULT_SORT))
+  const written = (state: State) => JSON.stringify(queryOf(state))
   let last = written(store.getState())
   return store.subscribe((state, previous) => {
     const now = rememberedOf(state)

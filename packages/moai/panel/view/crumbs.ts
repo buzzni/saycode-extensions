@@ -5,8 +5,8 @@
 
 import { LOST, NO_MILESTONE, type IssueIndex, type Path, type Seg } from "../data/index.ts"
 import type { Copy } from "../i18n/index.ts"
-import type { Sort } from "../data/query.ts"
-import { DEFAULT_SORT, type State } from "../store.ts"
+import { sameSort, type Sort } from "../data/query.ts"
+import type { State } from "../store.ts"
 import { chip, el } from "./components.ts"
 
 export interface CrumbSegment {
@@ -16,11 +16,11 @@ export interface CrumbSegment {
 }
 
 /** What the path line reads from the state: the search text and the applied filter text hang as a badge. */
-export type CrumbState = Pick<State, "path" | "view" | "sort" | "search" | "filter">
+export type CrumbState = Pick<State, "path" | "view" | "sort" | "defaultSort" | "search" | "filter">
 
 export interface CrumbLine {
   segments: CrumbSegment[]
-  /** `done · deferred hidden · sort priority↑, updated↓`, or null when the view hides nothing and the order is the default. */
+  /** `done · deferred hidden · sort priority↑, updated↓`, or null when the view hides nothing and the order is the default (the saved one, if any). */
   look: string | null
   /** The search (`/text`) or filter on, or null. */
   hung: string | null
@@ -49,18 +49,14 @@ export function sortWords(sort: Sort, copy: Copy): string {
   return sort.reversed ? `${words} ${copy.shell.reversed}` : words
 }
 
-const isDefaultSort = (sort: Sort): boolean =>
-  !sort.reversed && sort.fields.length === DEFAULT_SORT.fields.length &&
-  sort.fields.every((field, n) => field.key === DEFAULT_SORT.fields[n]!.key && field.dir === DEFAULT_SORT.fields[n]!.dir)
-
-/** What the view hides, then a non-default order, as one badge; null when there is neither. */
-export function lookBadge(state: Pick<CrumbState, "view" | "sort">, copy: Copy): string | null {
+/** What the view hides, then an order other than the default (the saved one, if any), as one badge; null when there is neither. */
+export function lookBadge(state: Pick<CrumbState, "view" | "sort" | "defaultSort">, copy: Copy): string | null {
   const names = [...state.view.hiddenStatuses]
   if (state.view.hideDeferred) names.push(copy.shell.deferred)
   if (state.view.hideBacklog) names.push(copy.shell.backlog)
   const parts: string[] = []
   if (names.length) parts.push(copy.shell.hidden(names))
-  if (!isDefaultSort(state.sort)) parts.push(copy.shell.sorted(sortWords(state.sort, copy)))
+  if (!sameSort(state.sort, state.defaultSort)) parts.push(copy.shell.sorted(sortWords(state.sort, copy)))
   return parts.length ? parts.join(" · ") : null
 }
 

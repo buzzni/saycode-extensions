@@ -102,6 +102,10 @@ export interface ShellCopy {
   truncated: string
   /** The archive read failed (`SPC v o`); why follows. The board's rows stand. */
   archiveFailed: string
+  /** The catalog lacks `show --all` and the compat banner cannot name it yet: the list stands on prime's rows. */
+  primeOnly: string
+  /** The backlog read beside prime's rows was declined or failed; why follows. The rows stand without the backlog. */
+  backlogFailed: string
   compat: CompatCopy
 }
 
@@ -131,6 +135,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
     truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
     archiveFailed: 'Archived rows could not be read:',
+    primeOnly: 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up (and the backlog) are shown.',
+    backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
   },
   ko: {
@@ -158,6 +164,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
     truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
     archiveFailed: '아카이브된 항목을 읽지 못했습니다:',
+    primeOnly: '이 환경에서는 전체 목록을 읽을 수 없어 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
+    backlogFailed: '백로그를 읽지 못했습니다:',
     compat: COMPAT_KO,
   },
   ja: {
@@ -185,6 +193,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
     truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
     archiveFailed: 'アーカイブ済みの項目を読めませんでした:',
+    primeOnly: 'この環境では一覧全体を読めないため、手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
+    backlogFailed: 'バックログを読めませんでした:',
     compat: COMPAT_JA,
   },
   zh: {
@@ -212,6 +222,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
     truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务（以及待办池）。',
     archiveFailed: '无法读取已归档的条目:',
+    primeOnly: '此环境无法读取完整列表，因此只显示已领取和可以开始的任务（以及待办池）。',
+    backlogFailed: '无法读取待办池:',
     compat: COMPAT_ZH,
   },
 }
