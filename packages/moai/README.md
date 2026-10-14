@@ -11,7 +11,7 @@ The extension and `moai` keep independent version numbers. Extension 2.0.0 needs
 | Needs | Version | Notes |
 |---|---|---|
 | Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
-| `moai` CLI | 0.17.0 or later | with the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json` and `archived` on the archive rows of `show --archived --json`, the configured status order (`statuses[]`) and the milestone and epic tallies in `status --json`, `show --archived` paging (se-0g4a). An older moai still loads, with the fallbacks the compatibility banner names |
+| `moai` CLI | 0.17.0 or later | with the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
 | Happy daemon catalog | all 13 profiles | `status`, `prime`, `show`, `add`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
 
 Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update still ships before extension
@@ -66,17 +66,19 @@ The extension contributes a project tool (Desktop engine 1.2.0): in a project co
 title; `surfaceSize: "compact"` applies only where a host opens it as a modal). Settings → Machines no longer shows a
 Moai button.
 
-Version 2.0 is a keyboard-first explorer modelled on `moai tui`. It has three tabs — **Kanban**, **List** and **Wiki**
-(click the tab bar, or `SPC g b` / `SPC g l` / `SPC g w`) — and a detail pane that sits below the list or, on a panel at least
-640 px wide, on its left; a small button in the toolbar (or `SPC o d`) switches the position. The toolbar and the keys
-cover search (`/`), filter (`SPC f`), sort (`SPC s`), view toggles for deferred, backlog, archived and status columns
-(`SPC v`), list columns (`SPC c`) and the unread mark: **NEW** rows are marked read with `r`, `SPC m g` (group) and
-`SPC m a` (all). `?` shows the shortcut overlay. See [PANEL.md](PANEL.md) for how the panel is used and the full
-shortcut table.
+Version 2.0 is a keyboard-first explorer modelled on `moai tui`. It has three tabs — **Board** (the kanban), **List**
+and **Wiki** (click the tab bar, or `SPC g b` / `SPC g l` / `SPC g w`) — and a detail pane that sits below the list or,
+on a panel at least 640 px wide, on its left; a small button in the tab bar (or `SPC o d`) switches the position. The
+toolbar and the keys cover search (`/`), filter (`SPC f`) and sort (`SPC s`); the `SPC` menu, whose items can be
+clicked too, covers view toggles for deferred, backlog, archived and status columns (`SPC v`), list columns (`SPC c`)
+and the unread mark: **NEW** rows are marked read with `r`, `SPC m g` (group) and `SPC m a` (all). `?` shows the
+shortcut overlay. See [PANEL.md](PANEL.md) for how the panel is used and the full shortcut table.
 
-The panel loads the project's tasks once and filters, sorts and groups them in the panel, so keys respond at once;
-details (`show`) and wiki pages are read when opened. A read is approved once per profile, machine and folder for the
-session; every add and every read-mark write asks again. Runs target the project of the conversation; Desktop's
+The panel reads the project's whole list (`show --all`, the backlog and `status`) and filters, sorts and groups it in
+the panel, so keys respond at once. It reads the list again every minute while it is on screen, after an add or a read
+mark, and from the refresh time in the tab bar; details (`show`), the archive (`SPC v o`) and wiki pages are read when
+opened. A read is approved once per profile, machine and folder for the session, and so is each read-mark profile (they
+write only your own read state, see Profiles); every add asks again. Runs target the project of the conversation; Desktop's
 confirmation shows the machine and folder, and until a run is accepted the panel reads "Starting… approve the
 confirmation if it is showing" rather than claiming it already runs on the machine. After a cancelled run the panel is
 ready again at once and notes when the machine says processes may still be running (the daemon's workspace write lock

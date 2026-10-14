@@ -15,11 +15,11 @@
 //                                   'layer' goes one level down) and a state label ([보임]/[숨김], [오름]/[내림], …).
 //   helpSections(mode, ctx, platform) → grouped rows { label, keys } for the help overlay; `available` marks rows
 //                                   that do something right now.
-// Labels are ids (KeyLabel) or functions of the words: both resolve through the i18n catalogue's `table` group
-// (KeyTableCopy), passed as `words` — Korean when a caller passes none.
 //   keyLabel(notation)            → how to print a key or sequence in a <kbd> ('C-d' → 'Ctrl-d', 'g g' → 'gg', 'Up' → '↑').
 //   MENU_CONTROLS                 → Esc / SPC / Backspace inside the menu, for the menu's footer hint.
 // Clicking a menu item is the router's press(item.key) — the same path as pressing it.
+// Labels are ids (KeyLabel) or functions of the words: both resolve through the i18n catalogue's `table` group
+// (KeyTableCopy), passed as `words` to menuLayer and helpSections — Korean when a caller passes none.
 
 import { TABLE, type KeyTableCopy } from "../i18n/index.ts"
 

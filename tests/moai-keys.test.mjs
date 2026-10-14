@@ -92,6 +92,12 @@ test('table: C-d / C-u say the cursor stays in browse, not in the wiki, whose li
   const half = (mode) => helpSections(mode, { mode }, 'other').flatMap((s) => s.rows).find((r) => r.action === 'move.halfDown').label
   assert.match(half('browse'), /커서 그대로/)
   assert.doesNotMatch(half('wiki'), /커서/)
+  // Every language tells the two apart: the wiki's row is not the browse row's words.
+  for (const [lang, words] of Object.entries(TABLE)) {
+    const said = (mode) => helpSections(mode, { mode }, 'other', words).flatMap((s) => s.rows).find((r) => r.action === 'move.halfDown').label
+    assert.notEqual(said('wiki'), said('browse'), lang)
+    assert.ok(said('browse').startsWith(said('wiki')), `${lang}: the browse row adds that the cursor stays`)
+  }
 })
 
 test('table: 제외 keys are absent (0-9, SPC q, SPC g s, SPC v w, SPC c w, SPC o t/m, SPC p, Ctrl-C)', () => {

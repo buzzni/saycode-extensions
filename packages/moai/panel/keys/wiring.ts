@@ -84,7 +84,6 @@ export interface ReadMarks {
   group(id: string): Promise<Outcome | null>
 }
 
-
 export interface KeyWiringOptions {
   document: Document
   store: Store
@@ -212,6 +211,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       if (on) row.setAttribute("aria-current", "true")
       else row.removeAttribute("aria-current")
     }
+    // The editor's note says the default `D` saves lasts for this session only (toolbar.ts): where it persists, as
+    // `D` then says (sortDefaultSaved), the note would say what is not so.
+    const note = bar.el.querySelector<HTMLElement>(".m-sort-pop [data-sort-note]")
+    if (note) note.hidden = defaults.persistent
   }
 
   function moveField(delta: 1 | -1) {

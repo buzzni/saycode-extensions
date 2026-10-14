@@ -1,8 +1,8 @@
 /**
  * The panel's words in English, Korean, Japanese and Chinese. The top level is carried over from the 1.x
- * panel; newer words live in one group per area (`shell`, `list`, `board`, `detail`), each with its own
- * interface and its four languages side by side below, so the stages that build those areas add their words
- * inside their own group without touching another's lines.
+ * panel; newer words live in one group per area (`shell`, `list`, `board`, `detail`, `toolbar`, `keys`, `table`,
+ * `wiki`), each with its own interface and its four languages side by side below, so the stages that build those
+ * areas add their words inside their own group without touching another's lines.
  */
 import type { RefusalCode } from '../data/client.js'
 import type { Feature } from '../data/compat.js'
@@ -443,7 +443,7 @@ export interface ToolbarCopy {
   /** `N hidden` — rows the search shows that the view hides. */
   hidden: (n: number) => string
   hiddenReasons: Record<HiddenReason, string>
-  /** The sort editor's note on `D`: the default it saves lasts for this session. */
+  /** The sort editor's note on `D`: the default it saves lasts for this session (keys/wiring.ts hides it where it persists). */
   sortDefaultSessionNote: string
 }
 
@@ -494,7 +494,7 @@ const TOOLBAR: Record<Language, ToolbarCopy> = {
   },
 }
 
-// ── keys: the key router's words (se-jwl3); the key table's own labels live in keys/table.ts ─────────────
+// ── keys: the key router's words (se-jwl3); the key table's own labels are the `table` group below ───────
 
 export interface KeysCopy {
   /** Shown while the panel's frame has no keyboard focus (the host does not give it one). */
@@ -544,7 +544,9 @@ const KEYS: Record<Language, KeysCopy> = {
 
 /**
  * The key table names each binding by a label id; these are the words for them. The English follows moai's own
- * `tui.*` words where the panel shows the same thing as the TUI (state labels, menu and layer names).
+ * `tui.*` words where the panel shows the same thing as the TUI: the state labels (`tui.state.*`, without the
+ * TUI's `●` sort mark) and the root and layer names (`tui.menu.root`, `tui.group.*`), except `SPC g`, which the
+ * panel calls Go (`tui.group.screen` is "screen") and `SPC w`, which the TUI has not.
  */
 export interface KeyTableCopy {
   labels: Record<KeyLabel, string>

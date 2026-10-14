@@ -485,7 +485,7 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
           }
           pop.append(rowEl)
         }
-        // Said plainly until a settings storage keeps the default.
+        // Said plainly until a settings storage keeps the default; keys/wiring.ts hides it where the default persists.
         pop.append(el(doc, "div", { class: "m-sort-note", "data-sort-note": "default" }, t.sortDefaultSessionNote))
         sortWrap.append(pop)
         sortPop = pop

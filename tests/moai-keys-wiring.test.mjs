@@ -891,3 +891,40 @@ test('keys: D in the sort editor saves the order as the default; emptying the or
   panel.press(' ')
   assert.deepEqual(panel.state().sort.fields.map((f) => f.key), ['title', 'priority'])
 })
+
+test('keys: where the default persists, the sort editor does not say it lasts for the session, and D says it is saved', () => {
+  const kept = new Map()
+  const storage = { read: (key) => kept.get(key) ?? null, write: (key, value) => (value === null ? kept.delete(key) : kept.set(key, value)), persistent: true }
+  const sortDefault = createSortDefault(storage)
+  const panel = inEpic({ sortDefault })
+  panel.seq(' ', 's', 'e')
+  assert.equal(panel.$('.m-sort-pop [data-sort-note]').hidden, true, 'the session-only note is not shown')
+  // The popover is drawn again when the order changes under it (d flips the field): the note stays hidden.
+  const before = panel.$('.m-sort-pop')
+  panel.press('d')
+  assert.notEqual(panel.$('.m-sort-pop'), before, 'the popover was drawn again')
+  assert.equal(panel.$('.m-sort-pop [data-sort-note]').hidden, true)
+  panel.press('D')
+  assert.equal(panel.$('.moai-result')?.textContent ?? '', en.keys.sortDefaultSaved)
+})
+
+test('keys: an English panel draws the SPC menu and the help in English, with no Korean left (se-ti70)', () => {
+  const panel = inEpic()
+  panel.press(' ')
+  const menu = panel.keys.menu.el
+  assert.equal(menu.getAttribute('aria-label'), en.table.root)
+  assert.equal(menu.querySelector('.m-wk-title').textContent, en.table.root)
+  assert.ok(menu.querySelector('.m-wk-footer').textContent.includes(en.table.labels['menu.close']))
+  assert.doesNotMatch(menu.textContent, /[가-힣]/)
+  panel.press('Escape')
+  panel.press('?')
+  const help = panel.keys.help.el
+  assert.equal(help.getAttribute('aria-label'), en.table.labels.help)
+  assert.equal(help.querySelector('.m-help-head strong').textContent, en.table.helpTitle)
+  assert.equal(help.querySelector('.m-help-head button').getAttribute('aria-label'), en.table.close)
+  assert.equal(help.querySelector('.m-help-title').textContent, en.table.groups.move)
+  assert.doesNotMatch(help.textContent, /[가-힣]/)
+  panel.press('Escape')
+  panel.seq(' ', 's', 'e')
+  assert.doesNotMatch(panel.$('.m-sort-pop').textContent, /[가-힣]/)
+})
