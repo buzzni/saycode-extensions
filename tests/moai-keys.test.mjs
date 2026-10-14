@@ -1,0 +1,443 @@
+// Moai panel keys: the key table as data and the key router (docs/moai-panel/keybindings.md §2, §3).
+// panel/keys/*.ts are standalone ES modules; Node strips the types.
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { JSDOM } from 'jsdom'
+
+const panel = new URL('../packages/moai/panel/', import.meta.url)
+const table = await import(new URL('keys/table.ts', panel))
+const routerModule = await import(new URL('keys/router.ts', panel))
+const { KEY_TABLE, MENU_CONTROLS, LAYERS, menuLayer, helpSections, keyLabel, bindingKeys, tokens } = table
+const { createKeyRouter, attachKeyRouter, keyToken, isEditableTarget, detectPlatform } = routerModule
+
+const browse = (extra = {}) => ({ mode: 'browse', tab: 'list', focus: 'list', detail: true, detailAt: 'bottom', ...extra })
+
+function setup ({ platform = 'other', ctx = browse() } = {}) {
+  const sent = []
+  const changes = []
+  const state = { ctx }
+  const router = createKeyRouter({
+    platform,
+    getContext: () => state.ctx,
+    dispatch: (action) => sent.push(action),
+    onChange: (s) => changes.push(s)
+  })
+  const key = (k, init = {}) => router.handle({ key: k, ...init })
+  const ids = () => sent.map((a) => a.id)
+  return { router, sent, changes, state, key, ids }
+}
+
+const allKeys = (bindings, platform) => bindings.flatMap((b) => bindingKeys(b, platform))
+
+// ------------------------------------------------------------------ table integrity
+
+test('table: no key sequence is bound twice, or is both an action and a prefix, in any mode', () => {
+  for (const platform of ['mac', 'other']) {
+    for (const mode of ['browse', 'wiki', 'prompt', 'sorter']) {
+      const bindings = [...KEY_TABLE[mode], ...(mode === 'browse' || mode === 'wiki' ? KEY_TABLE.menu.filter((b) => !b.modes || b.modes.includes(mode)) : [])]
+      const keys = allKeys(bindings, platform)
+      const dupes = keys.filter((k, i) => keys.indexOf(k) !== i)
+      assert.deepEqual(dupes, [], `${mode}/${platform}: duplicate keys`)
+      for (const k of keys) {
+        const longer = keys.find((other) => other !== k && other.startsWith(`${k} `))
+        assert.equal(longer, undefined, `${mode}/${platform}: ${k} is an action and the prefix of ${longer}`)
+      }
+    }
+  }
+})
+
+test('table: every binding has an action id, a Korean label and a key; menu bindings start with SPC', () => {
+  for (const [mode, bindings] of Object.entries(KEY_TABLE)) {
+    for (const b of bindings) {
+      assert.match(b.action, /^[a-zA-Z.]+$/, `${mode}: action id`)
+      assert.ok(typeof b.label === 'string' && b.label.length > 0, `${mode}/${b.action}: label`)
+      assert.ok(allKeys([b], 'mac').length > 0, `${mode}/${b.action}: at least one key`)
+      if (mode === 'menu') {
+        for (const k of b.keys) assert.equal(tokens(k)[0], 'SPC', `${k} is under SPC`)
+        assert.ok(b.modes?.length, `${b.action}: menu binding names its modes`)
+      }
+    }
+  }
+  // Every menu layer has a title.
+  const prefixes = new Set(KEY_TABLE.menu.flatMap((b) => b.keys.map((k) => tokens(k).slice(0, -1).join(' '))).filter((p) => p !== 'SPC'))
+  for (const p of prefixes) assert.ok(LAYERS.some((l) => l.prefix === p), `layer ${p} has a title`)
+})
+
+test('table: 제외 keys are absent (0-9, SPC q, SPC g s, SPC v w, SPC c w, SPC o t/m, SPC p, Ctrl-C)', () => {
+  const everything = Object.values(KEY_TABLE).flatMap((bs) => allKeys(bs, 'mac'))
+  for (const n of '0123456789') assert.ok(!KEY_TABLE.browse.some((b) => bindingKeys(b, 'mac').includes(n)), `browse ${n}`)
+  for (const gone of ['SPC q', 'SPC g s', 'SPC v w', 'SPC c w', 'SPC o t', 'SPC o m', 'SPC p a', 'SPC p d', 'C-c']) {
+    assert.ok(!everything.includes(gone), `${gone} is excluded`)
+  }
+})
+
+test('table: 대체 — Ctrl-w forms only on macOS, SPC w and Alt-Backspace everywhere', () => {
+  const focusNext = KEY_TABLE.browse.find((b) => b.action === 'focus.next')
+  assert.deepEqual(bindingKeys(focusNext, 'other'), [])
+  assert.ok(bindingKeys(focusNext, 'mac').includes('C-w w'))
+  assert.ok(KEY_TABLE.menu.some((b) => b.action === 'focus.next' && b.keys.includes('SPC w w')))
+  for (const side of ['W', 'h', 'j', 'k', 'l']) assert.ok(KEY_TABLE.menu.some((b) => b.keys.includes(`SPC w ${side}`)), `SPC w ${side}`)
+  const word = KEY_TABLE.prompt.find((b) => b.action === 'prompt.deleteWord')
+  assert.deepEqual(bindingKeys(word, 'other'), ['A-Backspace'])
+  assert.deepEqual(bindingKeys(word, 'mac'), ['A-Backspace', 'C-w'])
+  // 변경: SPC n opens the add input, SPC o d toggles left/bottom.
+  assert.equal(KEY_TABLE.menu.find((b) => b.keys.includes('SPC n')).action, 'add.open')
+  assert.equal(KEY_TABLE.menu.find((b) => b.keys.includes('SPC o d')).action, 'option.detailAt')
+})
+
+test('table: 051 bindings — motion, enter/leave, tabs, search, read, help, prompt, sorter, wiki', () => {
+  const find = (mode, key) => KEY_TABLE[mode].find((b) => bindingKeys(b, 'mac').includes(key))?.action
+  const expect = {
+    browse: { j: 'move.down', Down: 'move.down', k: 'move.up', Up: 'move.up', 'g g': 'move.top', Home: 'move.top', G: 'move.bottom', End: 'move.bottom', 'C-d': 'move.halfDown', 'C-u': 'move.halfUp', 'C-f': 'move.pageDown', PageDown: 'move.pageDown', 'C-b': 'move.pageUp', PageUp: 'move.pageUp', Enter: 'enter', Backspace: 'leave', l: 'expand', Right: 'expand', h: 'collapse', Left: 'collapse', Tab: 'expandAll', '/': 'search.open', Esc: 'clear', r: 'read', '?': 'help', 'C-w W': 'focus.prev' },
+    menu: { 'SPC /': 'search.open', 'SPC f': 'filter.open', 'SPC g l': 'tab.list', 'SPC g b': 'tab.board', 'SPC g w': 'tab.wiki', 'SPC m a': 'read.all', 'SPC m g': 'read.group', 'SPC ?': 'help', 'SPC v r': 'view.raw', 'SPC s e': 'sort.edit' },
+    prompt: { Enter: 'prompt.apply', Esc: 'prompt.cancel', Tab: 'prompt.next', 'S-Tab': 'prompt.prev', Up: 'prompt.up', Down: 'prompt.down', 'C-u': 'prompt.clear' },
+    sorter: { j: 'sorter.down', k: 'sorter.up', J: 'sorter.lower', K: 'sorter.raise', SPC: 'sorter.toggle', d: 'sorter.flip', Enter: 'sorter.apply', D: 'sorter.default', Esc: 'sorter.cancel' },
+    wiki: { j: 'move.down', 'g g': 'move.top', Enter: 'wiki.enter', Backspace: 'wiki.back', h: 'wiki.back', Left: 'wiki.back', Tab: 'wiki.nextLink', 'S-Tab': 'wiki.prevLink', '/': 'wiki.search', Esc: 'wiki.clear', 'C-w l': 'focus.right' }
+  }
+  for (const [mode, keys] of Object.entries(expect)) {
+    for (const [key, action] of Object.entries(keys)) assert.equal(find(mode, key), action, `${mode} ${key}`)
+  }
+})
+
+// ------------------------------------------------------------------ router: common rules
+
+test('keyToken: named keys, modifiers, shift folded into characters, meta and lone modifiers ignored', () => {
+  assert.equal(keyToken({ key: ' ' }), 'SPC')
+  assert.equal(keyToken({ key: 'ArrowDown' }), 'Down')
+  assert.equal(keyToken({ key: 'Escape' }), 'Esc')
+  assert.equal(keyToken({ key: 'G', shiftKey: true }), 'G')
+  assert.equal(keyToken({ key: 'd', ctrlKey: true }), 'C-d')
+  assert.equal(keyToken({ key: 'Tab', shiftKey: true }), 'S-Tab')
+  assert.equal(keyToken({ key: 'Backspace', altKey: true }), 'A-Backspace')
+  assert.equal(keyToken({ key: 'k', metaKey: true }), null)
+  assert.equal(keyToken({ key: 'Shift', shiftKey: true }), null)
+})
+
+test('router: an editable target turns browse keys off; prompt mode keys still apply', () => {
+  const { key, ids, router, state } = setup()
+  assert.deepEqual(key('j', { editable: true }), { handled: false, preventDefault: false })
+  assert.deepEqual(key('/', { editable: true }), { handled: false, preventDefault: false })
+  assert.deepEqual(ids(), [])
+  // The target object is checked when no flag is passed.
+  const dom = new JSDOM('<!doctype html><input id="i"><div contenteditable><span id="s"></span></div><button id="b"></button>')
+  const d = dom.window.document
+  assert.equal(key('j', { target: d.getElementById('i') }).handled, false)
+  assert.equal(key('j', { target: d.getElementById('s') }).handled, false)
+  assert.equal(key('j', { target: d.getElementById('b') }).handled, true)
+  // A pending sequence is dropped when focus lands in an input.
+  key('g')
+  assert.deepEqual(router.state().pending, ['g'])
+  key('x', { editable: true })
+  assert.deepEqual(router.state().pending, [])
+  state.ctx = { mode: 'prompt' }
+  assert.equal(key('Enter', { editable: true }).action.id, 'prompt.apply')
+  assert.equal(key('Tab', { editable: true }).preventDefault, true)
+  assert.equal(key('j', { editable: true }).handled, false, 'letters type into the input')
+})
+
+test('router: IME composition handles nothing and leaves the buffer alone', () => {
+  const { key, ids, router, state } = setup()
+  key('g')
+  assert.deepEqual(key('g', { isComposing: true }), { handled: false, preventDefault: false })
+  assert.deepEqual(key('ㅎ', { keyCode: 229 }), { handled: false, preventDefault: false })
+  assert.deepEqual(router.state().pending, ['g'], 'composition does not touch the pending sequence')
+  state.ctx = { mode: 'prompt' }
+  assert.equal(key('Enter', { isComposing: true }).handled, false, 'Enter that ends a composition does not apply')
+  assert.deepEqual(ids(), [])
+})
+
+test('router: Tab, Space, Backspace and / get preventDefault in browse even when they do nothing', () => {
+  const { key } = setup({ ctx: browse({ tab: 'board', focus: 'detail' }) })
+  for (const [k, init] of [['Tab', {}], ['Tab', { shiftKey: true }], ['Backspace', {}], ['/', {}], [' ', {}]]) {
+    assert.equal(key(k, init).preventDefault, true, `${k} ${JSON.stringify(init)}`)
+  }
+  key('Escape')
+  assert.equal(key('Tab').handled, false, 'expandAll is unavailable on the board')
+  assert.deepEqual(key('x'), { handled: false, preventDefault: false }, 'other unbound keys pass through')
+})
+
+test('router: motion and the other direct keys dispatch their action ids', () => {
+  const { key, sent } = setup()
+  key('j'); key('ArrowUp'); key('G', { shiftKey: true }); key('End'); key('d', { ctrlKey: true }); key('PageUp')
+  key('Enter'); key('Backspace'); key('l'); key('ArrowLeft'); key('Tab'); key('/'); key('Escape'); key('r'); key('?')
+  assert.deepEqual(sent.map((a) => a.id), ['move.down', 'move.up', 'move.bottom', 'move.bottom', 'move.halfDown', 'move.pageUp', 'enter', 'leave', 'expand', 'collapse', 'expandAll', 'search.open', 'clear', 'read', 'help'])
+  assert.deepEqual(sent[0], { id: 'move.down', keys: ['j'], mode: 'browse', fromMenu: false })
+})
+
+test('router: gg goes to the top; g then another key drops both (keys.rs Chord::feed)', () => {
+  const { key, ids, router, changes } = setup()
+  assert.deepEqual(key('g'), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state(), { pending: ['g'], menu: null })
+  key('Shift', { shiftKey: true })
+  assert.deepEqual(router.state().pending, ['g'], 'a lone modifier keydown keeps the buffer')
+  assert.equal(key('g').action.id, 'move.top')
+  assert.deepEqual(router.state().pending, [])
+  key('g')
+  assert.deepEqual(key('x'), { handled: true, preventDefault: true }, 'gx is swallowed')
+  key('g')
+  assert.equal(key('j').action, undefined, 'gj does not move down')
+  assert.deepEqual(router.state().pending, [])
+  assert.equal(key('g').handled, true, 'the dropped g does not join a new one')
+  assert.equal(key('g').action.id, 'move.top')
+  assert.deepEqual(ids(), ['move.top', 'move.top'])
+  assert.deepEqual(changes.at(-1), { pending: [], menu: null })
+})
+
+test('router: Ctrl-w only on macOS, SPC w everywhere', () => {
+  const mac = setup({ platform: 'mac' })
+  assert.equal(mac.key('w', { ctrlKey: true }).handled, true)
+  assert.equal(mac.key('w').action.id, 'focus.next')
+  mac.key('w', { ctrlKey: true })
+  assert.equal(mac.key('w', { ctrlKey: true }).action.id, 'focus.next', 'Ctrl held through the second key')
+  mac.key('w', { ctrlKey: true })
+  assert.equal(mac.key('k').action.id, 'focus.up')
+  mac.key('w', { ctrlKey: true })
+  assert.equal(mac.key('h').action, undefined, 'Ctrl-w h with the detail below does nothing')
+
+  const linux = setup({ platform: 'other' })
+  assert.deepEqual(linux.key('w', { ctrlKey: true }), { handled: false, preventDefault: false })
+  assert.equal(linux.key('w').handled, false)
+  assert.deepEqual(linux.ids(), [])
+  for (const r of [linux, setup({ platform: 'mac' })]) {
+    r.key(' '); r.key('w')
+    assert.equal(r.key('w').action.id, 'focus.next')
+    r.key(' '); r.key('w')
+    assert.equal(r.key('W', { shiftKey: true }).action.id, 'focus.prev')
+  }
+})
+
+// ------------------------------------------------------------------ router: SPC menu
+
+test('menu: SPC opens, layers go down, Backspace goes up, Esc and SPC close', () => {
+  const { key, router, ids } = setup()
+  assert.deepEqual(key(' '), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state(), { pending: [], menu: ['SPC'] })
+  key('v')
+  assert.deepEqual(router.state().menu, ['SPC', 'v'])
+  key('Backspace')
+  assert.deepEqual(router.state().menu, ['SPC'], 'Backspace goes up one layer')
+  key('Backspace')
+  assert.equal(router.state().menu, null, 'Backspace at the root closes')
+  key(' '); key('s')
+  key('Escape')
+  assert.equal(router.state().menu, null, 'Esc closes')
+  key(' '); key('m')
+  key(' ')
+  assert.equal(router.state().menu, null, 'SPC closes')
+  assert.deepEqual(ids(), [], 'closing keys run nothing (Esc does not clear the search)')
+})
+
+test('menu: unknown keys are ignored and swallowed; action items close, toggle items keep it open', () => {
+  const { key, router, sent } = setup()
+  key(' ')
+  assert.deepEqual(key('z'), { handled: true, preventDefault: true })
+  assert.deepEqual(key('Tab'), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state().menu, ['SPC'], 'unknown key leaves the menu open')
+  key('v'); key('l')
+  assert.deepEqual(router.state().menu, ['SPC', 'v'], 'toggle keeps the layer open')
+  key('d')
+  key('a')
+  assert.equal(router.state().menu, null, 'SPC v a (show all) is an action and closes')
+  key(' '); key('s'); key('P', { shiftKey: true })
+  assert.deepEqual(router.state().menu, ['SPC', 's'])
+  key('e')
+  assert.equal(router.state().menu, null)
+  key(' '); key('g')
+  assert.equal(key('b').action.id, 'tab.board')
+  assert.equal(router.state().menu, null)
+  key(' ')
+  key('n')
+  assert.deepEqual(sent.map((a) => [a.id, a.args, a.fromMenu]), [
+    ['view.deferred', undefined, true],
+    ['view.detail', undefined, true],
+    ['view.all', undefined, true],
+    ['sort.add', { field: 'priority' }, true],
+    ['sort.edit', undefined, true],
+    ['tab.board', undefined, true],
+    ['add.open', undefined, true]
+  ])
+  assert.deepEqual(sent[0].keys, ['SPC', 'v', 'l'])
+})
+
+test('menu: a motion key the layer does not carry closes the menu and moves; layer letters win', () => {
+  const { key, router, ids } = setup()
+  key(' ')
+  assert.equal(key('j').action.id, 'move.down')
+  assert.equal(router.state().menu, null)
+  key(' '); key('v')
+  assert.equal(key('G', { shiftKey: true }).action.id, 'move.bottom')
+  key(' ')
+  key('g')
+  assert.deepEqual(router.state().menu, ['SPC', 'g'], 'g is a layer at the root, not gg')
+  assert.equal(key('j').action.id, 'move.down', 'in SPC g, j closes and moves')
+  key(' '); key('c')
+  key('h')
+  assert.deepEqual(router.state().menu, ['SPC', 'c'], 'SPC c h is a column toggle, not collapse')
+  key('Escape')
+  key(' '); key('v')
+  assert.deepEqual(key('g'), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state(), { pending: ['g'], menu: null }, 'g of gg closes the menu and waits')
+  assert.equal(key('g').action.id, 'move.top')
+  key(' ')
+  key('Enter')
+  assert.deepEqual(router.state().menu, ['SPC'], 'Enter is not a motion: ignored')
+  key(' ')
+  // SPC w j exists but is unavailable with the detail on the left: it does not leak into a motion.
+  const left = setup({ ctx: browse({ detailAt: 'left' }) })
+  left.key(' '); left.key('w')
+  assert.equal(left.key('j').action, undefined)
+  assert.deepEqual(left.router.state().menu, ['SPC', 'w'])
+  assert.equal(left.key('l').action.id, 'focus.right')
+  assert.deepEqual(ids(), ['move.down', 'move.bottom', 'move.down', 'cell.toggle', 'move.top'])
+})
+
+test('menu: unavailable layers and items cannot be entered; press() acts like the key', () => {
+  const noDetail = setup({ ctx: browse({ detail: false }) })
+  noDetail.key(' ')
+  noDetail.key('w')
+  assert.deepEqual(noDetail.router.state().menu, ['SPC'], 'SPC w is not offered without the detail')
+  noDetail.key('o')
+  assert.deepEqual(noDetail.router.state().menu, ['SPC'], 'SPC o has nothing without the detail')
+  const { router, sent } = setup()
+  router.press('SPC'); router.press('o')
+  assert.equal(router.press('d').action.id, 'option.detailAt')
+  assert.deepEqual(router.state().menu, ['SPC', 'o'])
+  router.press('Esc')
+  assert.equal(router.state().menu, null)
+  assert.equal(sent.length, 1)
+  // Mode change closes a held menu.
+  const r = setup()
+  r.key(' '); r.key('v')
+  r.state.ctx = { mode: 'sorter' }
+  assert.equal(r.key(' ').action.id, 'sorter.toggle')
+  assert.equal(r.router.state().menu, null)
+})
+
+test('router: wiki mode has its own keys and a wiki-sized SPC menu', () => {
+  const { key, ids, router } = setup({ ctx: { mode: 'wiki', tab: 'wiki', focus: 'list' } })
+  key('j'); key('h'); key('Tab'); key('Tab', { shiftKey: true }); key('Escape'); key('/'); key('Enter')
+  key(' '); key('v'); key('r')
+  assert.deepEqual(router.state().menu, ['SPC', 'v'])
+  key('Escape'); key(' '); key('s')
+  assert.deepEqual(router.state().menu, ['SPC'], 'no sort layer in the wiki')
+  key('w'); key('l')
+  assert.deepEqual(ids(), ['move.down', 'wiki.back', 'wiki.nextLink', 'wiki.prevLink', 'wiki.clear', 'wiki.search', 'wiki.enter', 'view.raw', 'focus.right'])
+})
+
+// ------------------------------------------------------------------ menuLayer, helpSections
+
+test('menuLayer: root items and layers with titles; state labels; availability hides items', () => {
+  const ctx = browse({
+    tab: 'board',
+    hidden: { deferred: true, backlog: false, columns: [false, true] },
+    columns: ['todo', 'doing', 'done'],
+    sort: [{ field: 'priority', desc: true }],
+    cells: { tags: false },
+    detailAt: 'left',
+    raw: true
+  })
+  const root = menuLayer(['SPC'], ctx)
+  assert.equal(root.title, '메뉴')
+  assert.deepEqual(root.items.map((i) => i.key), ['/', 'f', 'n', 'g', 'v', 's', 'c', 'm', 'o', 'w', '?'])
+  const g = root.items.find((i) => i.key === 'g')
+  assert.equal(g.kind, 'layer')
+  assert.equal(g.label, '+이동')
+  assert.deepEqual(g.state, { id: 'board', label: '[칸반]' })
+
+  const view = menuLayer('SPC v', ctx)
+  assert.equal(view.title, '보기')
+  assert.equal(view.waits, true)
+  const byKey = Object.fromEntries(view.items.map((i) => [i.key, i]))
+  assert.deepEqual(view.items.map((i) => i.key), ['l', 'b', 'o', 'a', '1', '2', '3', 'd', 'r'], 'only three numbered columns')
+  assert.equal(byKey.l.state.label, '[숨김]')
+  assert.equal(byKey.b.state.label, '[보임]')
+  assert.equal(byKey.l.kind, 'toggle')
+  assert.equal(byKey.a.kind, 'action')
+  assert.equal(byKey['2'].label, 'doing')
+  assert.equal(byKey['2'].state.id, 'hidden')
+  assert.equal(byKey.r.state.id, 'raw')
+
+  const sort = Object.fromEntries(menuLayer('SPC s', ctx).items.map((i) => [i.key, i]))
+  assert.equal(sort.p.state.label, '[↓ 내림]')
+  assert.equal(sort.c.state, null)
+  assert.equal(sort.P.state.id, 'desc')
+  assert.equal(menuLayer('SPC c', ctx).items.find((i) => i.key === 't').state.id, 'hidden')
+  assert.equal(menuLayer('SPC o', ctx).items[0].state.label, '[왼쪽]')
+  assert.equal(menuLayer('SPC o', browse()).items[0].state.label, '[아래]')
+
+  // Focus moves follow the split axis; the detail position is gone when the panel is narrow.
+  assert.deepEqual(menuLayer('SPC w', ctx).items.map((i) => i.key), ['w', 'W', 'h', 'l'])
+  assert.deepEqual(menuLayer('SPC w', browse()).items.map((i) => i.key), ['w', 'W', 'j', 'k'])
+  assert.equal(menuLayer('SPC', browse({ detailAtLocked: true })).items.some((i) => i.key === 'o'), false)
+  const hiddenDetail = menuLayer('SPC', browse({ detail: false })).items.map((i) => i.key)
+  assert.ok(!hiddenDetail.includes('w') && !hiddenDetail.includes('o'))
+  assert.ok(!menuLayer('SPC v', browse({ detail: false })).items.some((i) => i.key === 'r'))
+  // The wiki menu: tabs, raw, windows, help.
+  assert.deepEqual(menuLayer('SPC', { mode: 'wiki' }).items.map((i) => i.key), ['g', 'v', 'w', '?'])
+  assert.deepEqual(menuLayer('SPC g', { mode: 'wiki' }).items.map((i) => [i.key, i.action]), [['l', 'tab.list'], ['b', 'tab.board'], ['w', 'tab.wiki']])
+})
+
+test('helpSections: grouped rows, platform keys, availability', () => {
+  const other = helpSections('browse', browse(), 'other')
+  const titles = other.map((s) => s.title)
+  assert.deepEqual(titles.slice(0, 2), ['이동', '드나들기·펼침'])
+  assert.ok(titles.includes('SPC 메뉴 안에서'))
+  const row = (sections, action) => sections.flatMap((s) => s.rows).find((r) => r.action === action)
+  assert.deepEqual(row(other, 'move.top').keys, ['g g', 'Home'])
+  assert.deepEqual(row(other, 'focus.next').keys, ['SPC w w'])
+  assert.deepEqual(row(helpSections('browse', browse(), 'mac'), 'focus.next').keys, ['C-w w', 'C-w C-w', 'SPC w w'])
+  assert.equal(row(other, 'focus.left').available, false, 'detail below: h/l do nothing')
+  assert.equal(row(other, 'focus.down').available, true)
+  assert.deepEqual(row(other, 'view.column').keys, ['SPC v 1~9'])
+  assert.equal(other.flatMap((s) => s.rows).filter((r) => r.action === 'view.column').length, 1)
+  assert.equal(row(other, 'search.open').keys.join(), '/', 'SPC / is folded into the / row')
+  const prompt = helpSections('prompt', { mode: 'prompt' }, 'other')
+  assert.deepEqual(prompt.map((s) => s.id), ['prompt'])
+  assert.equal(row(prompt, 'prompt.deleteWord').keys.join(), 'A-Backspace')
+  assert.deepEqual(helpSections('sorter', { mode: 'sorter' }, 'mac').map((s) => s.id), ['sorter'])
+  const wiki = helpSections('wiki', { mode: 'wiki' }, 'other')
+  assert.equal(row(wiki, 'sort.set'), undefined, 'no sort rows in the wiki help')
+  assert.ok(row(wiki, 'wiki.back'))
+  assert.equal(MENU_CONTROLS.length, 2)
+})
+
+test('keyLabel prints keys for kbd hints', () => {
+  assert.equal(keyLabel('C-d'), 'Ctrl-d')
+  assert.equal(keyLabel('S-Tab'), 'Shift-Tab')
+  assert.equal(keyLabel('A-Backspace'), 'Alt-Bksp')
+  assert.equal(keyLabel('g g'), 'gg')
+  assert.equal(keyLabel('Up'), '↑')
+  assert.equal(keyLabel('C-w W'), 'Ctrl-w W')
+  assert.equal(keyLabel('SPC w w'), 'SPC w w')
+  assert.equal(keyLabel('-'), '-')
+})
+
+// ------------------------------------------------------------------ DOM adapter
+
+test('attachKeyRouter: wires keydown, computes the editable flag, calls preventDefault, respects handled events', () => {
+  const dom = new JSDOM('<!doctype html><body tabindex="-1"><input id="q"><div id="tabs"></div></body>')
+  const doc = dom.window.document
+  const sent = []
+  const router = createKeyRouter({ platform: 'other', getContext: () => browse(), dispatch: (a) => sent.push(a.id) })
+  const detach = attachKeyRouter(doc, router)
+  const press = (node, key, init = {}) => {
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    node.dispatchEvent(event)
+    return event
+  }
+  assert.equal(press(doc.body, 'Tab').defaultPrevented, true)
+  assert.equal(press(doc.body, 'j').defaultPrevented, true)
+  assert.equal(press(doc.getElementById('q'), 'j').defaultPrevented, false)
+  assert.equal(press(doc.getElementById('q'), 'Tab').defaultPrevented, false, 'Tab moves focus out of an input')
+  assert.equal(press(doc.body, 'x').defaultPrevented, false)
+  // A component that handled the key first keeps it.
+  doc.getElementById('tabs').addEventListener('keydown', (e) => e.preventDefault())
+  press(doc.getElementById('tabs'), 'ArrowLeft')
+  assert.deepEqual(sent, ['expandAll', 'move.down'])
+  detach()
+  press(doc.body, 'j')
+  assert.equal(sent.length, 2)
+  assert.equal(isEditableTarget(null), false)
+  assert.equal(detectPlatform({ platform: 'MacIntel' }), 'mac')
+  assert.equal(detectPlatform({ platform: 'Linux x86_64', userAgent: 'X11' }), 'other')
+})
