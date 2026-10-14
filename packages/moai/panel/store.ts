@@ -53,6 +53,8 @@ export interface BoardData {
   more: number
   /** `show --all` was cut at the output limit, so these are prime's rows and the backlog (source.ts loadAllRows). */
   truncated?: boolean
+  /** prime's rows and the backlog, not every active row: `show --all` was cut, or the catalog lacks it (source.ts activeIds). */
+  partial?: boolean
   /**
    * Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies). Absent when that read failed, or on
    * the first read until it answers; a later read keeps the counts of the board before it until its own come.

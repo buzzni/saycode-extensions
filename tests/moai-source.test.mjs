@@ -193,6 +193,7 @@ test('a cut show --all falls back to prime with truncated, keeping the backlog',
   const loaded = await loadAllRows(client)
   assert.equal(loaded.ok, true)
   assert.equal(loaded.value.truncated, true)
+  assert.equal(loaded.value.partial, true)
   const primeIds = [...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id)
   assert.deepEqual(loaded.value.rows.map((row) => row.id), [...new Set(primeIds), 'tracker-m21g', 'tracker-zwyp'])
   assert.equal(loaded.value.more, (PRIME.rest || 0) + (PRIME.others_rest || 0))
@@ -213,6 +214,45 @@ test('in the cut fallback the backlog rows lose their references to the groups p
   const index = new IssueIndex(loaded.value.rows)
   for (const id of ['b-1', 'b-2', 'b-3']) assert.notDeepEqual(index.homeOf(index.find(id)), [LOST], id)
   assert.ok(loaded.value.rows.every((row) => row.epic === undefined && row.derived_epic === undefined && row.milestone === undefined))
+})
+
+test('a read the catalog lacks degrades the load instead of failing it: prime stands in for show --all, the backlog goes', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const primeIds = [...new Set([...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id))]
+  // No show --all: prime's rows and the backlog, partial but not cut (the catalog line says why, not the cut banner).
+  // prime starts beside the backlog read, not after it, and nothing is called off.
+  const noAll = fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) })
+  const loaded = await loadAllRows(noAll)
+  assert.equal(loaded.ok, true)
+  assert.deepEqual([loaded.value.truncated, loaded.value.partial], [false, true])
+  assert.deepEqual(loaded.value.rows.map((row) => row.id), [...primeIds, 'tracker-m21g', 'tracker-zwyp'])
+  assert.deepEqual(noAll.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog, PROFILE.prime])
+  assert.deepEqual(noAll.cancels, [])
+  // An older host's thrown start naming the code reads as the refusal does.
+  const thrown = await loadAllRows(fakeClient({ [PROFILE.showAll]: { kind: 'not-started', code: 'unsupported-daemon' }, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) }))
+  assert.equal(thrown.value.partial, true)
+  // No backlog read: the whole list without the backlog, whole (not partial).
+  const noBacklog = await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: lacked }))
+  assert.equal(noBacklog.ok, true)
+  assert.deepEqual([noBacklog.value.truncated, noBacklog.value.partial], [false, false])
+  assert.deepEqual(noBacklog.value.rows.map((row) => row.id), SHOW_ALL.map((row) => row.id))
+  // Neither: prime alone.
+  const neither = await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: passed(PRIME) }))
+  assert.deepEqual(neither.value.rows.map((row) => row.id), primeIds)
+  assert.equal(neither.value.partial, true)
+  // A daemon too old for any machine run refuses prime too: that refusal is the load's failure.
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: lacked })), { ok: false, outcome: lacked })
+  // Only the catalog's lack degrades: another backlog refusal still fails the load.
+  const declined = { kind: 'refused', code: 'declined' }
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: declined })), { ok: false, outcome: declined })
+})
+
+test('the probe hears every read of a degraded load, so the catalog line names what is missing', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const probe = new CompatProbe()
+  await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: passed(PRIME) }), undefined, probe)
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.showAll, PROFILE.backlog] })
+  assert.deepEqual(probe.report().degraded, ['all-rows', 'backlog'])
 })
 
 test('twins are kept for the index to decide, and backlog rows are kind backlog whatever they say', () => {
@@ -401,6 +441,13 @@ test('a cut list does not make an active row of the archive archive-only by its 
   const whole = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: false }
   assert.deepEqual(withArchive(whole, archive).slice(1).map((row) => row.archived), [true, true])
   assert.deepEqual(withArchive(whole, null), whole.rows)
+})
+
+test('a list prime stood in for because the catalog lacks show --all is judged as a cut one', () => {
+  const archive = [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done' }]
+  const primed = { rows: [{ id: 'mgd-a', status: 'todo' }], partial: true, truncated: false }
+  assert.deepEqual([...activeIds(primed, archive)].sort(), ['mgd-a', 'mgd-b'])
+  assert.deepEqual(withArchive(primed, archive).map((row) => [row.id, row.archived === true]), [['mgd-a', false], ['mgd-b', false], ['mgd-c', true]])
 })
 
 test('a cut list judges a group of the archive by the column it stands in (its members), not the status written on it', () => {
