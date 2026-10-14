@@ -9,7 +9,7 @@
 | [세이코드 룩앤필 가이드](look-and-feel.md) | 디자인 토큰, 컴포넌트 규격, 테마 전달 방식 |
 | [moai TUI 분석](tui-analysis.md) | 원본 TUI의 화면·키·검색·필터·정렬·열·읽음·위키 명세 |
 | [Moai 확장과 SDK 현황](current-state.md) | 지금 패널의 구조, SDK가 허용하는 것과 막는 것 |
-| [상류 요청서](upstream-requests.md) | Happy 데몬 카탈로그에 더할 프로필 7개, moai CLI 상류 개선(0.17.0에서 확인, `read --seen` 제외), 릴리스 순서 |
+| [상류 요청서](upstream-requests.md) | Happy 데몬 카탈로그에 더할 프로필 7개, moai CLI 상류 개선(0.17.0에서 확인, `read --seen` 제외), 릴리스 순서, SDK·Desktop 설정 저장 API 요청서([4절](upstream-requests.md#4-sdkdesktop-설정-저장-api-se-dnas), `se-dnas`) |
 
 - 작성일: 2026-10-14
 - 분석 근거: `/home/coder/workspace/moa-issue`(moai Rust 소스), `/home/coder/workspace/aplus-dev-studio-desktop`(세이코드 데스크톱), 이 저장소의 `packages/moai`, `packages/sdk`
