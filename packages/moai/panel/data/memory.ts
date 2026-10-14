@@ -13,8 +13,8 @@
  * {@link normalizeMemory} is pure and cleans whatever comes back, so a value from an older or newer panel,
  * or one edited by hand, still boots with usable settings.
  */
-import { SORT_KEYS, type Dir, type Sort, type SortField } from './query.js'
-import type { DetailPosition, Remembered, State, Store } from '../store.js'
+import { GREP_SCOPES, SORT_KEYS, type Dir, type GrepScope, type Sort, type SortField } from './query.js'
+import { COLUMN_DEFAULTS, type ColumnName, type DetailPosition, type Remembered, type State, type Store, type ViewSettings } from '../store.js'
 import { DEFAULT_RATIO, normalizeRatio } from '../view/split.js'
 import { DEFAULT_TAB, normalizeTab } from '../view/tabs.js'
 
@@ -124,20 +124,6 @@ export function createMemory(backend: () => Backend | null | undefined, key: str
   }
 }
 
-/**
- * Restores the remembered settings into the store, then saves them whenever they change. Returns the
- * unsubscribe. Call it before the views mount, so they first draw the restored tab and layout.
- */
-export function remember(store: Store, memory: Memory, defaults: SortDefault = sortDefault): () => void {
-  store.dispatch({ type: 'restore', settings: memory.load() })
-  const saved = defaults.get()
-  if (saved) store.dispatch({ type: 'sort', sort: saved })
-  return store.subscribe((state, previous) => {
-    const now = rememberedOf(state)
-    if (!sameMemory(now, rememberedOf(previous))) memory.save(now)
-  })
-}
-
 // ── the default sort (E4 se-5air) ──────────────────────────────────────────────────────────────────────
 //
 // The sort editor's `D` keeps the order on screen as the one `reset sort` and a fresh opening return to. Nothing
@@ -216,5 +202,106 @@ export function createSortDefault(storage: SettingsStorage = createSessionStorag
   }
 }
 
+/** The one settings storage of this panel today: the session's. A persisting backend replaces it here. */
+export const settingsStorage: SettingsStorage = createSessionStorage()
+
 /** The panel's one default sort, shared by the key wiring (`D`, reset) and {@link remember} (load). */
-export const sortDefault: SortDefault = createSortDefault()
+export const sortDefault: SortDefault = createSortDefault(settingsStorage)
+
+// ── the query settings (E4 se-cv7w.lca) ────────────────────────────────────────────────────────────────
+//
+// What the toolbar and the view menu set — search scope, filter, sort, list cells, hidden statuses — is the
+// workspace's: it goes under {@link QUERY_KEY} in the same settings storage (design §5, scope "workspace"),
+// while tab and layout (`MEMORY_KEY`) are global. The search text is not kept: a reopened panel does not
+// start inside yesterday's search.
+
+export const QUERY_KEY = `${MEMORY_KEY}.query`
+
+export interface QuerySettings {
+  scope: GrepScope
+  /** The applied filter text. */
+  filter: string
+  sort: Sort | null
+  columns: Partial<Record<ColumnName, boolean>>
+  view: Partial<ViewSettings>
+}
+
+const COLUMN_NAMES = Object.keys(COLUMN_DEFAULTS) as ColumnName[]
+
+export function queryOf(state: State): QuerySettings {
+  return {
+    scope: state.search.scope,
+    filter: state.filter.applied,
+    sort: { fields: state.sort.fields.map((field) => ({ ...field })), reversed: state.sort.reversed },
+    columns: { ...state.columns },
+    view: { ...state.view, hiddenStatuses: [...state.view.hiddenStatuses] },
+  }
+}
+
+/** Stored query settings (parsed JSON, or anything else) to what can be applied; what is wrong is left out. */
+export function normalizeQuery(value: unknown): Partial<QuerySettings> {
+  if (!isRecord(value)) return {}
+  const out: Partial<QuerySettings> = {}
+  const scope = GREP_SCOPES.find((one) => one === value.scope)
+  if (scope) out.scope = scope
+  if (typeof value.filter === 'string') out.filter = value.filter
+  const sort = normalizeSort(value.sort)
+  if (sort) out.sort = sort
+  if (isRecord(value.columns)) {
+    const columns: Partial<Record<ColumnName, boolean>> = {}
+    for (const name of COLUMN_NAMES) if (typeof value.columns[name] === 'boolean') columns[name] = value.columns[name] as boolean
+    out.columns = columns
+  }
+  if (isRecord(value.view)) {
+    const view: Partial<ViewSettings> = {}
+    const { hiddenStatuses, hideDeferred, hideBacklog, showArchived } = value.view
+    if (Array.isArray(hiddenStatuses)) view.hiddenStatuses = hiddenStatuses.filter((one): one is string => typeof one === 'string')
+    if (typeof hideDeferred === 'boolean') view.hideDeferred = hideDeferred
+    if (typeof hideBacklog === 'boolean') view.hideBacklog = hideBacklog
+    if (typeof showArchived === 'boolean') view.showArchived = showArchived
+    out.view = view
+  }
+  return out
+}
+
+const sameQuery = (a: QuerySettings, b: QuerySettings): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/** Puts stored query settings into the store through the actions the toolbar and the view menu use. */
+function applyQuery(store: Store, query: Partial<QuerySettings>): void {
+  if (query.scope) store.dispatch({ type: 'search', text: store.getState().search.text, scope: query.scope })
+  if (query.filter !== undefined) store.dispatch({ type: 'filter', text: query.filter })
+  if (query.sort) store.dispatch({ type: 'sort', sort: query.sort })
+  for (const name of COLUMN_NAMES) {
+    const on = query.columns?.[name]
+    if (on !== undefined) store.dispatch({ type: 'column', column: name, on })
+  }
+  if (query.view) store.dispatch({ type: 'view', view: query.view })
+}
+
+/**
+ * Restores the remembered settings into the store, then saves them whenever they change. Returns the
+ * unsubscribe. Call it before the views mount, so they first draw the restored tab and layout. The default
+ * sort is applied first, so a saved working order of the query settings wins over it.
+ */
+export function remember(
+  store: Store,
+  memory: Memory,
+  defaults: SortDefault = sortDefault,
+  storage: SettingsStorage = settingsStorage,
+): () => void {
+  store.dispatch({ type: 'restore', settings: memory.load() })
+  const saved = defaults.get()
+  if (saved) store.dispatch({ type: 'sort', sort: saved })
+  try {
+    const text = storage.read(QUERY_KEY)
+    if (text !== null) applyQuery(store, normalizeQuery(JSON.parse(text)))
+  } catch {
+    // Unreadable: the panel starts from its defaults.
+  }
+  return store.subscribe((state, previous) => {
+    const now = rememberedOf(state)
+    if (!sameMemory(now, rememberedOf(previous))) memory.save(now)
+    const query = queryOf(state)
+    if (!sameQuery(query, queryOf(previous))) storage.write(QUERY_KEY, JSON.stringify(query))
+  })
+}

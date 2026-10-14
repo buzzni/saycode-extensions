@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const { crumbSegments, crumbLine, hungBadge, lookBadge, segLabel, sortWords } = await panelModule('view/crumbs.ts')
-const { MEMORY_KEY, SORT_DEFAULT_KEY, createMemory, createSortDefault, createSessionStorage, normalizeSort, normalizeMemory, remember } = await panelModule('data/memory.ts')
+const { MEMORY_KEY, SORT_DEFAULT_KEY, createMemory, createSortDefault, createSessionStorage, normalizeSort, QUERY_KEY, normalizeQuery, normalizeMemory, remember } = await panelModule('data/memory.ts')
 const { createStore, initialState, reduce } = await panelModule('store.ts')
 const { IssueIndex, LOST, NO_MILESTONE } = await panelModule('data/index.ts')
 const { copyFor } = await panelModule('i18n/index.ts')
@@ -555,4 +555,32 @@ test('memory: a stored sort that is not usable is no default', () => {
   const storage = createSessionStorage()
   storage.write(SORT_DEFAULT_KEY, '{not json')
   assert.equal(createSortDefault(storage).get(), null)
+})
+
+test('memory: search scope, filter, sort, cells and view are kept under one key and restored at boot', () => {
+  const storage = createSessionStorage()
+  const none = createSortDefault(storage)
+  const first = createStore()
+  remember(first, createMemory(() => null), none, storage)
+  first.dispatch({ type: 'search', text: 'abc', scope: 'title' })
+  first.dispatch({ type: 'filter', text: 'status=todo' })
+  first.dispatch({ type: 'sort', sort: { fields: [{ key: 'title', dir: 'desc' }], reversed: false } })
+  first.dispatch({ type: 'column', column: 'tags', on: true })
+  first.dispatch({ type: 'view', view: { hideBacklog: true, hiddenStatuses: ['done'] } })
+  assert.ok(storage.read(QUERY_KEY))
+  const second = createStore()
+  remember(second, createMemory(() => null), none, storage)
+  const state = second.getState()
+  assert.equal(state.search.scope, 'title')
+  assert.equal(state.search.text, '', 'the search text is not kept')
+  assert.equal(state.filter.applied, 'status=todo')
+  assert.deepEqual(state.sort.fields, [{ key: 'title', dir: 'desc' }])
+  assert.equal(state.columns.tags, true)
+  assert.equal(state.view.hideBacklog, true)
+  assert.deepEqual(state.view.hiddenStatuses, ['done'])
+})
+
+test('memory: query settings that are not usable are left out', () => {
+  assert.deepEqual(normalizeQuery(null), {})
+  assert.deepEqual(normalizeQuery({ scope: 'nope', filter: 3, sort: { fields: [] }, columns: { tags: 'x', id: false }, view: { hideDeferred: 1 } }), { columns: { id: false }, view: {} })
 })
