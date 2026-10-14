@@ -30,7 +30,7 @@ const COMPAT_EN: CompatCopy = {
   catalog: (missing, features) => `That machine's Happy daemon catalog lacks ${missing === 1 ? '1 Moai profile' : `${missing} Moai profiles`} this panel uses${features.length ? ` (${features.join(', ')})` : ''}. Update the daemon catalog.`,
   features: {
     'all-rows': 'the whole list', backlog: 'the backlog', archive: 'archived rows', wiki: 'the wiki', 'read-marks': 'read marks',
-    unread: 'NEW marks', 'status-order': 'the column order', tallies: 'milestone and epic counts',
+    'status-order': 'the column order', tallies: 'milestone and epic counts',
   },
 }
 
@@ -40,7 +40,7 @@ const COMPAT_KO: CompatCopy = {
   catalog: (missing, features) => `그 머신의 Happy 데몬 카탈로그에 이 패널이 쓰는 Moai 프로필 ${missing}개가 없습니다${features.length ? `(${features.join(', ')})` : ''}. 데몬 카탈로그를 업데이트하세요.`,
   features: {
     'all-rows': '전체 목록', backlog: '백로그', archive: '아카이브된 항목', wiki: '위키', 'read-marks': '읽음 표시',
-    unread: 'NEW 표시', 'status-order': '칸 순서', tallies: '마일스톤·에픽 개수',
+    'status-order': '칸 순서', tallies: '마일스톤·에픽 개수',
   },
 }
 
@@ -50,7 +50,7 @@ const COMPAT_JA: CompatCopy = {
   catalog: (missing, features) => `そのマシンの Happy デーモンのカタログに、このパネルが使う Moai プロファイルが ${missing} 個ありません${features.length ? `（${features.join('、')}）` : ''}。デーモンのカタログを更新してください。`,
   features: {
     'all-rows': '一覧全体', backlog: 'バックログ', archive: 'アーカイブ済みの項目', wiki: 'Wiki', 'read-marks': '既読マーク',
-    unread: 'NEW 表示', 'status-order': '列の順序', tallies: 'マイルストーンとエピックの件数',
+    'status-order': '列の順序', tallies: 'マイルストーンとエピックの件数',
   },
 }
 
@@ -60,7 +60,7 @@ const COMPAT_ZH: CompatCopy = {
   catalog: (missing, features) => `该机器的 Happy 守护进程目录缺少此面板使用的 ${missing} 个 Moai 配置${features.length ? `（${features.join('、')}）` : ''}。请更新守护进程目录。`,
   features: {
     'all-rows': '完整列表', backlog: '待办池', archive: '已归档的条目', wiki: 'Wiki', 'read-marks': '已读标记',
-    unread: 'NEW 标记', 'status-order': '列的顺序', tallies: '里程碑和史诗的计数',
+    'status-order': '列的顺序', tallies: '里程碑和史诗的计数',
   },
 }
 

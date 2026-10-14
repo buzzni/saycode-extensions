@@ -114,7 +114,7 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
 // Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints. `degraded`
 // holds only the features the panel uses (data/compat.ts ORDER), so `status-order` stands here unused.
 const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
-const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
+const MOAI_FEATURES: readonly Feature[] = ["status-order", "tallies"]
 
 /**
  * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
