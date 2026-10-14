@@ -417,8 +417,8 @@ test('a list cut at the output limit stands on prime, says so in a banner and ho
 
 test('an empty banner takes no room, and the panes scroll to rows and details below the fold', async () => {
   const panel = await runPanel(board())
-  for (const selector of ['.moai-notice', '.moai-error', '.moai-truncated', '.moai-result', '.moai-more']) {
-    assert.equal(panel.window.getComputedStyle(panel.$(selector)).display, 'none', selector)
+  for (const selector of ['.moai-notice', '.moai-error', '.moai-truncated', '.moai-result', '.moai-more', '.moai-archive-problem', '.moai-backlog-problem']) {
+    for (const node of panel.window.document.querySelectorAll(selector)) assert.equal(panel.window.getComputedStyle(node).display, 'none', selector)
   }
   // The page itself does not scroll (tokens.css); the list and the detail scroll in their own panes.
   const style = (selector) => panel.window.getComputedStyle(panel.$(selector))
@@ -1323,6 +1323,24 @@ test('compatibility: without backlog show --all in the catalog the list stands w
   const panel = await runPanel(answer)
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'], 'not an empty list')
   assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the backlog). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+})
+
+test('compatibility: beside prime a declined backlog read leaves prime\'s rows and says why the backlog is missing', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_V017, 'buzzni.moai.prime': PRIME })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
+    if (args[0] === 'buzzni.moai.backlog-all') return { action: 'start', state: 'refused', code: 'declined' }
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  // main.ts hands the backlog's outcome to the board: polite status text, as a declined read is information.
+  assert.match(panel.$('.moai-backlog-problem[role="status"]').textContent, /^The backlog could not be read: .*declined/)
+  assert.notEqual(panel.window.getComputedStyle(panel.$('.moai-backlog-problem[role="status"]')).display, 'none')
+  assert.equal(panel.$('.moai-backlog-problem[role="alert"]').textContent, '')
+  assert.equal(panel.window.getComputedStyle(panel.$('.moai-backlog-problem[role="alert"]')).display, 'none')
   assert.equal(panel.$('.moai-error').textContent, '')
   assert.equal(panel.$('.moai-truncated').textContent, '')
 })

@@ -77,13 +77,13 @@ async function loadBoard(): Promise<void> {
     store.dispatch({ type: 'board-failed', problem: loaded.outcome })
     return
   }
-  const { rows, more, truncated, partial } = loaded.value
+  const { rows, more, truncated, partial, backlogProblem } = loaded.value
   const before = store.getState()
   // Counts that came first go in with the rows, so the board is not drawn twice. Until this read's counts come, a
   // refresh keeps the counts the board showed: its rows alone undercount (they leave the archived members out).
   const carried = counted === undefined ? before.board.value?.tallies : undefined
   const counts = counted?.ok ? counted.value : carried
-  const data: BoardData = { rows, more, truncated, partial, loadedAt: Date.now(), ...(counts ? { tallies: counts } : {}) }
+  const data: BoardData = { rows, more, truncated, partial, loadedAt: Date.now(), ...(backlogProblem ? { backlogProblem } : {}), ...(counts ? { tallies: counts } : {}) }
   const shownBefore = before.shown.value
   // The detail on screen was read before this list and stands beside it: when its row has left the list
   // (finished, moved away) the pane goes with it, as choose() does for a read still running. A detail the list

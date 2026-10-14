@@ -55,6 +55,8 @@ export interface BoardData {
   truncated?: boolean
   /** prime's rows and the backlog, not every active row: `show --all` was cut, or the catalog lacks it (source.ts activeIds). */
   partial?: boolean
+  /** Why the backlog is missing from prime's rows: its read beside them was declined or failed (source.ts Rows). */
+  backlogProblem?: Outcome
   /**
    * Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies). Absent when that read failed, or on
    * the first read until it answers; a later read keeps the counts of the board before it until its own come.
@@ -105,6 +107,8 @@ export interface State {
   /** Columns the user has seen; a column added later starts at its default, one turned off stays off. */
   columnsKnown: ColumnName[]
   sort: Sort
+  /** The order an emptied one returns to: the saved default (`D`), else {@link DEFAULT_SORT}. Not remembered here (data/memory.ts). */
+  defaultSort: Sort
   search: SearchState
   filter: FilterState
   toolbar: ToolbarUi
@@ -169,7 +173,7 @@ function withToolbar(state: State, next: ToolbarState): State {
   const toolbar = next.cursor === ui.cursor && next.hintsOpen === ui.hintsOpen && next.hintIndex === ui.hintIndex && next.sortOpen === ui.sortOpen
     ? ui
     : { cursor: next.cursor, hintsOpen: next.hintsOpen, hintIndex: next.hintIndex, sortOpen: next.sortOpen }
-  const sort = next.sort === state.sort ? state.sort : next.sort.fields.length ? copySort(next.sort) : copySort(DEFAULT_SORT)
+  const sort = next.sort === state.sort ? state.sort : next.sort.fields.length ? copySort(next.sort) : copySort(state.defaultSort)
   if (search === state.search && filter === state.filter && toolbar === state.toolbar && sort === state.sort) return state
   return { ...state, search, filter, toolbar, sort }
 }
@@ -188,6 +192,7 @@ export function initialState(): State {
     columns: { ...COLUMN_DEFAULTS },
     columnsKnown: Object.keys(COLUMN_DEFAULTS) as ColumnName[],
     sort: copySort(DEFAULT_SORT),
+    defaultSort: copySort(DEFAULT_SORT),
     search: { text: '', scope: 'all', open: false },
     filter: { text: '', applied: '' },
     toolbar: { cursor: 0, hintsOpen: false, hintIndex: -1, sortOpen: false },
@@ -214,8 +219,10 @@ export type Action =
   | { type: 'detail-ratio'; ratio: number; position?: DetailPosition }
   | { type: 'view'; view: Partial<ViewSettings> }
   | { type: 'column'; column: ColumnName; on: boolean }
-  /** The order (`SPC s`, a name-line click); no fields at all is the default order. */
+  /** The order (`SPC s`, a name-line click); no fields at all is the default order (`defaultSort`). */
   | { type: 'sort'; sort: Sort }
+  /** The saved default order (`D`, or read at start-up); null when none is saved. The order on screen stays. */
+  | { type: 'sort-default'; sort: Sort | null }
   /** Search text (and scope); a text opens the search row. */
   | { type: 'search'; text: string; scope?: GrepScope }
   /** Set the filter text and apply it at once (a chip, the key router); typing goes through `toolbar`. */
@@ -308,7 +315,9 @@ export function reduce(state: State, action: Action): State {
         columnsKnown: state.columnsKnown.includes(action.column) ? state.columnsKnown : [...state.columnsKnown, action.column],
       }
     case 'sort':
-      return { ...state, sort: action.sort.fields.length ? copySort(action.sort) : copySort(DEFAULT_SORT) }
+      return { ...state, sort: action.sort.fields.length ? copySort(action.sort) : copySort(state.defaultSort) }
+    case 'sort-default':
+      return { ...state, defaultSort: action.sort?.fields.length ? copySort(action.sort) : copySort(DEFAULT_SORT) }
     case 'search': {
       const scope = action.scope ?? state.search.scope
       if (action.text === state.search.text && scope === state.search.scope) return state

@@ -207,7 +207,8 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const notice = el(doc, "div", { class: "m-banner moai-notice", role: "status" })
   const error = el(doc, "div", { class: "m-banner m-banner-danger moai-error", role: "alert" })
   const more = el(doc, "p", { class: "moai-more" })
-  // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
+  // The list stands on prime's rows: `show --all` was cut at the output limit (BoardData.truncated), or the catalog
+  // lacks it while the compat banner cannot name that yet (primeOnly).
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
   // What to upgrade, update or install on that machine (data/compat.ts): the reads that work keep showing.
   const compat = el(doc, "div", { class: "m-banner m-banner-warn moai-compat", role: "status" })
@@ -215,6 +216,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   // board's, an error is an alert and information is polite status text (components.ts banner).
   const archiveNotice = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
   const archiveError = el(doc, "div", { class: "m-banner m-banner-danger moai-archive-problem", role: "alert" })
+  // Why the backlog is missing beside prime's rows (BoardData.backlogProblem): the same pair as the archive's.
+  const backlogNotice = el(doc, "div", { class: "m-banner moai-backlog-problem", role: "status" })
+  const backlogError = el(doc, "div", { class: "m-banner m-banner-danger moai-backlog-problem", role: "alert" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
@@ -235,7 +239,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, archiveNotice, archiveError, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, backlogNotice, backlogError, archiveNotice, archiveError, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -346,18 +350,23 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     status.hidden = current.phase === "idle" && !current.cancellable
   }
 
-  let explained: Outcome | null | undefined
-  function explain(outcome: Outcome | null) {
-    // The banners are live regions (role=alert, role=status): the same outcome is not written again on every
-    // store change, or a screen reader would read it again on each cursor move. A failure that happens again
-    // is a new outcome object, so it is told again.
-    if (outcome === explained) return
-    explained = outcome
-    notice.replaceChildren()
-    error.replaceChildren()
-    const said = outcome ? describe(outcome, copy, doc) : null
-    if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
+  // The banners are live regions (role=alert, role=status): each pair is written once per outcome, not again on every
+  // store change, or a screen reader would read it again on each cursor move. A failure that happens again is a new
+  // outcome object, so it is told again. `lead` goes before what describe() says.
+  function teller(noticeEl: HTMLElement, errorEl: HTMLElement, lead?: string) {
+    let last: Outcome | null = null
+    return (outcome: Outcome | null) => {
+      if (outcome === last) return
+      last = outcome
+      noticeEl.replaceChildren()
+      errorEl.replaceChildren()
+      const said = outcome ? describe(outcome, copy, doc) : null
+      if (said) (said.info ? noticeEl : errorEl).append(el(doc, "span", {}, ...(lead ? [lead, " "] : []), ...said.parts))
+    }
   }
+  const explain = teller(notice, error)
+  const explainArchive = teller(archiveNotice, archiveError, copy.shell.archiveFailed)
+  const explainBacklog = teller(backlogNotice, backlogError, copy.shell.backlogFailed)
 
   let compatSeen: CompatReport | null = null
   let compatTold = ""
@@ -371,17 +380,6 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     if (told === compatTold) return
     compatTold = told
     compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
-  }
-
-  let archiveTold: Outcome | null = null
-  function explainArchive(outcome: Outcome | null) {
-    // Live regions too: written once per outcome, as explain() does.
-    if (outcome === archiveTold) return
-    archiveTold = outcome
-    archiveNotice.replaceChildren()
-    archiveError.replaceChildren()
-    const said = outcome ? describe(outcome, copy, doc) : null
-    if (said) (said.info ? archiveNotice : archiveError).append(el(doc, "span", {}, copy.shell.archiveFailed, " ", ...said.parts))
   }
 
   function paintLayout(current: State) {
@@ -427,10 +425,16 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explain(untold(state.board.problem) ?? (state.detail.visible ? null : untold(state.shown.problem, false)))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
-    // Written only when it changes: it is a live region. Only a cut list says so here; one the catalog left to prime's
-    // rows is told by the compat banner (BoardData.partial without `truncated`).
-    const cut = state.board.value?.truncated === true ? copy.shell.truncated : ""
+    // Written only when it changes: it is a live region. A cut list says so here; one the catalog left to prime's rows
+    // (BoardData.partial without `truncated`) is told by the compat banner when it names the list, and here while it
+    // cannot (no report yet, or the catalog `unknown`). A catalog `ok`, or `missing` without the whole list, says a
+    // read since found `show --all` (a refresh still waiting on its backlog read, or one that failed on it): the rows
+    // on screen are older than that, and "cannot be read on this machine" is no longer so.
+    const board = state.board.value
+    const undecided = state.compat === null || state.compat.catalog.state === "unknown"
+    const cut = board?.truncated === true ? copy.shell.truncated : board?.partial === true && undecided ? copy.shell.primeOnly : ""
     if (truncated.textContent !== cut) truncated.textContent = cut
+    explainBacklog(untold(board?.backlogProblem ?? null))
     explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
 

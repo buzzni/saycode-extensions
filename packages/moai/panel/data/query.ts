@@ -733,6 +733,9 @@ export const DEFAULT_SORT: Sort = { fields: [fieldOf('priority')], reversed: fal
 export const formatSort = (fields: readonly SortField[]): string =>
   fields.map((field) => (field.dir === defaultDir(field.key) ? field.key : `${field.key}:${field.dir}`)).join(',')
 
+/** The same order: the same fields in the same directions, and the same reverse switch. */
+export const sameSort = (a: Sort, b: Sort): boolean => a.reversed === b.reversed && formatSort(a.fields) === formatSort(b.fields)
+
 /** Reads `priority,updated:desc` into fields. A key may stand once; an empty slot or unknown word is refused. */
 export function parseSort(raw: string): Result<SortField[], BadSort> {
   const fields: SortField[] = []

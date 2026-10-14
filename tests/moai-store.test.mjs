@@ -62,6 +62,23 @@ test('a column turned off stays known and off; an empty sort falls back to prior
   assert.deepEqual(state.sort, { fields: [{ key: 'priority', dir: 'asc' }], reversed: false })
 })
 
+test('an emptied order returns to the saved default on every path: the sort action and the toolbar', () => {
+  const saved = { fields: [{ key: 'updated', dir: 'desc' }], reversed: true }
+  let state = reduce(initialState(), { type: 'sort-default', sort: saved })
+  // Saving a default leaves the order on screen alone.
+  assert.deepEqual(state.sort, { fields: [{ key: 'priority', dir: 'asc' }], reversed: false })
+  state = reduce(state, { type: 'sort', sort: { fields: [], reversed: false } })
+  assert.deepEqual(state.sort, saved)
+  assert.notEqual(state.sort, state.defaultSort, 'a copy: editing the order does not edit the default')
+  state = reduce(state, { type: 'sort', sort: { fields: [{ key: 'title', dir: 'asc' }], reversed: false } })
+  state = reduce(state, { type: 'toolbar', action: { type: 'sort-set', sort: { fields: [], reversed: false } } })
+  assert.deepEqual(state.sort, saved)
+  // No saved default (cleared, or none read): the built-in order again.
+  state = reduce(state, { type: 'sort-default', sort: null })
+  state = reduce(state, { type: 'sort', sort: { fields: [], reversed: false } })
+  assert.deepEqual(state.sort, { fields: [{ key: 'priority', dir: 'asc' }], reversed: false })
+})
+
 test('the toolbar keeps its state in the store: search as typed, the filter on Enter, the sort through query.ts', () => {
   const tb = (state, action) => reduce(state, { type: 'toolbar', action })
   let state = tb(initialState(), { type: 'search-text', text: 'grid' })

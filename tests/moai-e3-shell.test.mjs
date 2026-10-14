@@ -49,13 +49,18 @@ test('crumbs: hidden and sort badges only when the view hides something or the o
   const busy = {
     view: { hiddenStatuses: ['done'], hideDeferred: true, hideBacklog: true, showArchived: false },
     sort: { fields: [{ key: 'priority', dir: 'asc' }, { key: 'updated', dir: 'desc' }], reversed: false },
+    defaultSort: state.defaultSort,
   }
   assert.equal(lookBadge(busy, en), 'done · deferred · backlog hidden · sort priority↑, updated↓')
   assert.equal(lookBadge(busy, ko), 'done · 미룸 · 백로그 숨김 · 정렬 우선순위↑, 고친 날↓')
   assert.equal(sortWords({ fields: [{ key: 'title', dir: 'asc' }], reversed: false }, en), 'title↑')
   // The column is `status`, as data/query.ts and the key table name it; a turned list says so.
   assert.equal(sortWords({ fields: [{ key: 'status', dir: 'asc' }], reversed: true }, ko), '칸↑ (뒤집음)')
-  assert.equal(lookBadge({ view: { ...state.view, hideDeferred: false }, sort: { fields: [{ key: 'priority', dir: 'asc' }], reversed: true } }, en), 'sort priority↑ (reversed)')
+  assert.equal(lookBadge({ view: { ...state.view, hideDeferred: false }, sort: { fields: [{ key: 'priority', dir: 'asc' }], reversed: true }, defaultSort: state.defaultSort }, en), 'sort priority↑ (reversed)')
+  // The default is the saved one (`D`, State.defaultSort): that order is no badge, and the built-in one then is.
+  const saved = reduce(state, { type: 'sort-default', sort: busy.sort })
+  assert.equal(lookBadge({ ...saved, view: busy.view, sort: busy.sort }, en), 'done · deferred · backlog hidden')
+  assert.equal(lookBadge({ ...saved, view: { ...state.view, hideDeferred: false } }, en), 'sort priority↑')
 })
 
 test('crumbs: a search or filter that is on is a badge of its own; the filter wins', () => {
@@ -377,6 +382,43 @@ test('shell: a failed detail read is told once, in the pane, and does not hide t
   assert.match(panel.$('.moai-notice').textContent, /confirmation was declined/)
 })
 
+test('shell: a list left to prime\'s rows says so while the catalog line cannot, and a backlog that could not be read says why', () => {
+  const panel = boot(fakeStorage())
+  const load = (extra) => panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now(), partial: true, ...extra } })
+  // The catalog undecided (`unknown`, here no report yet): nothing else tells why the list is held and ready rows only.
+  load({})
+  assert.equal(panel.$('.moai-truncated').textContent, en.shell.primeOnly)
+  // Once the catalog line names the whole list, it alone tells it.
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  // A read since found show --all (the catalog lacks only the backlog now, or nothing): the rows on screen are older,
+  // and the whole list is no longer out of reach there.
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.backlog-all'] }, degraded: ['backlog'] } })
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [] } })
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  // The catalog undecided again (a shipped profile refused as unsupported): this banner tells it once more.
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'unknown', missing: [] }, degraded: [] } })
+  assert.equal(panel.$('.moai-truncated').textContent, en.shell.primeOnly)
+  // A cut list says it was too large, whatever the catalog says.
+  load({ truncated: true })
+  assert.equal(panel.$('.moai-truncated').textContent, en.shell.truncated)
+  // The backlog read beside prime: an error is an alert, information polite status text, and a whole read clears it.
+  load({ backlogProblem: { kind: 'failed' } })
+  assert.match(panel.$('.moai-backlog-problem[role="alert"]').textContent, /^The backlog could not be read: /)
+  load({ backlogProblem: { kind: 'refused', code: 'declined' } })
+  assert.equal(panel.$('.moai-backlog-problem[role="alert"]').textContent, '')
+  assert.match(panel.$('.moai-backlog-problem[role="status"]').textContent, /^The backlog could not be read: .*declined/)
+  load({})
+  assert.equal([...panel.doc.querySelectorAll('.moai-backlog-problem')].map((node) => node.textContent).join(''), '')
+  // The catalog lacks the backlog read: said here while the catalog is undecided, left to the catalog line once it names it.
+  const backlogText = () => [...panel.doc.querySelectorAll('.moai-backlog-problem')].map((node) => node.textContent).join('')
+  load({ backlogProblem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.match(backlogText(), /^The backlog could not be read: /)
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.backlog-all'] }, degraded: ['backlog'] } })
+  assert.equal(backlogText(), '')
+})
+
 test('shell: a list refusal the compatibility banner tells leaves the error line to the hidden detail\'s own problem', () => {
   const panel = boot(fakeStorage())
   panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
@@ -543,8 +585,25 @@ test('memory: the default sort lasts for the session, lives under one key, and i
   const store = createStore()
   remember(store, createMemory(() => null), sortDefault, storage)
   assert.deepEqual(store.getState().sort, sort)
+  // The store holds it too, so an emptied order (any path: store.ts 'sort') and the path line meet the same default.
+  assert.deepEqual(store.getState().defaultSort, sort)
+  store.dispatch({ type: 'sort', sort: { fields: [{ key: 'title', dir: 'asc' }], reversed: false } })
+  store.dispatch({ type: 'sort', sort: { fields: [], reversed: false } })
+  assert.deepEqual(store.getState().sort, sort)
   sortDefault.clear()
   assert.equal(sortDefault.get(), null)
+})
+
+test('memory: saving the order on screen as the default (D) leaves the workspace following it at once', () => {
+  const storage = createSessionStorage()
+  const store = createStore()
+  remember(store, createMemory(() => null), createSortDefault(storage), storage)
+  const sort = { fields: [{ key: 'title', dir: 'asc' }], reversed: false }
+  store.dispatch({ type: 'sort', sort })
+  assert.deepEqual(JSON.parse(storage.read(QUERY_KEY)).sort, sort)
+  // Only the default changes (keys/wiring.ts D): the order is now the default, so the workspace keeps none of its own.
+  store.dispatch({ type: 'sort-default', sort })
+  assert.equal(JSON.parse(storage.read(QUERY_KEY)).sort, null)
 })
 
 test('memory: a stored sort that is not usable is no default', () => {
