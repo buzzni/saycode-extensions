@@ -47,7 +47,10 @@ export function rowsFromPrime(output: unknown): Loaded<Rows> {
     delete row.milestone
     rows.push(row)
   }
-  return { ok: true, value: { rows, more: (Number(output.rest) || 0) + (Number(output.others_rest) || 0) } }
+  // `rest` and `others_rest` count over what the running milestone let through; the ids it left out stand in
+  // `outside` and are counted nowhere else, so a milestone whose members are all blocked reads as "nothing here".
+  const outside = Array.isArray(output.outside) ? output.outside.length : 0
+  return { ok: true, value: { rows, more: (Number(output.rest) || 0) + (Number(output.others_rest) || 0) + outside } }
 }
 
 export async function loadRows(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Rows>> {

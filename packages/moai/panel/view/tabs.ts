@@ -68,6 +68,7 @@ export function createTabs(doc: Document, props: TabsProps): Tabs {
   let selected = props.selected
 
   for (const tab of TABS) {
+    const name = props.labels?.[tab.id] ?? tab.label
     const button = el(doc, "button", {
       type: "button",
       class: "m-tab",
@@ -75,8 +76,10 @@ export function createTabs(doc: Document, props: TabsProps): Tabs {
       id: tabDomId(tab.id),
       "aria-controls": panelDomId(tab.id),
       "data-tab": tab.id,
+      // The label is dropped below 380px (components.css), and a tab with a badge reads its count too.
+      title: name,
     })
-    button.append(icon(doc, tab.icon, 15), el(doc, "span", {}, props.labels?.[tab.id] ?? tab.label))
+    button.append(icon(doc, tab.icon, 15), el(doc, "span", {}, name))
     button.addEventListener("click", () => choose(tab.id, false))
     buttons.set(tab.id, button)
     root.append(button)

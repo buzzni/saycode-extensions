@@ -434,6 +434,19 @@ export class IssueIndex {
     return at === undefined ? undefined : this.dirPath(at)
   }
 
+  /**
+   * The milestone a row stands on by `report::stood_at_line`, the answer `moai show --milestone` filters by: the
+   * epic beats the milestone the row wrote, an id child stands where its fold top stands (its own field is not
+   * read), a row naming an epic that is not there stands on none, and an eclipsed twin on none. It is not where
+   * the row was put: an epic that wrote a milestone that does not exist stands on that id still, and sits in
+   * `(lost)`.
+   */
+  stoodAtLine(at: number): string | undefined {
+    const row = this.rows[at]!
+    if (this.eclipsed(row)) return undefined
+    return this.stoodAt(row, this.epicAt(row))
+  }
+
   /** The milestone a row actually stands under (read from its place, not its own field). */
   milestoneOf(at: number): string | undefined {
     const seg = this.homes[at]?.find((s) => s.startsWith('m:') && s !== NO_MILESTONE)
@@ -524,11 +537,33 @@ export class IssueIndex {
   }
 }
 
-/** Done, and standing in that column longer than `archiveDays` — what `moai archive` would move. */
-export function archiveCandidate(row: Row, now: Date, archiveDays: number): boolean {
-  if (!isDone(row) || typeof row.status_since !== 'string') return false
-  const since = Date.parse(row.status_since)
-  return Number.isFinite(since) && now.getTime() - since > archiveDays * 86_400_000
+/**
+ * Standing in the done column for `archiveDays` whole days or more — what moai hides as archived
+ * (`report::archived`). Off when `archiveDays` is 0.
+ *
+ * The column is the one the row STANDS in: a group's is read from its members (`derived_status`), not the
+ * `status` written on it. And since when is the day it got there: for a group that is the latest
+ * `status_since` among its members (`members`: the work under it), `created_at` when it has none — a group's
+ * own `status_since` never moves when its members do. (`report::Stand::entered` also counts from the day a
+ * deferred member was set aside when that is later; that case is not read here.)
+ */
+export function archiveCandidate(row: Row, now: Date, archiveDays: number, members: readonly Row[] = []): boolean {
+  if (!(archiveDays > 0)) return false
+  const group = isGroup(row)
+  const column = group ? (row.derived_status ?? row.status) : row.status
+  if (column !== 'done') return false
+  let since: unknown = row.status_since
+  if (group) {
+    let latest: number | undefined
+    for (const member of members) {
+      const at = typeof member.status_since === 'string' ? Date.parse(member.status_since) : NaN
+      if (Number.isFinite(at) && (latest === undefined || at > latest)) latest = at
+    }
+    since = latest === undefined ? row.created_at : new Date(latest).toISOString()
+  }
+  if (typeof since !== 'string') return false
+  const at = Date.parse(since)
+  return Number.isFinite(at) && Math.floor((now.getTime() - at) / 86_400_000) >= archiveDays
 }
 
 /** Whole percent of done work; undefined when there is no work to count (not the same as 0%). */

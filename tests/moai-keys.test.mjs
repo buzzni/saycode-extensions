@@ -113,6 +113,35 @@ test('keyToken: named keys, modifiers, shift folded into characters, meta and lo
   assert.equal(keyToken({ key: 'Shift', shiftKey: true }), null)
 })
 
+test('keyToken: Shift still down from a capital does not turn Space, Enter or Esc into other keys', () => {
+  assert.equal(keyToken({ key: ' ', shiftKey: true }), 'SPC')
+  assert.equal(keyToken({ key: 'Enter', shiftKey: true }), 'Enter')
+  assert.equal(keyToken({ key: 'Escape', shiftKey: true }), 'Esc')
+  assert.equal(keyToken({ key: 'Backspace', shiftKey: true }), 'Backspace')
+  assert.equal(keyToken({ key: 'Tab', shiftKey: true }), 'S-Tab')
+  const { key, router } = setup()
+  key('G', { shiftKey: true })
+  key(' ', { shiftKey: true })
+  assert.deepEqual(router.state().menu, ['SPC'], 'G then Space with Shift still held opens the menu')
+})
+
+test('router: a click on an item of a menu that a change of mode dropped runs nothing', () => {
+  let mode = 'wiki'
+  const sent = []
+  const router = createKeyRouter({
+    platform: 'other',
+    getContext: () => ({ ...browse(), mode, tab: mode === 'wiki' ? 'wiki' : 'list' }),
+    dispatch: (a) => sent.push(a.id),
+  })
+  router.press('SPC')
+  router.press('v')
+  assert.deepEqual(router.state().menu, ['SPC', 'v'])
+  mode = 'browse' // a click on the List tab, with the overlay still up
+  assert.deepEqual(router.press('r'), { handled: false, preventDefault: false })
+  assert.equal(router.state().menu, null)
+  assert.deepEqual(sent, [], '`r` is not run as the read key of the new mode')
+})
+
 test('router: an editable target turns browse keys off; prompt mode keys still apply', () => {
   const { key, ids, router, state } = setup()
   assert.deepEqual(key('j', { editable: true }), { handled: false, preventDefault: false })

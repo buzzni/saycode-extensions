@@ -16,7 +16,11 @@
 .m-tabbar {
   flex: none; display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px;
   border-bottom: 1px solid var(--border); background: var(--bg);
+  container-type: inline-size; container-name: m-tabbar;
 }
+/* Under 380px the labels and the actions do not both fit (the refresh time paints over the last tab): the tabs
+   keep their icons and the name moves to the button's aria-label and title. */
+@container m-tabbar (max-width: 379px) { .m-tab > span:not(.m-chip) { display: none; } }
 .m-tablist { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .m-tab {
   display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border: 0; border-radius: 7px;
