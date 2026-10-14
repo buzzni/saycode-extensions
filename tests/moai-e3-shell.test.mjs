@@ -188,7 +188,7 @@ test('shell: tabs switch the pane shown and the choice is remembered', () => {
   assert.equal(panel.store.getState().tab, 'board')
   assert.equal(panel.$('.m-pane-main[data-pane="list"]').hidden, true)
   assert.equal(panel.$('.m-pane-main[data-pane="board"]').hidden, false)
-  assert.ok(panel.$('.m-pane-main[data-pane="board"] .moai-note'))
+  assert.ok(panel.$('.m-pane-main[data-pane="board"] .m-board-pane .m-lane'), 'the board view drew its status columns')
   assert.equal(JSON.parse(storage.items.get(MEMORY_KEY)).tab, 'board')
 
   // The wiki tab: no path line or add field; a placeholder until the wiki view is named in panes.ts.
@@ -257,12 +257,13 @@ test('shell: a narrow panel forces the detail to the bottom without forgetting t
 
 test('shell: the path line goes where its segments point, and the list follows', () => {
   const panel = boot(fakeStorage())
-  const rows = () => [...panel.doc.querySelectorAll('.m-pane-main[data-pane="list"] button.moai-row')].map((row) => row.textContent)
+  const rows = () => [...panel.doc.querySelectorAll('.m-pane-main[data-pane="list"] .moai-line[data-id]')].map((row) => row.dataset.id)
   assert.deepEqual([...panel.doc.querySelectorAll('.m-crumb')].map((crumb) => crumb.textContent), ['/'])
   panel.store.dispatch({ type: 'enter', path: ['m:se-m1', 'e:se-e1'] })
   assert.deepEqual([...panel.doc.querySelectorAll('.m-crumb')].map((crumb) => crumb.textContent), ['/', 'v2.0', 'E3 views'])
   assert.equal(panel.$('.m-crumb[aria-current="location"]').textContent, 'E3 views')
   assert.equal(rows().length, 2)
+  assert.equal(panel.doc.querySelectorAll('.moai-line').length, 3, 'the `..` line is a line without an id')
   panel.doc.querySelectorAll('.m-crumb')[1].click()
   assert.deepEqual(panel.store.getState().path, ['m:se-m1'])
   panel.$('.m-crumb').click()
@@ -276,13 +277,13 @@ test('shell: the path line goes where its segments point, and the list follows',
 test('shell: choosing a row reads its detail through the shell intents; the add field reports through say', () => {
   const panel = boot(fakeStorage())
   panel.store.dispatch({ type: 'enter', path: ['m:se-m1', 'e:se-e1'] })
-  const row = [...panel.doc.querySelectorAll('button.moai-row')].find((button) => button.dataset.id === 'se-e1.b')
+  const row = [...panel.doc.querySelectorAll('.moai-list .moai-line[data-id]')].find((line) => line.dataset.id === 'se-e1.b')
   row.click()
   assert.deepEqual(panel.calls.at(-1), ['choose', 'se-e1.b'])
-  assert.equal(panel.$('.moai-detail-none').hidden, false, 'nothing loaded yet: the pane says to choose')
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, en.detail.none, 'nothing loaded yet: the pane says to choose')
   panel.store.dispatch({ type: 'detail-loaded', data: { id: 'se-e1.b', row: ROWS[3] } })
   assert.equal(panel.$('.moai-detail h2').textContent, 'Board')
-  assert.equal(panel.$('.moai-detail-none').hidden, true)
+  assert.equal(panel.$('.moai-detail .m-empty-title'), null)
 
   panel.shell.input.value = 'New one'
   panel.$('.moai-add-button').click()

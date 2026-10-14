@@ -33,7 +33,10 @@ const result = await build({
   target: 'es2022',
   charset: 'utf8',
   write: false,
-  minify: true,
+  minifyWhitespace: true,
+  minifySyntax: true,
+  // Identifiers stay readable: a mangled two-letter name can spell a word the packed-panel check rejects ("ai").
+  minifyIdentifiers: false,
   legalComments: 'none',
 })
 const script = result.outputFiles[0].text

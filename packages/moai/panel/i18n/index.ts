@@ -133,20 +133,61 @@ const SHELL: Record<Language, ShellCopy> = {
 export interface ListCopy {
   /** Accessible name of the list. */
   label: string
+  /** The `..` line's name: one level up. */
+  upLabel: string
+  /** The ▸ button in front of a folder. */
+  expand: string
+  collapse: string
+  /** Column heads of the name line. */
+  heads: { id: string; priority: string; status: string; title: string; counts: string; tags: string; epic: string; assignee: string; created: string; updated: string }
+  /** A column head's name when clicking it sorts by that column. */
+  sortBy: (column: string) => string
+  /** What the view toggles hide under this place. */
+  hiddenCount: (n: number) => string
+  /** Lifts the status, deferred and backlog hiding (`SPC v a`); archived rows stay hidden. */
+  showAll: string
 }
 
 const LIST: Record<Language, ListCopy> = {
   en: {
     label: 'Tasks',
+    upLabel: 'Up one level',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    heads: { id: 'ID', priority: 'P', status: 'Status', title: 'Title', counts: 'Done', tags: 'Tags', epic: 'Epic', assignee: 'Assignee', created: 'Created', updated: 'Updated' },
+    sortBy: (column) => `Sort by ${column}`,
+    hiddenCount: (n) => `${n} hidden`,
+    showAll: 'Show all',
   },
   ko: {
     label: '할 일 목록',
+    upLabel: '한 층 위로',
+    expand: '펼치기',
+    collapse: '접기',
+    heads: { id: 'ID', priority: 'P', status: '상태', title: '제목', counts: '완료', tags: '태그', epic: '에픽', assignee: '담당', created: '만든 날', updated: '고친 날' },
+    sortBy: (column) => `${column}(으)로 정렬`,
+    hiddenCount: (n) => `${n}개 숨김`,
+    showAll: '모두 보이기',
   },
   ja: {
     label: 'タスク一覧',
+    upLabel: '一つ上の階層へ',
+    expand: '展開',
+    collapse: '折りたたむ',
+    heads: { id: 'ID', priority: 'P', status: '状態', title: 'タイトル', counts: '完了', tags: 'タグ', epic: 'エピック', assignee: '担当', created: '作成', updated: '更新' },
+    sortBy: (column) => `${column}で並べ替え`,
+    hiddenCount: (n) => `${n} 件を非表示`,
+    showAll: 'すべて表示',
   },
   zh: {
     label: '任务列表',
+    upLabel: '返回上一层',
+    expand: '展开',
+    collapse: '折叠',
+    heads: { id: 'ID', priority: 'P', status: '状态', title: '标题', counts: '完成', tags: '标签', epic: '史诗', assignee: '负责人', created: '创建', updated: '更新' },
+    sortBy: (column) => `按${column}排序`,
+    hiddenCount: (n) => `已隐藏 ${n} 项`,
+    showAll: '全部显示',
   },
 }
 
@@ -157,24 +198,36 @@ export interface BoardCopy {
   label: string
   /** The stopgap board (view/interim.ts) draws the list under this note. */
   interimNote: string
+  /** Accessible name of a status column: its name and card count. */
+  columnLabel: (name: string, count: number) => string
+  /** An empty column. */
+  noCards: string
 }
 
 const BOARD: Record<Language, BoardCopy> = {
   en: {
     label: 'Board',
     interimNote: 'The board is on its way; the list stands in for it.',
+    columnLabel: (name, count) => `${name}, ${count} cards`,
+    noCards: 'No cards',
   },
   ko: {
     label: '칸반',
     interimNote: '칸반은 준비 중이라 목록으로 대신 보여 줍니다.',
+    columnLabel: (name, count) => `${name}, 카드 ${count}장`,
+    noCards: '카드 없음',
   },
   ja: {
     label: 'カンバン',
     interimNote: 'カンバンは準備中のため、一覧で代わりに表示します。',
+    columnLabel: (name, count) => `${name}、カード ${count} 枚`,
+    noCards: 'カードなし',
   },
   zh: {
     label: '看板',
     interimNote: '看板尚在准备中，暂以列表代替。',
+    columnLabel: (name, count) => `${name}，${count} 张卡片`,
+    noCards: '没有卡片',
   },
 }
 
@@ -185,24 +238,87 @@ export interface DetailCopy {
   label: string
   /** The pane is shown but nothing is chosen. */
   none: string
+  /** Labels of the fields under the head line. */
+  assignee: string
+  created: string
+  updated: string
+  started: string
+  ended: string
+  due: string
+  epic: string
+  milestone: string
+  tags: string
+  blockedBy: string
+  blocks: string
+  deferred: string
+  /** A blocker's state: finished, still open, put off, or not in the index. */
+  blockerDone: string
+  blockerOpen: string
+  blockerDeferred: string
+  blockerMissing: string
+  /** Roll-up of a group: `{done}/{work} done · {percent}%`. */
+  rollup: string
+  rollupText: (done: number, work: number, percent: number | undefined) => string
+  body: string
+  commits: string
+  journal: string
+  noJournal: string
+  work: string
+  subtasks: string
+  kinds: Record<string, string>
+  /** The head line's pN. */
+  priority: (n: number) => string
+  /** Words of a journal line. */
+  created_entry: string
+  /** The detail's read failed; the reason follows from the refusal words. */
+  problem: string
+  close: string
 }
 
 const DETAIL: Record<Language, DetailCopy> = {
   en: {
     label: 'Details',
     none: 'Choose a task to see its details.',
+    assignee: 'Assignee', created: 'Created', updated: 'Updated', started: 'Started', ended: 'Ended', due: 'Due', epic: 'Epic', milestone: 'Milestone',
+    tags: 'Tags', blockedBy: 'Blocked by', blocks: 'Blocks', deferred: 'Deferred',
+    blockerDone: 'done', blockerOpen: 'open', blockerDeferred: 'deferred', blockerMissing: 'not found',
+    rollup: 'Progress', rollupText: (done, work, percent) => `${done}/${work} done${percent === undefined ? '' : ` · ${percent}%`}`,
+    body: 'Description', commits: 'Commits', journal: 'History', noJournal: 'No history yet', work: 'Work log', subtasks: 'Subtasks',
+    kinds: { issue: 'task', epic: 'epic', milestone: 'milestone', backlog: 'backlog' },
+    priority: (n) => `P${n}`, created_entry: 'Created', problem: 'The details could not be read.', close: 'Close details',
   },
   ko: {
     label: '상세',
     none: '할 일을 고르면 상세가 여기에 나옵니다.',
+    assignee: '담당자', created: '만든 시각', updated: '고친 시각', started: '시작', ended: '끝남', due: '마감', epic: '에픽', milestone: '마일스톤',
+    tags: '태그', blockedBy: '막는 것', blocks: '막고 있는 것', deferred: '미룸',
+    blockerDone: '끝남', blockerOpen: '열림', blockerDeferred: '미룸', blockerMissing: '없음',
+    rollup: '진척', rollupText: (done, work, percent) => `${done}/${work} 완료${percent === undefined ? '' : ` · ${percent}%`}`,
+    body: '본문', commits: '커밋', journal: '기록', noJournal: '아직 기록이 없습니다', work: '작업 기록', subtasks: '하위 항목',
+    kinds: { issue: '할 일', epic: '에픽', milestone: '마일스톤', backlog: '백로그' },
+    priority: (n) => `P${n}`, created_entry: '만들었습니다', problem: '상세를 읽지 못했습니다.', close: '상세 닫기',
   },
   ja: {
     label: '詳細',
     none: 'タスクを選ぶと、ここに詳細が表示されます。',
+    assignee: '担当者', created: '作成', updated: '更新', started: '開始', ended: '終了', due: '期限', epic: 'エピック', milestone: 'マイルストーン',
+    tags: 'タグ', blockedBy: 'ブロック元', blocks: 'ブロック先', deferred: '保留',
+    blockerDone: '完了', blockerOpen: '未完了', blockerDeferred: '保留', blockerMissing: '見つからない',
+    rollup: '進捗', rollupText: (done, work, percent) => `${done}/${work} 完了${percent === undefined ? '' : ` · ${percent}%`}`,
+    body: '本文', commits: 'コミット', journal: '履歴', noJournal: '履歴はまだありません', work: '作業ログ', subtasks: 'サブタスク',
+    kinds: { issue: 'タスク', epic: 'エピック', milestone: 'マイルストーン', backlog: 'バックログ' },
+    priority: (n) => `P${n}`, created_entry: '作成しました', problem: '詳細を読み込めませんでした。', close: '詳細を閉じる',
   },
   zh: {
     label: '详情',
     none: '选择任务后，详情会显示在这里。',
+    assignee: '负责人', created: '创建', updated: '更新', started: '开始', ended: '结束', due: '截止', epic: '史诗', milestone: '里程碑',
+    tags: '标签', blockedBy: '被阻塞于', blocks: '阻塞', deferred: '已搁置',
+    blockerDone: '已完成', blockerOpen: '未完成', blockerDeferred: '已搁置', blockerMissing: '未找到',
+    rollup: '进度', rollupText: (done, work, percent) => `${done}/${work} 完成${percent === undefined ? '' : ` · ${percent}%`}`,
+    body: '正文', commits: '提交', journal: '历史', noJournal: '暂无历史', work: '工作记录', subtasks: '子任务',
+    kinds: { issue: '任务', epic: '史诗', milestone: '里程碑', backlog: '待办池' },
+    priority: (n) => `P${n}`, created_entry: '已创建', problem: '无法读取详情。', close: '关闭详情',
   },
 }
 

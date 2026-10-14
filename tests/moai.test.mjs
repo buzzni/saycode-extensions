@@ -172,8 +172,8 @@ async function runPanel(answer, language = 'en') {
   const $ = (selector) => dom.window.document.querySelector(selector)
   return {
     window: dom.window, calls, $,
-    rows: () => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].map((row) => row.dataset.id),
-    row: (id) => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].find((row) => row.dataset.id === id),
+    rows: () => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].map((row) => row.dataset.id),
+    row: (id) => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].find((row) => row.dataset.id === id),
     starts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
     pressEnter(isComposing) {
       $('.moai-add input').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true }))
@@ -243,20 +243,22 @@ test('choosing a task shows its details beside the list, with history and status
   // The list stays: the detail no longer replaces it.
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   const detail = panel.$('.moai-detail')
-  assert.equal(detail.hidden, false)
+  assert.equal(panel.$('.m-split').dataset.detail, 'shown')
   assert.equal(detail.querySelector('h2').textContent, '가이드 첫 할 일')
-  const meta = Object.fromEntries([...detail.querySelectorAll('dt')].map((term) => [term.textContent, term.nextElementSibling.textContent]))
-  assert.equal(meta['상태'], '할 일')
-  assert.equal(meta['우선순위'], 'P2')
-  assert.equal(meta['ID'], 'mgd-hmcr')
-  assert.equal(detail.querySelector('.moai-body').textContent, '본문 첫 줄\n둘째 줄')
-  assert.deepEqual([...detail.querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '메모 하나'])
+  // Id, status and priority are the head line's text and chips, not labeled fields.
+  assert.equal(detail.querySelector('.moai-detail-id').textContent, 'mgd-hmcr')
+  assert.deepEqual([...detail.querySelectorAll('.moai-detail-chips > *')].map((chip) => chip.textContent).slice(0, 2), ['할 일', 'P2'])
+  assert.equal(detail.querySelector('.moai-detail-body').textContent, '본문 첫 줄\n둘째 줄')
+  assert.deepEqual([...detail.querySelectorAll('details[data-fold="journal"] li > span:first-child')].map((entry) => entry.textContent), ['만들었습니다', '메모 하나'])
 
   panel.row('mgd-ogym').click()
   await flush()
-  assert.deepEqual([...panel.$('.moai-detail').querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '할 일 → 진행 중'])
-  panel.$('.moai-close').click()
-  assert.equal(panel.$('.moai-detail').hidden, true)
+  assert.deepEqual([...panel.$('.moai-detail').querySelectorAll('details[data-fold="journal"] li > span:first-child')].map((entry) => entry.textContent), ['만들었습니다', '할 일 → 진행 중'])
+  panel.$('.moai-detail [data-focus="close"]').click()
+  await flush()
+  // Closing clears what the detail shows (it says to choose a task); the cursor row stays where it was.
+  assert.equal(panel.$('.moai-detail h2'), null)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, '할 일을 고르면 상세가 여기에 나옵니다.')
 })
 
 test('a refused read is explained where it happened; user choices are information, machine problems errors', async () => {
@@ -414,14 +416,17 @@ test('a detail asked for a task the next read no longer lists closes instead of 
   await flush()
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr'])
   assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
-  assert.equal(panel.$('.moai-detail').hidden, true)
+  assert.equal(panel.$('.moai-detail h2'), null)
 })
 
 test('the row with the keyboard focus keeps it when the list redraws', async () => {
   const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY }))
-  panel.row('mgd-hmcr').focus()
+  // The keyboard focus lives on the treegrid itself and points at the row (aria-activedescendant), so a redraw keeps it.
+  const list = panel.$('.moai-list')
+  list.focus()
   panel.row('mgd-hmcr').click()
   await flush()
-  assert.equal(panel.$('.moai-detail').hidden, false)
-  assert.equal(panel.window.document.activeElement, panel.row('mgd-hmcr'))
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  assert.equal(panel.window.document.activeElement, list)
+  assert.equal(list.getAttribute('aria-activedescendant'), panel.row('mgd-hmcr').id)
 })
