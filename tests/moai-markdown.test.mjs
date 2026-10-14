@@ -209,10 +209,10 @@ test('issue ids: whole words only, not in code, not inside links', () => {
   const ids = ['se-abc', 'se-abc.def', 'se-x']
   const r = md('See se-abc and se-abc.def, also (se-x). Not xse-abc, se-abcd, se-abc-1, se-abc.defg, se-x_y.\n\n`se-abc` and\n\n```\nse-abc\n```\n\n[se-abc](a.md) <https://e.example/se-abc> and **se-x**', { issueIds: ids })
   const issues = [...r.root.querySelectorAll('a[data-kind="issue"]')]
-  assert.deepEqual(issues.map((a) => a.dataset.issue), ['se-abc', 'se-abc.def', 'se-x', 'se-x'])
-  assert.deepEqual(issues.map((a) => a.className), Array(4).fill('m-md-link m-md-issue'))
+  assert.deepEqual(issues.map((a) => a.dataset.issue), ['se-abc', 'se-abc.def', 'se-x', 'se-abc', 'se-x'])
+  assert.deepEqual(issues.map((a) => a.className), Array(5).fill('m-md-link m-md-issue'))
   for (const a of issues) { assert.equal(a.getAttribute('tabindex'), '-1'); assert.equal(a.hasAttribute('href'), false) }
-  assert.equal(r.root.querySelector('code a'), null)
+  assert.equal(r.root.querySelector('code a'), null, 'the link wraps the code, never the reverse')
   assert.equal(r.root.querySelector('pre a'), null)
   assert.equal(r.root.querySelectorAll('a a').length, 0)
   const md1 = [...r.root.querySelectorAll('a[data-kind="external"]')]
@@ -222,6 +222,29 @@ test('issue ids: whole words only, not in code, not inside links', () => {
   assert.equal(md('se-abc').root.querySelector('a'), null)
   // Regex metacharacters in ids are escaped.
   assert.equal(md('a.b and axb', { issueIds: ['a.b'] }).links.length, 1)
+})
+
+test('issue ids in code spans: only a span that is exactly an id links, wrapping the code', () => {
+  const r = md('`se-1` and ` se-2 ` and `se-1 more` and `x se-1` and [`se-1`](a.md) and **`se-1`**\n\n```\nse-1\n```\n\n    se-1', { issueIds: ['se-1', 'se-2'] })
+  const issues = [...r.root.querySelectorAll('a[data-kind="issue"]')]
+  assert.deepEqual(issues.map((a) => a.dataset.issue), ['se-1', 'se-2', 'se-1'])
+  for (const a of issues) {
+    assert.equal(a.className, 'm-md-link m-md-issue')
+    assert.equal(a.getAttribute('tabindex'), '-1')
+    assert.equal(a.hasAttribute('href'), false)
+    assert.equal(a.children.length, 1)
+    assert.equal(a.firstElementChild.className, 'm-md-inline-code')
+  }
+  assert.equal(r.root.querySelectorAll('a a').length, 0)
+  assert.equal(r.root.querySelectorAll('pre a').length, 0)
+  // Inside a markdown link it stays plain code.
+  const wrapped = r.root.querySelector('a[data-kind="external"]')
+  assert.equal(wrapped.querySelector('code').textContent, 'se-1')
+  assert.equal(wrapped.querySelector('a'), null)
+  // Mixed text stays plain, and without issueIds nothing links.
+  assert.equal(md('`se-1 more`', { issueIds: ['se-1'] }).links.length, 0)
+  assert.equal(md('`se-1`').links.length, 0)
+  assertSafe(r.root)
 })
 
 test('XSS: raw HTML renders as literal text and creates no element', () => {
@@ -322,9 +345,10 @@ test('smoke: real wiki pages render with tables and links, safely', async () => 
     if (file === 'wiki-show-overview.json') {
       assert.ok(r.root.querySelectorAll('table').length > 0)
       assert.ok(r.links.length > 0)
-      // The fixture only names issue ids inside code spans, which must stay plain code.
-      assert.equal(r.links.some((a) => a.dataset.kind === 'issue'), false)
-      assert.ok([...r.root.querySelectorAll('code')].some((c) => /^se-0g4a\./.test(c.textContent)))
+      // The fixture names issue ids inside code spans; those become issue links around the code.
+      const issues = r.links.filter((a) => a.dataset.kind === 'issue')
+      assert.ok(issues.length > 0)
+      assert.ok(issues.every((a) => a.firstElementChild?.tagName === 'CODE' && a.textContent === a.dataset.issue))
       // Cells hold their links.
       assert.ok(r.root.querySelector('td a, th a'))
     }

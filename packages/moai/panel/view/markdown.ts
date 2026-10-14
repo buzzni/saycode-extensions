@@ -54,6 +54,7 @@ interface Ctx {
   doc: Document
   resolve: (href: string) => LinkTarget
   issueRe: RegExp | null
+  issueSet: Set<string>
   headings: Heading[]
   seen: Map<string, number>
 }
@@ -71,6 +72,7 @@ export function renderMarkdown(doc: Document, source: string, options: RenderOpt
     doc,
     resolve: options.resolveLink ?? defaultResolve,
     issueRe,
+    issueSet: new Set(ids),
     headings: [],
     seen: new Map(),
   }
@@ -86,6 +88,8 @@ export function renderMarkdown(doc: Document, source: string, options: RenderOpt
 
 // ---- block pass ----
 
+const at = (items: ArrayLike<string | undefined>, index: number): string => items[index] ?? ""
+
 const FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
@@ -98,15 +102,15 @@ const indentOf = (line: string): number => line.length - line.trimStart().length
 
 function isFence(line: string): boolean {
   const m = FENCE.exec(line)
-  return !!m && !(m[2][0] === "`" && m[3].includes("`"))
+  return !!m && !(at(m, 2).charAt(0) === "`" && at(m, 3).includes("`"))
 }
 
 /** A line that ends a paragraph. Only non-empty bullets and ordered lists starting at 1 may interrupt. */
 function interrupts(line: string): boolean {
   if (isFence(line) || ATX.test(line) || HR.test(line) || QUOTE.test(line)) return true
   const m = LIST.exec(line)
-  if (m && m[1].length < 4 && m[3] !== "") {
-    return !/\d/.test(m[2][0]) || parseInt(m[2], 10) === 1
+  if (m && at(m, 1).length < 4 && at(m, 3) !== "") {
+    return !/\d/.test(at(m, 2).charAt(0)) || parseInt(at(m, 2), 10) === 1
   }
   return false
 }
@@ -118,20 +122,20 @@ function splitRow(line: string): string[] {
   const cells: string[] = []
   let cell = ""
   for (let i = 0; i < s.length; i++) {
-    if (s[i] === "\\" && s[i + 1] === "|") { cell += "|"; i++ }
-    else if (s[i] === "|") { cells.push(cell.trim()); cell = "" }
-    else cell += s[i]
+    if (s.charAt(i) === "\\" && s.charAt(i + 1) === "|") { cell += "|"; i++ }
+    else if (s.charAt(i) === "|") { cells.push(cell.trim()); cell = "" }
+    else cell += s.charAt(i)
   }
   cells.push(cell.trim())
   return cells
 }
 
 function tableAt(lines: string[], i: number): { head: string[]; aligns: string[] } | null {
-  const next = lines[i + 1]
-  if (next === undefined || !lines[i].includes("|") || !next.includes("-")) return null
+  const next = at(lines, i + 1)
+  if (next === undefined || !at(lines, i).includes("|") || !next.includes("-")) return null
   const delim = splitRow(next)
   if (!delim.every((cell) => DELIM_CELL.test(cell))) return null
-  const head = splitRow(lines[i])
+  const head = splitRow(at(lines, i))
   if (head.length !== delim.length) return null
   const aligns = delim.map((cell) => (cell.startsWith(":") ? (cell.endsWith(":") ? "center" : "left") : cell.endsWith(":") ? "right" : ""))
   return { head, aligns }
@@ -142,23 +146,23 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
   const n = lines.length
   let i = 0
   while (i < n) {
-    const line = lines[i]
+    const line = at(lines, i)
     if (isBlank(line)) { i++; continue }
 
     // Fenced code.
     const fence = FENCE.exec(line)
     if (fence && isFence(line)) {
-      const indent = fence[1].length
-      const mark = fence[2]
+      const indent = at(fence, 1).length
+      const mark = at(fence, 2)
       const close = new RegExp(`^ {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`)
       const body: string[] = []
       i++
-      while (i < n && !close.test(lines[i])) {
-        body.push(lines[i].replace(new RegExp(`^ {0,${indent}}`), ""))
+      while (i < n && !close.test(at(lines, i))) {
+        body.push(at(lines, i).replace(new RegExp(`^ {0,${indent}}`), ""))
         i++
       }
       i++
-      const info = fence[3].trim().split(/\s+/)[0] ?? ""
+      const info = at(fence, 3).trim().split(/\s+/)[0] ?? ""
       const code = el(doc, "code", {}, body.join("\n"))
       parent.appendChild(el(doc, "pre", { class: "m-md-code", "data-lang": info || null }, code))
       continue
@@ -167,11 +171,11 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Indented code.
     if (/^ {4}/.test(line)) {
       const body: string[] = []
-      while (i < n && (/^ {4}/.test(lines[i]) || (isBlank(lines[i]) && i + 1 < n && (/^ {4}/.test(lines[i + 1]) || isBlank(lines[i + 1]))))) {
-        body.push(lines[i].slice(4))
+      while (i < n && (/^ {4}/.test(at(lines, i)) || (isBlank(at(lines, i)) && i + 1 < n && (/^ {4}/.test(at(lines, i + 1)) || isBlank(at(lines, i + 1)))))) {
+        body.push(at(lines, i).slice(4))
         i++
       }
-      while (body.length && isBlank(body[body.length - 1])) body.pop()
+      while (body.length && isBlank(at(body, body.length - 1))) body.pop()
       parent.appendChild(el(doc, "pre", { class: "m-md-code" }, el(doc, "code", {}, body.join("\n"))))
       continue
     }
@@ -179,9 +183,9 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Heading.
     const atx = ATX.exec(line)
     if (atx) {
-      const level = atx[1].length as Heading["level"]
+      const level = at(atx, 1).length as Heading["level"]
       const h = el(doc, `h${level}` as "h1")
-      inlineInto(ctx, h, (atx[2] ?? "").trim(), false)
+      inlineInto(ctx, h, (at(atx, 2) ?? "").trim(), false)
       const text = h.textContent ?? ""
       const anchor = githubAnchor(text, ctx.seen)
       h.setAttribute("id", `m-md-${anchor}`)
@@ -197,10 +201,10 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Block quote.
     if (QUOTE.test(line)) {
       const inner: string[] = []
-      while (i < n && !isBlank(lines[i])) {
-        if (QUOTE.test(lines[i])) inner.push(lines[i].replace(/^ {0,3}> ?/, ""))
-        else if (interrupts(lines[i])) break
-        else inner.push(lines[i])
+      while (i < n && !isBlank(at(lines, i))) {
+        if (QUOTE.test(at(lines, i))) inner.push(at(lines, i).replace(/^ {0,3}> ?/, ""))
+        else if (interrupts(at(lines, i))) break
+        else inner.push(at(lines, i))
         i++
       }
       const quote = el(doc, "blockquote")
@@ -211,7 +215,7 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
 
     // List.
     const first = LIST.exec(line)
-    if (first && first[1].length < 4) {
+    if (first && at(first, 1).length < 4) {
       i = parseList(ctx, lines, i, parent)
       continue
     }
@@ -224,19 +228,19 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
       const tbl = el(doc, "table")
       const headRow = el(doc, "tr")
       table.head.forEach((cell, c) => {
-        const th = el(doc, "th", { "data-align": table.aligns[c] || null })
+        const th = el(doc, "th", { "data-align": at(table.aligns, c) || null })
         inlineInto(ctx, th, cell, false)
         headRow.appendChild(th)
       })
       tbl.appendChild(el(doc, "thead", {}, headRow))
       const tbody = el(doc, "tbody")
       i += 2
-      while (i < n && !isBlank(lines[i]) && !interrupts(lines[i])) {
-        const cells = splitRow(lines[i])
+      while (i < n && !isBlank(at(lines, i)) && !interrupts(at(lines, i))) {
+        const cells = splitRow(at(lines, i))
         const tr = el(doc, "tr")
         for (let c = 0; c < cols; c++) {
-          const td = el(doc, "td", { "data-align": table.aligns[c] || null })
-          inlineInto(ctx, td, cells[c] ?? "", false)
+          const td = el(doc, "td", { "data-align": at(table.aligns, c) || null })
+          inlineInto(ctx, td, at(cells, c) ?? "", false)
           tr.appendChild(td)
         }
         tbody.appendChild(tr)
@@ -251,8 +255,8 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Paragraph.
     const para: string[] = [line.trimStart()]
     i++
-    while (i < n && !isBlank(lines[i]) && !interrupts(lines[i]) && !tableAt(lines, i)) {
-      para.push(lines[i].trimStart())
+    while (i < n && !isBlank(at(lines, i)) && !interrupts(at(lines, i)) && !tableAt(lines, i)) {
+      para.push(at(lines, i).trimStart())
       i++
     }
     const text = para.join("\n").replace(/\s+$/, "")
@@ -268,38 +272,38 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
 function parseList(ctx: Ctx, lines: string[], start: number, parent: Node): number {
   const { doc } = ctx
   const n = lines.length
-  const head = LIST.exec(lines[start]) as RegExpExecArray
-  const ordered = /\d/.test(head[2][0])
-  const delim = head[2][head[2].length - 1]
+  const head = LIST.exec(at(lines, start)) as RegExpExecArray
+  const ordered = /\d/.test(at(head, 2).charAt(0))
+  const delim = at(head, 2).charAt(at(head, 2).length - 1)
   const sameKind = (line: string): RegExpExecArray | null => {
     const m = LIST.exec(line)
-    if (!m || m[1].length >= 4 || HR.test(line)) return null
-    if (/\d/.test(m[2][0]) !== ordered || m[2][m[2].length - 1] !== delim) return null
+    if (!m || at(m, 1).length >= 4 || HR.test(line)) return null
+    if (/\d/.test(at(m, 2).charAt(0)) !== ordered || at(m, 2).charAt(at(m, 2).length - 1) !== delim) return null
     return m
   }
   const items: string[][] = []
   let loose = false
   let i = start
   while (i < n) {
-    const m = sameKind(lines[i])
+    const m = sameKind(at(lines, i))
     if (!m) break
-    const gap = m[3].length >= 1 && m[3].length <= 4 ? m[3].length : 1
-    const contentIndent = m[1].length + m[2].length + gap
-    const itemLines = [m[3] === "" ? "" : lines[i].slice(contentIndent)]
+    const gap = at(m, 3).length >= 1 && at(m, 3).length <= 4 ? at(m, 3).length : 1
+    const contentIndent = at(m, 1).length + at(m, 2).length + gap
+    const itemLines = [at(m, 3) === "" ? "" : at(lines, i).slice(contentIndent)]
     i++
     while (i < n) {
-      const l = lines[i]
+      const l = at(lines, i)
       if (isBlank(l)) {
         let j = i
-        while (j < n && isBlank(lines[j])) j++
-        if (j < n && indentOf(lines[j]) >= contentIndent) {
+        while (j < n && isBlank(at(lines, j))) j++
+        if (j < n && indentOf(at(lines, j)) >= contentIndent) {
           for (; i < j; i++) itemLines.push("")
           continue
         }
         break
       }
       if (indentOf(l) >= contentIndent) { itemLines.push(l.slice(contentIndent)); i++; continue }
-      if (!isBlank(itemLines[itemLines.length - 1]) && !interrupts(l) && !LIST.test(l) && !tableAt(lines, i)) {
+      if (!isBlank(at(itemLines, itemLines.length - 1)) && !interrupts(l) && !LIST.test(l) && !tableAt(lines, i)) {
         itemLines.push(l.trimStart())
         i++
         continue
@@ -307,13 +311,13 @@ function parseList(ctx: Ctx, lines: string[], start: number, parent: Node): numb
       break
     }
     // A blank line between two blocks of one item makes the list loose, unless a nested list follows it.
-    const blankBetween = itemLines.some((l, k) => k > 0 && isBlank(l) && !isBlank(itemLines[k - 1]) && itemLines.slice(k).some((x) => !isBlank(x)))
+    const blankBetween = itemLines.some((l, k) => k > 0 && isBlank(l) && !isBlank(at(itemLines, k - 1)) && itemLines.slice(k).some((x) => !isBlank(x)))
     if (blankBetween && !itemLines.some((l) => LIST.test(l))) loose = true
-    while (itemLines.length && isBlank(itemLines[itemLines.length - 1])) itemLines.pop()
+    while (itemLines.length && isBlank(at(itemLines, itemLines.length - 1))) itemLines.pop()
     items.push(itemLines)
     let j = i
-    while (j < n && isBlank(lines[j])) j++
-    if (j < n && sameKind(lines[j])) {
+    while (j < n && isBlank(at(lines, j))) j++
+    if (j < n && sameKind(at(lines, j))) {
       if (j > i) loose = true
       i = j
       continue
@@ -321,7 +325,7 @@ function parseList(ctx: Ctx, lines: string[], start: number, parent: Node): numb
     break
   }
   const list = el(doc, ordered ? "ol" : "ul")
-  const firstNum = ordered ? parseInt(head[2], 10) : 1
+  const firstNum = ordered ? parseInt(at(head, 2), 10) : 1
   if (ordered && firstNum !== 1) list.setAttribute("start", String(firstNum))
   for (const itemLines of items) {
     const li = el(doc, "li")
@@ -364,10 +368,10 @@ function addText(ctx: Ctx, parent: Node, text: string, noLinks: boolean): void {
   issueRe.lastIndex = 0
   let last = 0
   for (const m of text.matchAll(issueRe)) {
-    const at = m.index ?? 0
-    if (at > last) parent.appendChild(doc.createTextNode(text.slice(last, at)))
-    parent.appendChild(el(doc, "a", { class: "m-md-link m-md-issue", tabindex: "-1", "data-kind": "issue", "data-issue": m[0] }, m[0]))
-    last = at + m[0].length
+    const pos = m.index ?? 0
+    if (pos > last) parent.appendChild(doc.createTextNode(text.slice(last, pos)))
+    parent.appendChild(el(doc, "a", { class: "m-md-link m-md-issue", tabindex: "-1", "data-kind": "issue", "data-issue": at(m, 0) }, at(m, 0)))
+    last = pos + at(m, 0).length
   }
   if (last < text.length) parent.appendChild(doc.createTextNode(text.slice(last)))
 }
@@ -375,13 +379,13 @@ function addText(ctx: Ctx, parent: Node, text: string, noLinks: boolean): void {
 /** The code span opening at i: its backtick run length and the index of the closing run (-1 if none). */
 function codeSpanEnd(s: string, i: number): { run: number; end: number } {
   let run = 1
-  while (s[i + run] === "`") run++
+  while (s.charAt(i + run) === "`") run++
   let j = i + run
   while (j < s.length) {
     const k = s.indexOf("`", j)
     if (k < 0) break
     let r = 1
-    while (s[k + r] === "`") r++
+    while (s.charAt(k + r) === "`") r++
     if (r === run) return { run, end: k }
     j = k + r
   }
@@ -394,7 +398,7 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
   let depth = 1
   let j = i + 1
   for (; j < s.length; j++) {
-    const ch = s[j]
+    const ch = s.charAt(j)
     if (ch === "\\") { j++; continue }
     if (ch === "`") {
       const span = codeSpanEnd(s, j)
@@ -404,12 +408,12 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
     if (ch === "[") depth++
     else if (ch === "]" && --depth === 0) break
   }
-  if (depth !== 0 || s[j + 1] !== "(") return null
+  if (depth !== 0 || s.charAt(j + 1) !== "(") return null
   const text = s.slice(i + 1, j)
   let k = j + 2
-  while (s[k] === " " || s[k] === "\n") k++
+  while (s.charAt(k) === " " || s.charAt(k) === "\n") k++
   let dest = ""
-  if (s[k] === "<") {
+  if (s.charAt(k) === "<") {
     const close = s.indexOf(">", k)
     if (close < 0 || s.slice(k, close).includes("\n")) return null
     dest = s.slice(k + 1, close)
@@ -417,43 +421,43 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
   } else {
     let parens = 0
     for (; k < s.length; k++) {
-      const ch = s[k]
-      if (ch === "\\" && k + 1 < s.length && PUNCT.test(s[k + 1])) { dest += s[++k]; continue }
+      const ch = s.charAt(k)
+      if (ch === "\\" && k + 1 < s.length && PUNCT.test(s.charAt(k + 1))) { dest += s.charAt(++k); continue }
       if (/\s/.test(ch)) break
       if (ch === "(") parens++
       else if (ch === ")") { if (parens === 0) break; parens-- }
       dest += ch
     }
   }
-  while (s[k] === " " || s[k] === "\n") k++
-  const quote = s[k]
+  while (s.charAt(k) === " " || s.charAt(k) === "\n") k++
+  const quote = s.charAt(k)
   if (quote === '"' || quote === "'" || quote === "(") {
     const closer = quote === "(" ? ")" : quote
     let t = k + 1
-    while (t < s.length && s[t] !== closer) t += s[t] === "\\" ? 2 : 1
+    while (t < s.length && s.charAt(t) !== closer) t += s.charAt(t) === "\\" ? 2 : 1
     if (t >= s.length) return null
     k = t + 1
-    while (s[k] === " " || s[k] === "\n") k++
+    while (s.charAt(k) === " " || s.charAt(k) === "\n") k++
   }
-  if (s[k] !== ")" || dest === "") return null
+  if (s.charAt(k) !== ")" || dest === "") return null
   return { text, dest, end: k + 1 }
 }
 
 interface EmphMatch { lit: number; k: number; start: number; close: number; end: number }
 
 function matchEmph(s: string, i: number): EmphMatch | null {
-  const c = s[i]
+  const c = s.charAt(i)
   let r = 1
-  while (s[i + r] === c) r++
-  const before = s[i - 1]
-  const after = s[i + r]
+  while (s.charAt(i + r) === c) r++
+  const before = s.charAt(i - 1)
+  const after = s.charAt(i + r)
   if (after === undefined || /\s/.test(after)) return null
   if (c === "_" && before !== undefined && WORD.test(before)) return null
   const sizes = r >= 3 ? [3, 2, 1] : r === 2 ? [2, 1] : [1]
   for (const k of sizes) {
     let j = i + r
     while (j < s.length) {
-      const ch = s[j]
+      const ch = s.charAt(j)
       if (ch === "\\") { j += 2; continue }
       if (ch === "`") {
         const span = codeSpanEnd(s, j)
@@ -462,9 +466,9 @@ function matchEmph(s: string, i: number): EmphMatch | null {
       }
       if (ch !== c) { j++; continue }
       let rr = 1
-      while (s[j + rr] === c) rr++
-      const prev = s[j - 1]
-      const next = s[j + rr]
+      while (s.charAt(j + rr) === c) rr++
+      const prev = s.charAt(j - 1)
+      const next = s.charAt(j + rr)
       const canClose = prev !== undefined && !/\s/.test(prev) && (c !== "_" || next === undefined || !WORD.test(next))
       const canOpen = next !== undefined && !/\s/.test(next) && (c !== "_" || prev === undefined || !WORD.test(prev))
       if (canClose && rr >= k) return { lit: r - k, k, start: i + r, close: j, end: j + k }
@@ -487,9 +491,9 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
   }
   let i = 0
   while (i < s.length) {
-    const c = s[i]
+    const c = s.charAt(i)
     if (c === "\\") {
-      const nx = s[i + 1]
+      const nx = s.charAt(i + 1)
       if (nx === "\n") { flush(); parent.appendChild(el(doc, "br")); i += 2; continue }
       if (nx !== undefined && PUNCT.test(nx)) { buf += nx; i += 2; continue }
       buf += c
@@ -508,7 +512,12 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
         let body = s.slice(i + span.run, span.end).replace(/\n/g, " ")
         if (body.length > 2 && body.startsWith(" ") && body.endsWith(" ") && body.trim() !== "") body = body.slice(1, -1)
         flush()
-        parent.appendChild(el(doc, "code", { class: "m-md-inline-code" }, body))
+        const code = el(doc, "code", { class: "m-md-inline-code" }, body)
+        const id = body.trim()
+        if (!noLinks && ctx.issueSet.has(id)) {
+          // A code span that is exactly an issue id links like a bare id, and still looks like code.
+          parent.appendChild(el(doc, "a", { class: "m-md-link m-md-issue", tabindex: "-1", "data-kind": "issue", "data-issue": id }, code))
+        } else parent.appendChild(code)
         i = span.end + span.run
       } else {
         buf += "`".repeat(span.run)
@@ -516,7 +525,7 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
       }
       continue
     }
-    if (c === "!" && s[i + 1] === "[") {
+    if (c === "!" && s.charAt(i + 1) === "[") {
       const m = noLinks ? null : parseLinkAt(s, i + 1)
       if (m) { flush(); parent.appendChild(doc.createTextNode(s.slice(i, m.end))); i = m.end }
       else { buf += c; i++ }
@@ -539,13 +548,13 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
       const m = AUTOLINK.exec(s)
       if (m) {
         flush()
-        if (noLinks) parent.appendChild(doc.createTextNode(m[0]))
+        if (noLinks) parent.appendChild(doc.createTextNode(at(m, 0)))
         else {
-          const a = makeLink(ctx, m[1])
-          a.appendChild(doc.createTextNode(m[1]))
+          const a = makeLink(ctx, at(m, 1))
+          a.appendChild(doc.createTextNode(at(m, 1)))
           parent.appendChild(a)
         }
-        i += m[0].length
+        i += at(m, 0).length
         continue
       }
     }
@@ -566,7 +575,7 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
         continue
       }
       let r = 1
-      while (s[i + r] === c) r++
+      while (s.charAt(i + r) === c) r++
       buf += c.repeat(r)
       i += r
       continue

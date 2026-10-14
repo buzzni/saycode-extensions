@@ -303,8 +303,16 @@ test('view: Tab / Shift-Tab cycle body links with wrap; Enter on a wiki link loa
   view.focusPane('body')
   const links = view.links()
   assert.deepEqual(links.slice(0, 2).map((a) => [a.dataset.kind, a.dataset.slug]), [['wiki', 'moai-panel/tui-analysis'], ['wiki', 'moai-panel/overview']])
-  // The real page writes its issue id in a code span, which the renderer leaves alone.
-  assert.ok(!links.some((a) => a.dataset.kind === 'issue'))
+  // The real page writes its issue id in a code span; a span that is exactly an issue id is an issue link.
+  const issueLinks = links.filter((a) => a.dataset.kind === 'issue')
+  assert.ok(issueLinks.length > 0)
+  assert.ok(issueLinks.every((a) => a.firstElementChild?.tagName === 'CODE'))
+  const issueIndex = links.indexOf(issueLinks[0])
+  for (let i = 0; i <= issueIndex; i++) press(scroller(view), 'Tab')
+  press(doc.activeElement, 'Enter')
+  await tick()
+  assert.deepEqual(calls.issue, [issueLinks[0].dataset.issue])
+  view.clearLinkSelection()
   const selectedIndex = () => links.findIndex((a) => a.classList.contains('m-wiki-link-selected'))
   press(scroller(view), 'Tab')
   assert.equal(selectedIndex(), 0)
