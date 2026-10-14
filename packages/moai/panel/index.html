@@ -1,0 +1,43 @@
+<style>
+  /* Panel theme v1: Desktop injects --saycode-* and data-theme; older hosts fall back to the OS scheme.
+     The look-and-feel layer (panel/style/, inlined below) builds on these names. */
+  :root {
+    color-scheme: light;
+    --fb-bg: #FFFFFF; --fb-surface: #F4F4F5; --fb-text: #09090B; --fb-muted: #52525B; --fb-border: #DCDCE0;
+    --fb-accent: #1B64DA; --fb-accent-contrast: #FFFFFF; --fb-danger: #DC2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --fb-bg: #13161A; --fb-surface: #22252C; --fb-text: #FAFAFA; --fb-muted: #A1A1AA; --fb-border: #3E424D;
+      --fb-accent: #2470E4; --fb-accent-contrast: #FFFFFF; --fb-danger: #F87171;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --fb-bg: #13161A; --fb-surface: #22252C; --fb-text: #FAFAFA; --fb-muted: #A1A1AA; --fb-border: #3E424D;
+    --fb-accent: #2470E4; --fb-accent-contrast: #FFFFFF; --fb-danger: #F87171;
+  }
+  /* Resolved per element so the host values apply wherever Desktop sets them. */
+  * {
+    box-sizing: border-box;
+    --bg: var(--saycode-bg, var(--fb-bg));
+    --surface: var(--saycode-surface, var(--fb-surface));
+    --text: var(--saycode-text, var(--fb-text));
+    --muted: var(--saycode-text-muted, var(--fb-muted));
+    --border: var(--saycode-border, var(--fb-border));
+    --accent: var(--saycode-accent, var(--fb-accent));
+    --accent-contrast: var(--saycode-accent-contrast, var(--fb-accent-contrast));
+    --danger: var(--saycode-danger, var(--fb-danger));
+    --radius: var(--saycode-radius, 10px);
+  }
+  body {
+    margin: 0;
+    font: 13px/1.5 var(--saycode-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+    color: var(--text); background: var(--bg);
+  }
+  [hidden] { display: none !important; }
+</style>
+<!-- moai-style -->
+<div id="moai-app"></div>
+<!-- moai-script -->
