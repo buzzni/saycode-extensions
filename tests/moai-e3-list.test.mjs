@@ -455,3 +455,22 @@ test('list view: a pane that only gets taller draws the rows its new height show
   view.pane.destroy()
   assert.equal(disconnected.length, 1)
 })
+
+test('narrow: a day in the filter is the reader\'s own day, not a UTC one', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'Asia/Seoul'
+  try {
+    // 07:00 on the 14th in Seoul is the 13th in UTC; 01:00 on the 15th in Seoul is the 14th in UTC.
+    const rows = [
+      { id: 'a1', kind: 'issue', title: 'Morning', status: 'todo', updated_at: '2026-10-13T22:00:00Z' },
+      { id: 'a2', kind: 'issue', title: 'Night', status: 'todo', updated_at: '2026-10-14T16:00:00Z' },
+    ]
+    const idx = new IssueIndex(rows)
+    const state = { ...initialState(), filter: { text: 'updated_at=2026-10-14', applied: 'updated_at=2026-10-14' } }
+    const kept = model.narrow(state, idx)
+    assert.deepEqual(rows.map((row, n) => kept.keep(n) ? row.id : null).filter(Boolean), ['a1'])
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})

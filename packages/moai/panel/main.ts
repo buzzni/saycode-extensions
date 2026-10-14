@@ -8,7 +8,7 @@ import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, type Loaded } from './data/source.js'
+import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, markArchived, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -33,11 +33,15 @@ remember(store, createMemory(() => window.localStorage))
 // Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
 
-/** The active rows, then the archive's rows no active row holds (only while archived rows are shown). */
+/**
+ * The active rows, then the archive's rows no active row holds (only while archived rows are shown), tagged
+ * `archived: true` against the rows held now: a row the clock archived after the archive was read left `show --all`
+ * and is in the archive's answer untagged (it was active then), and it stays in the list as an archived row.
+ */
 function withArchive(rows: Row[], archive: Row[] | null): Row[] {
   if (!archive) return rows
   const active = new Set(rows.map((row) => row.id))
-  const away = archive.filter((row) => row.archived === true && !active.has(row.id))
+  const away = markArchived(archive, active).filter((row) => !active.has(row.id))
   return away.length ? [...rows, ...away] : rows
 }
 
@@ -65,32 +69,51 @@ function drawnOrder(): string[] {
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   // The rows and the milestone and epic counts `moai status` prints (they count archived rows too) side by side.
-  // Without the counts the board counts its own rows.
-  const [loaded, tallies] = await Promise.all([loadAllRows(client), loadTallies(client)])
-  if (loaded.ok) {
-    const { rows, more, truncated } = loaded.value
-    const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(tallies.ok ? { tallies: tallies.value } : {}) }
-    store.dispatch({ type: 'board-loaded', data, order: drawnOrder() })
-    // The detail on screen was read before this list and stands beside it: when its row has left the list
-    // (finished, moved away) the pane goes with it, as choose() does for a read still running.
-    const state = store.getState()
-    const shown = state.shown.value
-    if (shown && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
-  } else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
-  if (loaded.ok && store.getState().view.showArchived && store.getState().archive === null) void loadArchive()
+  // Without the counts the board counts its own rows. A load the rows already failed does not wait for the counts
+  // (their confirmation may still be open): the failure is told at once, and the next load shares that read.
+  const listing = loadAllRows(client)
+  const counting = loadTallies(client)
+  const loaded = await listing
+  if (!loaded.ok) {
+    store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+    return
+  }
+  const tallies = await counting
+  const { rows, more, truncated } = loaded.value
+  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(tallies.ok ? { tallies: tallies.value } : {}) }
+  const before = store.getState()
+  const shownBefore = before.shown.value
+  // The detail on screen was read before this list and stands beside it: when its row has left the list
+  // (finished, moved away) the pane goes with it, as choose() does for a read still running. A detail the list
+  // never held (an issue a wiki page links to that only the archive holds) stays.
+  const wasListed = shownBefore !== null && indexOf(before)?.find(shownBefore.id) !== undefined
+  store.dispatch({ type: 'board-loaded', data, order: drawnOrder() })
+  const state = store.getState()
+  const shown = state.shown.value
+  if (shown && wasListed && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
+  // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed). Not while
+  // a read still pages: that one would be cancelled and the paging started over.
+  if (state.view.showArchived && state.archive === null && archiveRunning === null) void loadArchive()
 }
 
 // The archive is read when archived rows are shown (`SPC v o`), each time they are turned on, once the active
 // rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked).
 let archiving = 0
+/** The `archiving` number of the archive read still paging, or null when none is. */
+let archiveRunning: number | null = null
 async function loadArchive(): Promise<void> {
   const rows = store.getState().board.value?.rows
   if (!rows) return
   const mine = ++archiving
-  const loaded = await loadArchived(client, { active: new Set(rows.map((row) => row.id)), cancelled: () => mine !== archiving })
-  if (mine !== archiving) return
-  if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
-  else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+  archiveRunning = mine
+  try {
+    const loaded = await loadArchived(client, { active: new Set(rows.map((row) => row.id)), cancelled: () => mine !== archiving })
+    if (mine !== archiving) return
+    if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
+    else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+  } finally {
+    if (archiveRunning === mine) archiveRunning = null
+  }
 }
 store.subscribe((state, previous) => {
   if (state.view.showArchived === previous.view.showArchived) return
@@ -108,6 +131,9 @@ document.addEventListener('visibilitychange', () => refresher.visibilityChanged(
 let choice = 0
 async function choose(id: string) {
   const mine = ++choice
+  // Only a row the list held can be "removed by a reload" below; an issue the list never held (a wiki page's link
+  // to one only the archive holds) is shown when its read answers.
+  const held = indexOf(store.getState())?.find(id) !== undefined
   store.dispatch({ type: 'cursor', id })
   store.dispatch({ type: 'detail-loading', id })
   const loaded = await loadDetail(client, id)
@@ -119,7 +145,7 @@ async function choose(id: string) {
   // A reload removed the row. Nothing else will answer for the detail, so it closes instead of staying on
   // "Loading…". The cursor moving elsewhere is the user's own (a key press) and does not cancel the read.
   const listed = indexOf(now)
-  if (listed && listed.find(id) === undefined) return store.dispatch({ type: 'detail-closed' })
+  if (held && listed && listed.find(id) === undefined) return store.dispatch({ type: 'detail-closed' })
   if (loaded.ok) store.dispatch({ type: 'detail-loaded', data: { id, row: loaded.value } })
   else store.dispatch({ type: 'detail-failed', id, problem: loaded.outcome })
 }
@@ -201,12 +227,14 @@ const shell = mountShell(root, {
     refresh: () => void refresher.refresh(),
     choose: (id) => void choose(id),
     add: (title) => void add(title),
-    // Up to three runs go at once (the list is three reads): Cancel stops every one that runs, and what waits
-    // behind them, rather than letting the next queued read start in the freed slot.
+    // Up to three runs go at once (the list is three reads): Cancel stops every one that runs, and the reads that
+    // wait behind them, rather than letting the next queued read start in the freed slot. A write still waiting
+    // (its confirmation open, or queued) is left to the person: cancelling it would cancel it the moment they
+    // approve it.
     cancel: () => {
       const requests = client.requests()
       if (!requests.some((request) => request.operationId !== null)) return
-      for (const key of new Set(requests.map((request) => request.key))) client.cancel(key)
+      for (const key of new Set(requests.filter((request) => request.operationId !== null || request.share).map((request) => request.key))) client.cancel(key)
     },
   },
 })

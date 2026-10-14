@@ -75,8 +75,8 @@ export function viewKeep(view: ViewSettings, index: IssueIndex, now: Date = new 
  * The flags the filter text is read with. The panel's view toggles do all the hiding (done by status column,
  * deferred, backlog, the archive — {@link viewHides}), so the filter's own CLI defaults are all opened here and
  * the two never disagree about a row. Polarity: query.ts's flags say "let in" (`archived: true` lets the
- * archive in), as the store's `view.showArchived` does; the store's `hide*` toggles are the other way and are
- * read only by viewHides.
+ * archive in), as the store's `view.showArchived` does; the store's `hide*` toggles are the other way round, and
+ * the filter never reads them.
  */
 export const FILTER_FLAGS: Flags = { all: true, archived: true, backlog: true }
 
@@ -102,6 +102,12 @@ export interface Narrow {
 
 type NarrowState = Pick<State, "view"> & { search: Pick<State["search"], "text" | "scope">; filter: Pick<State["filter"], "applied"> }
 
+/**
+ * Epoch seconds to the reader's wall clock (query.ts Context.local): a `YYYY-MM-DD` or `YYYY-MM-DD HH:MM` in the
+ * filter is the reader's own day, as `moai show --filter` reads it, not a UTC one.
+ */
+const readerClock = (epoch: number): number => epoch - new Date(epoch * 1000).getTimezoneOffset() * 60
+
 let narrowed: { index: IssueIndex; key: string; value: Narrow } | null = null
 
 /** {@link Narrow} for a state; the list, the board, the toolbar and main.ts share one answer per change. */
@@ -111,7 +117,7 @@ export function narrow(state: NarrowState, index: IssueIndex, now: Date = new Da
   const hides = viewHides(state.view, index, now)
   const parsed = parseFilter(state.filter.applied, FILTER_FLAGS)
   // The store applies only a text that parses; a bad one here (set from outside) narrows nothing.
-  const passed = state.filter.applied.trim() !== "" && parsed.ok ? new Set(applyFilter(index.rows, parsed.value, { now: now.toISOString().replace(/\.\d+Z$/, "Z") })) : null
+  const passed = state.filter.applied.trim() !== "" && parsed.ok ? new Set(applyFilter(index.rows, parsed.value, { now: now.toISOString().replace(/\.\d+Z$/, "Z"), local: readerClock })) : null
   const q = state.search.text.trim()
   const searching = q !== ""
   const wanted = (at: number) => {

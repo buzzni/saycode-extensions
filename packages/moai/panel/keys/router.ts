@@ -2,7 +2,8 @@
 // menu.rs feed). Pure: createKeyRouter() knows no DOM; attachKeyRouter() is the thin adapter that wires a document.
 //
 // Rules:
-//   - isComposing (Korean IME) → nothing at all, the buffer is left alone.
+//   - isComposing / keyCode 229 (an IME at work, Korean) → nothing at all in an editable target or the prompt, the
+//     buffer is left alone; on any other target only a letter or digit event.code names goes on (codeKey).
 //   - Cmd/Meta combinations and lone modifier keys are not ours (the host's shortcuts; Shift before 'G' must not
 //     drop a pending 'g').
 //   - prompt mode: only the prompt table (Enter, Esc, Tab, …); other keys type into the input.

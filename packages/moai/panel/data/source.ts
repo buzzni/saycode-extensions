@@ -106,7 +106,7 @@ export function rowsFromLists(all: unknown, backlog: unknown): Loaded<Rows> {
   return { ok: true, value: { rows: withBacklog(items(all), backlog), more: 0, truncated: false } }
 }
 
-/** The index rows from `prime` alone: what is held and what is ready (the panel's reader until it switches). */
+/** The index rows from `prime` alone: what is held and what is ready (loadAllRows' fallback when `show --all` was cut). */
 export async function loadRows(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Rows>> {
   const outcome = await client.request(PROFILE.prime, undefined, { priority })
   return outcome.kind === 'passed' ? rowsFromPrime(outcome.output) : { ok: false, outcome }
@@ -123,8 +123,9 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
   const all = await listing
   const cut = all.kind === 'unreadable' && all.truncated === true
   if (!cut && answerOf(all) === undefined) {
-    // show --all alone decides this load (declined, no tracker): a backlog read still queued behind it
-    // would only open a second confirmation for a load that already failed.
+    // show --all alone decides this load (declined, no tracker): the backlog read is called off. One still queued
+    // ends at once; one already starting beside it (the panel runs up to 3 reads at once) is cancelled as soon as
+    // it is accepted, though its confirmation may already be showing.
     client.cancel(requestKey(PROFILE.backlog))
     return { ok: false, outcome: all }
   }

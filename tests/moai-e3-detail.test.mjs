@@ -214,8 +214,10 @@ test('pane: the focus goes to the pane itself while it has no control, and the s
   assert.equal(scroller.scrollTop, 120)
   view.render(stateWith({ value: { id: ROWS[1].id, row: ROWS[1] } }), index)
   assert.equal(scroller.scrollTop, 0)
+  // With controls drawn the pane still takes the focus, not Close: the key router leaves Space and Enter on a focused
+  // button to the button, so SPC meant for the menu (or Enter) would close the detail.
   view.focus()
-  assert.equal(doc.activeElement.dataset.focus, 'close')
+  assert.equal(doc.activeElement, root)
 })
 
 test('pane: a group shows head, fields, roll-up, body as text, and close reports the intent', () => {
@@ -267,4 +269,14 @@ test('pane: a task lists its blockers with marks; a redraw keeps the opened hist
   fold.dispatchEvent(new root.ownerDocument.defaultView.Event('toggle'))
   view.render(stateWith({ value: { id: row.id, row } }), index)
   assert.equal(root.querySelector('details[data-fold=journal]').open, true)
+})
+
+test('roll-up: a milestone or epic counts as the list does, with the `moai status` counts when the index has them', () => {
+  // The epic's members the index holds: one done of three. `moai status` counts six, four done (archived done ones).
+  const counted = new IssueIndex(ROWS, new Map([['se-e1', [4, 6]]]))
+  const rollup = F.rollupOf(ROWS[1], counted)
+  assert.deepEqual([rollup.done, rollup.work, rollup.percent], [4, 6, 66])
+  assert.deepEqual([rollup.done, rollup.work], counted.tally(counted.dirPath(counted.find('se-e1'))), 'the n/n the list draws')
+  // The done members the index does not hold count as done: the statuses add up to the total.
+  assert.deepEqual(rollup.byStatus, [['todo', 1], ['in_progress', 1], ['done', 4]])
 })

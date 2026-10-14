@@ -221,9 +221,11 @@ export function searchView<T extends Row>(
   hiddenBy?: (row: T) => HiddenReason | undefined,
   ctx: Context = {},
 ): { found: T[]; hidden: Partial<Record<HiddenReason, number>> } {
-  const found = search(rows, state.searchText, state.scope, ctx)
+  // Trimmed, as the list reads it (list-model.ts narrow): "login " finds what the list draws for "login".
+  const q = state.searchText.trim()
+  const found = search(rows, q, state.scope, ctx)
   const hidden: Partial<Record<HiddenReason, number>> = {}
-  if (state.searchText.trim() === "" || !hiddenBy) return { found, hidden }
+  if (q === "" || !hiddenBy) return { found, hidden }
   for (const row of found) {
     const why = hiddenBy(row)
     if (why) hidden[why] = (hidden[why] ?? 0) + 1
@@ -265,6 +267,8 @@ export interface Toolbar {
 export interface LiveToolbar extends Toolbar {
   /** Bring the DOM to `state`. Inputs are written only when their text differs, and never while an IME composes. */
   update(state: ToolbarState, data: ToolbarData): void
+  /** How many suggestions the filter has for its caret, whether the list is shown or not. */
+  readonly hintCount: number
   destroy(): void
 }
 
@@ -341,13 +345,16 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
       dispatch({ type: "hint-move", delta: event.key === "ArrowDown" ? 1 : -1, count: hints.length })
-    } else if ((event.key === "Enter" || event.key === "Tab") && open && state.hintIndex >= 0) {
+    } else if ((event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) && open && state.hintIndex >= 0) {
+      // Shift-Tab is not taken here: it moves back through the suggestions (the key router's prompt.prev).
       event.preventDefault()
       dispatch({ type: "hint-accept", slot, hint: hints[state.hintIndex]! })
     } else if (event.key === "Enter") {
       event.preventDefault()
       dispatch({ type: "filter-apply" })
-    } else if (event.key === "Escape") dispatch({ type: "hints-close" })
+    }
+    // Esc is the key router's alone (keys/wiring.ts prompt.cancel, keybindings.md 3.7): it closes the suggestions,
+    // puts the applied filter back and leaves the input, all at once.
   })
   filterWrap.append(filterInput)
   let hintList: HTMLElement | null = null
@@ -377,6 +384,8 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
 
   // Chips of the parsed filter (comma is OR inside one chip, a repeated key is AND between chips).
   const chips = el(doc, "div", { class: "m-chips", style: "display:flex;flex-wrap:wrap;gap:4px;padding:0 8px" })
+  // Removing a chip redraws the chips: the focus stays where it was instead of dropping to <body> with its x button.
+  chips.addEventListener("mousedown", (event) => event.preventDefault())
   let chipsDrawn: string | null = null
   const error = el(doc, "div", { class: "m-banner m-banner-danger", role: "alert", hidden: true })
   const note = el(doc, "div", { class: "m-hidden-note", role: "status", hidden: true })
@@ -423,6 +432,9 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
         )
         list.setAttribute("aria-label", t.hints)
         list.classList.add("m-hints")
+        // A click must not take the caret out of the filter: the list is rebuilt under the clicked item, and the focus
+        // would drop to <body>, where what is typed next runs as shortcuts (as view/menu.ts does for its items).
+        list.addEventListener("mousedown", (event) => event.preventDefault())
         list.style.cssText = "position:absolute;top:100%;left:0;right:0;z-index:20"
         list.querySelectorAll<HTMLElement>(".m-menu-item").forEach((node, index) => {
           if (index === state.hintIndex) node.setAttribute("aria-current", "true")
@@ -505,6 +517,9 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
     },
     get hidden() {
       return view.hidden
+    },
+    get hintCount() {
+      return hints.length
     },
     update,
     destroy() {

@@ -51,12 +51,13 @@ export interface KeyContext {
   hidden?: { deferred?: boolean; backlog?: boolean; archived?: boolean; columns?: ReadonlyArray<boolean> }
   /** Status column names in order (labels of SPC v 1~9; columns beyond the list are not offered). */
   columns?: ReadonlyArray<string>
-  sort?: ReadonlyArray<{ field: SortField; desc: boolean }>
+  /** The order's fields; `id` has no SPC s key but is in the order when the sort editor put it there. */
+  sort?: ReadonlyArray<{ field: SortField | "id"; desc: boolean }>
   /** List columns shown (SPC c). A missing field reads as shown. */
   cells?: Partial<Record<CellField, boolean>>
   /**
-   * The read marks can be written (`r`, `SPC m a`, `SPC m g`). Missing reads as true; the panel passes false until
-   * the data layer that writes them is merged, so the menu leaves the items out and the help dims them.
+   * The read marks can be written (`r`, `SPC m a`, `SPC m g`). Missing reads as true; keys/wiring.ts passes false
+   * when it is given no read-mark writes, so the menu leaves the items out and the help dims them.
    */
   readable?: boolean
 }

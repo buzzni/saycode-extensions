@@ -109,7 +109,10 @@ export interface State {
    * archived rows are shown (`view.showArchived`); null until then.
    */
   archive: Row[] | null
-  /** The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left and given back on its return. */
+  /**
+   * The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left; a wiki pane mounted on this
+   * store starts from it (the mounted pane keeps its own state across tab switches).
+   */
   wiki: WikiState
 }
 

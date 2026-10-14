@@ -86,7 +86,7 @@ export interface PaneView {
   /**
    * A key for this pane, from the key router (panel/keys/). Returns true when the view used it (and called
    * preventDefault), false when the key is not its own and should go on — e.g. the wiki's Esc with no link
-   * selected and no search left to clear, which the shell turns into a move to the tab bar.
+   * selected and no search left to clear, which the key wiring (keys/wiring.ts) turns into a move to the tab bar.
    */
   handleKey?(event: KeyboardEvent): boolean
   /**

@@ -184,11 +184,17 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
   addButton.classList.add("moai-add-button")
-  // The panel iframe has no allow-forms, so Enter is handled here — and not while an IME composes.
+  // The panel iframe has no allow-forms, so Enter is handled here — and not while an IME composes. Esc leaves the
+  // field for the list (keybindings.md 3.5: in an input it blurs), its text kept: the key router leaves an editable
+  // target that is not a search or filter prompt alone, so nothing else would take the caret out (`SPC n` put it in).
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.isComposing) {
+    if (event.isComposing) return
+    if (event.key === "Enter") {
       event.preventDefault()
       submit()
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      focusPane("list")
     }
   })
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
@@ -375,12 +381,15 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     split.setWidth(width)
     position.update(split.position(), width)
     shell.dataset.position = split.position()
+    const current = store.getState()
+    // The wiki pane lays itself out from the width it is given when it renders (view/wiki.ts mountWiki): a narrow
+    // panel stacks its list over the page.
+    if (current.tab === "wiki") return wikiView?.render(current, options.index(current))
     // The list drops right-hand columns as it narrows; draw it again only when a breakpoint is crossed.
     const now = columnBand(layout().mainWidth)
     if (now === band) return
     band = now
-    const current = store.getState()
-    if (current.tab !== "wiki") mainViews[current.tab].render(current, options.index(current))
+    mainViews[current.tab].render(current, options.index(current))
   }
 
   const observer = win && "ResizeObserver" in win ? new win.ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0)) : null

@@ -9,6 +9,7 @@
 // open, `prompt` while a search or filter input has the caret, `wiki` on the wiki tab, `browse` otherwise.
 
 import type { Outcome } from "../data/client.ts"
+import { NO_MILESTONE } from "../data/index.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
 import type { Copy } from "../i18n/index.ts"
 import type { ColumnName, State, Store } from "../store.ts"
@@ -21,7 +22,7 @@ import type { Shell } from "../view/shell.ts"
 import type { ToolbarAction } from "../view/toolbar.ts"
 import type { PaneView } from "../view/types.ts"
 import { attachKeyRouter, createKeyRouter, detectPlatform, type DispatchedAction, type KeyRouter } from "./router.ts"
-import type { CellField, KeyContext, Mode, Platform, SortField } from "./table.ts"
+import type { CellField, KeyContext, Mode, Platform } from "./table.ts"
 
 /** What the context needs besides the store: things only the DOM knows. */
 export interface ContextEnv {
@@ -38,8 +39,6 @@ export interface ContextEnv {
   readable?: boolean
 }
 
-const TABLE_SORT_FIELDS: ReadonlySet<string> = new Set<SortField>(["priority", "created", "updated", "status", "assignee", "title"])
-
 /** The key table's view of the panel (keys/table.ts KeyContext), read from the store. Pure. */
 export function keyContext(state: State, env: ContextEnv): KeyContext {
   const statuses = statusKeys(state.board.value?.rows ?? [])
@@ -55,15 +54,17 @@ export function keyContext(state: State, env: ContextEnv): KeyContext {
     // view.showArchived lets archived rows in (list-model.ts FILTER_FLAGS); the table asks whether they are hidden.
     hidden: { deferred: state.view.hideDeferred, backlog: state.view.hideBacklog, archived: !state.view.showArchived, columns: statuses.map((s) => hidden.has(s)) },
     columns: statuses.map((s) => env.statusName?.(s) ?? s),
-    sort: state.sort.fields.filter((f) => TABLE_SORT_FIELDS.has(f.key)).map((f) => ({ field: f.key as SortField, desc: f.dir === "desc" })),
+    // Every field, `id` too (the sort editor and the toolbar offer it): the menu's state on `SPC s p` says "the order
+    // is this field alone, pressing flips it", which a dropped field would make untrue.
+    sort: state.sort.fields.map((f) => ({ field: f.key, desc: f.dir === "desc" })),
     cells: { ...state.columns },
     readable: env.readable ?? false,
   }
 }
 
 /**
- * Table actions that do nothing yet, and why. Their keys are unavailable in the context (`readable: false`), so the
- * menu leaves them out and the help dims them; a dispatch that still reaches them only says so.
+ * Table actions that do nothing yet, and why. Their keys stay in the table (the help lists them as usable), so a
+ * dispatch that reaches one only says so.
  */
 export const NOT_WIRED: Readonly<Record<string, string>> = {
   "sorter.default": "no place keeps a default sort yet (data/memory.ts)",
@@ -151,13 +152,21 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   const backToPane = () => shell.focusPane(store.getState().focus)
 
   // ── search and filter prompts ──
-  /** The cursor when the search opened: Esc in the search puts it back (keybindings.md 3.7). */
+  /**
+   * The cursor when `/` opened the search: Esc in the search puts it back (keybindings.md 3.7). It is forgotten as
+   * soon as the caret leaves the search (Enter, a click elsewhere), so a later Esc in a search opened some other way
+   * (its button, a click into it) does not take the cursor back to a row left long ago.
+   */
   let promptFrom: string | null | undefined
+  const forgetPrompt = () => {
+    promptFrom = undefined
+  }
+  bar.searchInput.addEventListener("blur", forgetPrompt)
 
   function openSearch() {
-    promptFrom = store.getState().cursor
     toolbar({ type: "search-open" })
     bar.searchInput.focus()
+    promptFrom = store.getState().cursor
   }
 
   /** Change the focused input's text as typing would, so its own listener (toolbar, wiki) reports it. */
@@ -170,7 +179,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     input.dispatchEvent(new (win?.Event ?? Event)("input", { bubbles: true }))
   }
 
-  const hintCount = () => bar.el.querySelectorAll(".m-hints .m-menu-item").length
+  /** The suggestions the filter has for its caret, shown or not (Tab opens a closed list on its first one). */
+  const hintCount = () => bar.hintCount
   /** A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). */
   const inWiki = () => store.getState().tab === "wiki"
   const wikiKey = (): boolean => (current ? panes().wiki?.handleKey?.(current) ?? false : false)
@@ -262,7 +272,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     const state = store.getState()
     const row = state.cursor === null ? undefined : state.board.value?.rows.find((r) => r.id === state.cursor)
     if (row && (row.kind === "milestone" || row.kind === "epic")) return row.id
-    const place = [...state.path].reverse().find((segment) => segment.startsWith("m:") || segment.startsWith("e:"))
+    // The "(no milestone)" bucket (`m:`, NO_MILESTONE) is a place, not a group: it has no id to mark.
+    const place = [...state.path].reverse().find((segment) => (segment.startsWith("m:") && segment !== NO_MILESTONE) || segment.startsWith("e:"))
     return place ? place.slice(2) : null
   }
   function marking(write: (marks: ReadMarks) => Promise<Outcome | null> | null): Handler {
@@ -361,21 +372,24 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     },
     "prompt.apply": () => {
       if (inWiki()) return void wikiKey()
-      // The filter's own Enter applies it (and handles the key); here only the search, which applies as it is typed.
-      if (doc.activeElement === bar.filterInput) toolbar({ type: "filter-apply" })
+      // The filter's own Enter applies it (and handles the key), so only the search, which applies as it is typed,
+      // gets here.
+      promptFrom = undefined
       backToPane()
     },
     "prompt.cancel": () => {
       if (inWiki()) return void wikiKey()
+      // Read before the search closes: closing it takes the caret out of it, and that forgets the cursor.
+      const from = promptFrom
+      promptFrom = undefined
       if (doc.activeElement === bar.filterInput) {
         const applied = store.getState().filter.applied
         toolbar({ type: "filter-text", text: applied, cursor: applied.length })
         toolbar({ type: "hints-close" })
       } else {
         toolbar({ type: "search-close" })
-        if (promptFrom !== undefined) store.dispatch({ type: "cursor", id: promptFrom })
+        if (from !== undefined) store.dispatch({ type: "cursor", id: from })
       }
-      promptFrom = undefined
       backToPane()
     },
     "prompt.next": () => {
@@ -457,6 +471,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       // The editor opens on the order's first field, and Esc puts the order it opened on back.
       sorterFrom = previous.sort
       sorterAt = Math.max(0, SORT_KEYS.indexOf(state.sort.fields[0]?.key ?? "priority"))
+      // Opened by a click on the sort button, which keeps the focus: SPC and Enter would click that button again
+      // (attachKeyRouter leaves them to a focused button) instead of putting a field in or applying the order.
+      if (bar.el.contains(doc.activeElement)) backToPane()
     }
     if (!state.toolbar.sortOpen) sorterFrom = null
     paintSorter()
@@ -496,6 +513,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     destroy() {
       detach()
       unsubscribe()
+      bar.searchInput.removeEventListener("blur", forgetPrompt)
       win?.removeEventListener("focus", showHint)
       win?.removeEventListener("blur", showHint)
       doc.removeEventListener("focusin", showHint)

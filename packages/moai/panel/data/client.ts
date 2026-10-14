@@ -86,6 +86,8 @@ export interface RequestState {
   phase: Phase
   /** Known once the run is accepted; until then Desktop may be showing its confirmation. */
   operationId: string | null
+  /** A read, shared by everyone who asks for it; false for a write (an add, a read mark). */
+  share: boolean
 }
 
 export interface RequestOptions {
@@ -158,7 +160,6 @@ interface Pending extends RequestState {
   promise: Promise<Outcome>
   resolve: (outcome: Outcome) => void
   cancelled: boolean
-  share: boolean
   /** Starts tried so far. */
   attempts: number
   /** Waiting out a `workspace-busy` backoff: queued, but not to be picked yet. */
@@ -308,7 +309,7 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
       }
     },
     requests() {
-      return pending.map(({ key, profileId, value, priority, phase, operationId }) => ({ key, profileId, value, priority, phase, operationId }))
+      return pending.map(({ key, profileId, value, priority, phase, operationId, share }) => ({ key, profileId, value, priority, phase, operationId, share }))
     },
     subscribe(listener) {
       listeners.add(listener)

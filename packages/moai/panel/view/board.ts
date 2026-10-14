@@ -26,7 +26,8 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
   const nameOf = (key: string) =>
     key === BACKLOG ? copy.shell.backlog : key === DEFERRED ? copy.shell.deferred : ((copy.stats as Record<string, string>)[key] ?? key)
 
-  // One card is the tab stop: the one with the cursor, else the first, so the board can be entered by Tab.
+  // One card is the tab stop, where focus() puts the focus: the one with the cursor, else the first. (The key router
+  // keeps Tab in browse mode, so it is the focus moves and clicks that reach it, not Tab.)
   const cards = model.lanes.flatMap((lane) => lane.columns.flatMap((column) => column.cards))
   const cursorCard = state.cursor === null ? undefined : cards.find((at) => index.rows[at]!.id === state.cursor)
   const tabStop = cursorCard ?? cards[0]
@@ -116,7 +117,10 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
   let cursor: string | null = null
   let drawn: { state: State; index: IssueIndex; model: BoardModel } | null = null
 
-  /** A key-table action (keys/wiring.ts): moves stay inside the cursor's column, h/l go to the next column that has cards. */
+  /**
+   * A key-table action (keys/wiring.ts): moves stay inside the cursor's column — one run from the top lane to the
+   * bottom one, as the TUI's board walks it — and h/l go to the next column that has cards in the cursor's lane.
+   */
   function command(action: string): boolean {
     if (!drawn) return false
     const { state, index, model } = drawn
@@ -137,9 +141,12 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
           point(first)
           return true
         }
-        const cards = model.lanes[here.lane]!.columns[here.column]!.cards
+        // Every lane has the same columns: the column is one run across the lanes (milestones at the root), so j/k and
+        // gg/G reach the cards of the other lanes too.
+        const run = model.lanes.flatMap((lane) => lane.columns[here.column]!.cards)
+        const at = run.indexOf(model.lanes[here.lane]!.columns[here.column]!.cards[here.at]!)
         const step = { 'move.down': 1, 'move.up': -1, 'move.pageDown': page, 'move.pageUp': -page, 'move.top': -Infinity, 'move.bottom': Infinity }[action]
-        point(cards[Math.max(0, Math.min(cards.length - 1, here.at + step))])
+        point(run[Math.max(0, Math.min(run.length - 1, at + step))])
         return true
       }
       case 'move.halfDown':
@@ -166,8 +173,12 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
         return true
       }
       case 'enter': {
-        if (!here) return true
-        ctx.intents.choose(state.cursor!)
+        // The cursor's card; with the cursor on no card (a group or `..` in the list), the card that has the focus —
+        // the tab stop focus() moved to — as the card's own Enter chose it before the key router took the keys.
+        const focused = doc.activeElement?.closest<HTMLElement>('.m-card')
+        const id = here ? state.cursor! : focused && pane.contains(focused) ? focused.dataset.id : undefined
+        if (id === undefined) return true
+        ctx.intents.choose(id)
         if (ctx.layout().detailVisible) ctx.focusPane('detail')
         return true
       }

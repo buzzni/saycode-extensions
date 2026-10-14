@@ -99,9 +99,12 @@ test('toolbar: typing a search narrows the list, shows hidden finds dim, and the
 test('toolbar: the filter narrows the rows on Enter, a chip removal at once; the path line hangs it', () => {
   const panel = boot()
   const filter = panel.$('.m-toolbar-slot .m-filter input')
+  // The caret in the filter, as SPC f or a click leaves it: the key router reads the input as a prompt.
+  filter.focus()
   panel.type(filter, 'priority=2')
   assert.deepEqual(panel.listed(), ['r1', 'r2'], 'typing does not filter yet')
-  panel.key(filter, { key: 'Escape' }) // closes the hints, so Enter applies
+  assert.equal(panel.store.getState().toolbar.hintsOpen, true)
+  // Enter with no suggestion chosen applies the text.
   panel.key(filter, { key: 'Enter' })
   assert.deepEqual(panel.store.getState().filter, { text: 'priority=2', applied: 'priority=2' })
   // The filter follows the view's hiding: r3 (priority 2, archived) stays hidden; the list note counts it.
@@ -110,6 +113,15 @@ test('toolbar: the filter narrows the rows on Enter, a chip removal at once; the
   assert.equal(panel.$('.moai-list-note span').textContent, en.list.hiddenCount(1))
   assert.match(panel.$('.m-crumbs-badges').textContent, /priority=2/)
   assert.equal(panel.$('.m-toolbar-slot .m-filter input'), filter, 'the input was not rebuilt')
+  // Esc in the input is the prompt's cancel (keybindings.md 3.7), one key owner: what was typed since goes, the
+  // applied filter stays, and the caret leaves the input — whether the suggestions were open or not.
+  filter.focus()
+  panel.type(filter, 'priority=2 tag=')
+  assert.equal(panel.store.getState().toolbar.hintsOpen, true)
+  panel.key(filter, { key: 'Escape' })
+  assert.deepEqual(panel.store.getState().filter, { text: 'priority=2', applied: 'priority=2' })
+  assert.equal(panel.store.getState().toolbar.hintsOpen, false)
+  assert.notEqual(panel.doc.activeElement, filter)
   panel.$('.m-toolbar-slot .m-chips .m-chip-x').click()
   assert.deepEqual(panel.store.getState().filter, { text: '', applied: '' })
   assert.deepEqual(panel.listed(), ['r1', 'r2'])
@@ -249,4 +261,42 @@ test('wiki tab: without a source it says the wiki cannot be read', () => {
   const panel = boot()
   panel.tab('wiki').click()
   assert.equal(panel.$('#m-panel-wiki .m-empty-title').textContent, en.shell.wikiUnavailable)
+})
+
+test('wiki tab: a listing that failed is read again the next time the tab shows', async () => {
+  const source = wikiSource()
+  let fail = true
+  const list = source.list
+  source.list = async () => {
+    if (fail) {
+      source.calls.list++
+      throw new Error('The run did not start: the confirmation was declined.')
+    }
+    return list()
+  }
+  const panel = boot({ wiki: source })
+  panel.tab('wiki').click()
+  await ticks()
+  assert.match(panel.$('#m-panel-wiki').textContent, /could not be read/)
+  // Neither a store change nor staying on the tab reads it again; leaving and coming back does.
+  panel.store.dispatch({ type: 'cursor', id: 'r2' })
+  await ticks()
+  assert.equal(source.calls.list, 1)
+  fail = false
+  panel.tab('list').click()
+  panel.tab('wiki').click()
+  await ticks()
+  assert.equal(source.calls.list, 2)
+  assert.equal(panel.$('#m-panel-wiki .m-wiki-title').textContent, 'Readme')
+})
+
+test('wiki tab: a narrower panel stacks the wiki when it is resized on the wiki tab', async () => {
+  const panel = boot({ wiki: wikiSource() })
+  panel.shell.setWidth(1000)
+  panel.tab('wiki').click()
+  await ticks()
+  const view = panel.$('#m-panel-wiki .m-wiki')
+  assert.equal(view.dataset.narrow, 'false')
+  panel.shell.setWidth(500)
+  assert.equal(view.dataset.narrow, 'true', 'without waiting for a store change')
 })

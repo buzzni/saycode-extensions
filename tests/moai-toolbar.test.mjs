@@ -188,3 +188,13 @@ test('filter-apply applies only a text that parses; a chip removal applies at on
   s = reduce(s, { type: 'chip-remove', index: 1 })
   assert.deepEqual([s.filterText, s.filterApplied], ['status=todo', 'status=todo'])
 })
+
+test('the hidden note reads the search as the list does: spaces around it change nothing', () => {
+  const hiddenBy = (row) => (row.status === 'in_progress' ? 'column' : undefined)
+  const plain = tb.searchView(rows, { searchText: 'o', scope: 'all' }, hiddenBy)
+  for (const text of [' o', 'o ', '  o  ']) {
+    const spaced = tb.searchView(rows, { searchText: text, scope: 'all' }, hiddenBy)
+    assert.deepEqual(spaced.hidden, plain.hidden, JSON.stringify(text))
+    assert.deepEqual(spaced.found.map((row) => row.id), plain.found.map((row) => row.id))
+  }
+})

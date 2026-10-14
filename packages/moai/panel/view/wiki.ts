@@ -1102,9 +1102,10 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
 // ---- The wiki tab's pane (view/panes.ts) ----
 
 /**
- * The wiki view in the shell's wiki panel (contract: view/types.ts). Pages come from `ctx.wiki` — read once,
- * the first time the tab shows — and the view's state is saved into the store (`wiki`) as the tab is left and
- * given back from it when the pane is mounted again. Without a source the tab says the wiki cannot be read.
+ * The wiki view in the shell's wiki panel (contract: view/types.ts). Pages come from `ctx.wiki` — read the first
+ * time the tab shows, and again the next time it shows after a listing that failed (a declined confirmation, a
+ * cancelled or busy run) — and the view's state is saved into the store (`wiki`) as the tab is left and given back
+ * from it when the pane is mounted again. Without a source the tab says the wiki cannot be read.
  * Its keys come from the key router (keys/wiring.ts), which calls handleKey and command: the view listens for
  * none itself (standaloneKeys: false), so no key runs twice.
  */
@@ -1117,6 +1118,9 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
   }
   let index: IssueIndex | null = null
   let started = false
+  /** The last listing failed: the tab reads it again when it shows next. */
+  let failed = false
+  let retry = false
   const view = createWikiView(doc, {
     loadPage: (slug) => source.page(slug),
     standaloneKeys: false,
@@ -1131,12 +1135,14 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
   root.replaceChildren(view.el)
 
   async function list(): Promise<void> {
+    failed = false
     view.setLoading(true)
     try {
       const parsed = parseWikiLs(await source!.list())
       if (parsed.ok) view.setPages(parsed.value.pages, parsed.value.dir)
       else view.setError(copy.shell.wikiListFailed(parsed.error))
     } catch (reason) {
+      failed = true
       view.setError(copy.shell.wikiListFailed(reason instanceof Error ? reason.message : String(reason)))
     }
   }
@@ -1145,7 +1151,13 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
     render(state, current) {
       index = current
       view.setWidth(ctx.layout().width)
-      if (started) return
+      if (started) {
+        if (retry) {
+          retry = false
+          void list()
+        }
+        return
+      }
       started = true
       // The saved page first: the listing opens the first page only when no page is shown.
       void view.restore(state.wiki).then(list)
@@ -1155,7 +1167,10 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
     command: (action) => view.command(action),
     toggleRaw: () => view.toggleRaw(),
     raw: () => view.state().raw,
-    leave: () => intents.dispatch({ type: "wiki", wiki: view.state() }),
+    leave: () => {
+      retry = failed
+      intents.dispatch({ type: "wiki", wiki: view.state() })
+    },
     destroy: () => view.destroy(),
   }
 }

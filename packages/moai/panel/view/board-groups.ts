@@ -102,8 +102,9 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
   const cursorAt = cursor === null ? undefined : index.find(cursor)
   const cursorColumn = cursorAt === undefined ? undefined : columnOf(index, cursorAt)
 
-  // A hidden column goes, and so does a row the list would archive; a card that has the cursor keeps its place.
   const match = look.match ?? (() => true)
+  // A hidden column goes, and so does a row the list would archive; a card that has the cursor keeps its place.
+  // The list's filter and search drop a card first; a search on (`reveal`) lifts the hiding, as in the list.
   const shown = (at: number) => {
     if (at === cursorAt) return true
     if (!match(at)) return false

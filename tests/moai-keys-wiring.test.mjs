@@ -13,7 +13,7 @@ const { copyFor } = await panelModule('i18n/index.ts')
 const { mountShell } = await panelModule('view/shell.ts')
 const { PANES } = await panelModule('view/panes.ts')
 const { wireKeys, keyContext, NOT_WIRED } = await panelModule('keys/wiring.ts')
-const { KEY_TABLE } = await panelModule('keys/table.ts')
+const { KEY_TABLE, menuLayer } = await panelModule('keys/table.ts')
 
 const en = copyFor('en')
 
@@ -39,11 +39,11 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki, read } = {}) {
+function boot({ wiki, read, rows = ROWS } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
-  const index = new IssueIndex(ROWS)
+  const index = new IssueIndex(rows)
   const chosen = []
   const shell = mountShell(doc.getElementById('moai-app'), {
     document: doc,
@@ -64,7 +64,7 @@ function boot({ wiki, read } = {}) {
     },
     wiki,
   })
-  store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now() } })
+  store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
   const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other', read })
   const $ = (selector) => doc.querySelector(selector)
   /** A keydown on `target` (the focused element when left out), as the browser sends it. */
@@ -376,7 +376,12 @@ test('keys: every action of the key table has a dispatch target; without read wr
   // The context speaks the store's vocabulary in the table's: archived polarity, `status`, `names`.
   const ctx = keyContext({ ...panel.state(), view: { ...panel.state().view, showArchived: true }, sort: { fields: [{ key: 'status', dir: 'desc' }, { key: 'id', dir: 'asc' }], reversed: false } }, { mode: 'browse', width: 900 })
   assert.equal(ctx.hidden.archived, false)
-  assert.deepEqual(ctx.sort, [{ field: 'status', desc: true }])
+  // Every field of the order, `id` too: `status` is not the order alone, so `SPC s s` shows no direction (it would
+  // replace the order, not turn it around).
+  assert.deepEqual(ctx.sort, [{ field: 'status', desc: true }, { field: 'id', desc: false }])
+  assert.equal(menuLayer('SPC s', ctx).items.find((item) => item.key === 's')?.state ?? null, null)
+  const alone = keyContext({ ...panel.state(), sort: { fields: [{ key: 'status', dir: 'desc' }], reversed: false } }, { mode: 'browse', width: 900 })
+  assert.equal(menuLayer('SPC s', alone).items.find((item) => item.key === 's')?.state?.id, 'desc')
   assert.equal(ctx.cells.names, true)
   assert.deepEqual(ctx.columns, ['todo', 'in_progress', 'review', 'done'])
   // The focus hint is in the page, in the panel's language.
@@ -421,4 +426,138 @@ test('keys: r marks the cursor row read, SPC m a everything, SPC m g the group t
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(calls.at(-1), ['one', 'e1.b'])
   assert.equal(panel.$('.moai-result').textContent, en.refused.declined)
+})
+
+test('keys: a focus move into the detail lands on the pane, not on Close, so SPC still opens the menu', () => {
+  const panel = inEpic()
+  panel.store.dispatch({ type: 'detail-loaded', data: { id: 'e1.a', row: ROWS[2] } })
+  assert.ok(panel.$('.moai-detail [data-focus="close"]'), 'the detail has its Close button')
+  panel.seq(' ', 'w', 'w')
+  assert.equal(panel.state().focus, 'detail')
+  assert.equal(panel.doc.activeElement, panel.$('.m-pane-detail'), 'the pane itself, not its first button')
+  const space = panel.press(' ')
+  assert.equal(space.defaultPrevented, true, 'SPC is the router\'s: it does not click a button')
+  assert.deepEqual(panel.keys.router.state().menu, ['SPC'])
+  panel.seq('w', 'w')
+  assert.equal(panel.state().focus, 'list')
+  assert.ok(panel.state().shown.value, 'the detail is still shown')
+})
+
+test('keys: the sort editor opened with a click leaves the sort button, so SPC puts a field in', () => {
+  const panel = inEpic()
+  const button = panel.$('.m-toolbar-slot .m-sort button')
+  button.focus()
+  button.click()
+  assert.equal(panel.state().toolbar.sortOpen, true)
+  assert.notEqual(panel.doc.activeElement, button, 'the focus left the button that opened the editor')
+  panel.press('j')
+  const space = panel.press(' ')
+  assert.equal(space.defaultPrevented, true)
+  assert.deepEqual(panel.state().sort.fields.map((f) => f.key), ['priority', 'created'])
+  assert.equal(panel.state().toolbar.sortOpen, true)
+})
+
+test('keys: a click on a filter suggestion keeps the caret in the filter; Tab opens the suggestions, S-Tab goes back', () => {
+  const panel = inEpic()
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  const item = panel.$('.m-hints .m-menu-item')
+  const down = new panel.dom.window.MouseEvent('mousedown', { bubbles: true, cancelable: true })
+  item.dispatchEvent(down)
+  assert.equal(down.defaultPrevented, true, 'the item does not take the focus from the filter')
+  item.click()
+  assert.equal(panel.state().filter.text, 'status=')
+  assert.equal(panel.doc.activeElement, filter)
+  // A chip's x does not take the focus either.
+  const chips = panel.$('.m-toolbar-slot .m-chips')
+  const chipDown = new panel.dom.window.MouseEvent('mousedown', { bubbles: true, cancelable: true })
+  chips.dispatchEvent(chipDown)
+  assert.equal(chipDown.defaultPrevented, true)
+  // Closed suggestions: Tab opens them on the first one; S-Tab with one chosen goes back instead of taking it.
+  panel.store.dispatch({ type: 'toolbar', action: { type: 'hints-close' } })
+  panel.press('Tab')
+  assert.deepEqual([panel.state().toolbar.hintsOpen, panel.state().toolbar.hintIndex], [true, 0])
+  panel.press('ArrowDown')
+  assert.equal(panel.state().toolbar.hintIndex, 1)
+  panel.press('Tab', { shiftKey: true })
+  assert.equal(panel.state().toolbar.hintIndex, 0)
+  assert.equal(panel.state().filter.text, 'status=', 'S-Tab took no suggestion')
+})
+
+test('keys: SPC m g in the "(no milestone)" bucket says where to go and writes nothing', () => {
+  const calls = []
+  const read = { one: async () => null, all: async () => null, group: async (id) => (calls.push(id), null) }
+  const panel = boot({ read, rows: [...ROWS, { id: 'x1', kind: 'issue', title: 'Loose', status: 'todo' }] })
+  panel.store.dispatch({ type: 'enter', path: ['m:'], cursor: 'x1' })
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'm', 'g')
+  assert.deepEqual(calls, [])
+  assert.equal(panel.$('.moai-result').textContent, en.keys.readNoGroup)
+})
+
+test('keys: Esc in a search opened after an applied one keeps the cursor where it is', () => {
+  const panel = inEpic()
+  panel.press('/')
+  panel.shell.toolbar.searchInput.value = 'a'
+  panel.shell.toolbar.searchInput.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  panel.press('Enter')
+  panel.press('j')
+  assert.equal(panel.state().cursor, 'e1.b')
+  // Back into the open search with a click, then Esc: the cursor stays on e1.b.
+  panel.shell.toolbar.searchInput.focus()
+  panel.press('Escape')
+  assert.equal(panel.state().cursor, 'e1.b')
+  // A search opened with / and left with Esc still puts the cursor back.
+  panel.press('/')
+  panel.store.dispatch({ type: 'cursor', id: 'e1.c' })
+  panel.press('Escape')
+  assert.equal(panel.state().cursor, 'e1.b')
+})
+
+test('keys: Enter on the board chooses the focused card when the cursor is on no card', () => {
+  const panel = boot()
+  panel.store.dispatch({ type: 'enter', path: ['m:m1'], cursor: 'e1' })
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'g', 'b')
+  assert.equal(panel.doc.activeElement.dataset.id, 'e1.a')
+  panel.press('Enter')
+  assert.deepEqual(panel.chosen, ['e1.a'])
+})
+
+test('keys: Esc in the add field (SPC n) goes back to the list, the title kept', () => {
+  const panel = inEpic()
+  panel.seq(' ', 'n')
+  assert.equal(panel.doc.activeElement, panel.shell.input)
+  panel.shell.input.value = 'Half a title'
+  const esc = panel.press('Escape')
+  assert.equal(esc.defaultPrevented, true)
+  assert.equal(panel.doc.activeElement, panel.$('.moai-list'))
+  assert.equal(panel.shell.input.value, 'Half a title')
+  panel.press('j')
+  assert.equal(panel.state().cursor, 'e1.b')
+})
+
+test('keys: on the board at the root, j/k walk a column across the milestone lanes', () => {
+  const rows = [
+    { id: 'm1', kind: 'milestone', title: 'v1', status: 'todo' },
+    { id: 'm2', kind: 'milestone', title: 'v2', status: 'todo' },
+    { id: 'a', kind: 'issue', title: 'A', milestone: 'm1', status: 'todo', priority: 1 },
+    { id: 'b', kind: 'issue', title: 'B', milestone: 'm2', status: 'todo', priority: 1 },
+    { id: 'c', kind: 'issue', title: 'C', milestone: 'm2', status: 'todo', priority: 2 },
+  ]
+  const panel = boot({ rows })
+  panel.store.dispatch({ type: 'cursor', id: 'a' })
+  panel.seq(' ', 'g', 'b')
+  assert.deepEqual([...panel.doc.querySelectorAll('.m-board[data-lane]')].map((lane) => lane.dataset.lane), ['m:m1', 'm:m2'])
+  panel.press('j')
+  assert.equal(panel.state().cursor, 'b', 'down into the next lane, same column')
+  panel.press('j')
+  assert.equal(panel.state().cursor, 'c')
+  panel.seq('g', 'g')
+  assert.equal(panel.state().cursor, 'a', 'the column\'s top card, in the first lane')
+  panel.press('G')
+  assert.equal(panel.state().cursor, 'c')
 })

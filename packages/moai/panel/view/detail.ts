@@ -238,8 +238,9 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
       if (last) render(last.state, last.index)
     },
     raw: () => raw,
-    // The pane itself takes the focus while it has no control yet (it is still reading), so the focus is
-    // never left behind in the list that asked for it.
-    focus: () => (view.querySelector<HTMLElement>('button') ?? root).focus({ preventScroll: true }),
+    // The pane itself takes the focus, never its first control: that is Close, and the key router leaves Enter and
+    // Space on a focused button to the button (keys/router.ts isActivatable), so SPC meant for the menu, or Enter,
+    // would close the detail. From the pane the keys stay the router's (j/k scroll it, SPC opens the menu).
+    focus: () => root.focus({ preventScroll: true }),
   }
 }

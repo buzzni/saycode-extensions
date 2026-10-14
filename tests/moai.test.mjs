@@ -647,3 +647,133 @@ test('a declined read mark is told on the result line and the list is not read a
   assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.read', 'mgd-hmcr']])
   assert.equal(panel.$('.moai-result').textContent, 'The run did not start: the confirmation was declined.')
 })
+
+test('a load that show --all failed on its own is told at once, without waiting for the counts read beside it', async () => {
+  // show --all is declined while the status read still waits for its own confirmation.
+  let approve
+  const answer = board()
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'declined' }
+    if (args[0] === 'buzzni.moai.status') return new Promise((resolve) => { approve = () => resolve(null) })
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.equal(panel.$('.moai-notice').textContent, 'The run did not start: the confirmation was declined.', 'told without waiting for the counts')
+  assert.equal(panel.$('.moai-refresh').disabled, false)
+  // Approved after all, the counts read runs; the failure stays told.
+  approve()
+  await flush()
+  assert.equal(panel.$('.moai-notice').textContent, 'The run did not start: the confirmation was declined.')
+})
+
+test('Cancel stops the list reads, but an add still waiting for its confirmation is the person\'s to decline', async () => {
+  let holding = false
+  let approve
+  const answer = board({
+    'buzzni.moai.show-all': () => (holding ? null : SHOW_ALL),
+    'buzzni.moai.add': (title) => JSON.stringify({ id: 'mgd-new1', title, status: 'todo' }),
+  })
+  answer.start = (args) => (args[0] === 'buzzni.moai.add' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
+  const panel = await runPanel(answer)
+  // A refresh runs (show --all held on the machine) and an add waits for its confirmation.
+  holding = true
+  panel.$('.moai-refresh').click()
+  await flush()
+  panel.$('.moai-add input').value = 'Ship it'
+  panel.pressEnter(false)
+  await flush()
+  assert.equal(panel.$('.moai-cancel').hidden, false)
+  const cancelsBefore = panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length
+  panel.$('.moai-cancel').click()
+  await flush()
+  assert.ok(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length > cancelsBefore, 'the running read is cancelled')
+  // The person approves the add: it runs, and is not cancelled the moment it starts.
+  holding = false
+  const cancels = panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length
+  approve()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length, cancels, 'no cancel for the approved add')
+  assert.equal(panel.$('.moai-result').textContent, 'Added: Ship it (mgd-new1)')
+})
+
+test('showing archived rows keeps a row the clock moved to the archive after the archive was read', async () => {
+  // `--archived` lists the active rows too: mgd-ogym is still active when the archive is read.
+  let listed = SHOW_ALL
+  const panel = await runPanel(board({ 'buzzni.moai.show-all': () => listed, 'buzzni.moai.show-archived': SHOW_ALL }))
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.deepEqual([...panel.rows()].sort(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  // The next show --all no longer lists it (archived by the clock); the archive is not read again.
+  listed = JSON.stringify(JSON.parse(SHOW_ALL).filter((row) => row.id !== 'mgd-ogym'))
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual([...panel.rows()].sort(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'], 'it stays, now an archived row')
+})
+
+test('a refresh while the archive is still paging does not start the paging over', async () => {
+  const page = (from, n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ id: `z-${String(from + i).padStart(4, '0')}`, title: 'Old', status: 'done', kind: 'issue', priority: 3 })))
+  let second = null
+  const panel = await runPanel(board({ 'buzzni.moai.show-archived': page(0, 200), 'buzzni.moai.show-archived-after': () => second }))
+  const archiveStarts = () => panel.starts().filter(([profile]) => profile.startsWith('buzzni.moai.show-archived'))
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  await flush()
+  assert.deepEqual(archiveStarts(), [['buzzni.moai.show-archived'], ['buzzni.moai.show-archived-after', 'z-0199']])
+  // A refresh ends while the second page still runs.
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(archiveStarts().length, 2, 'the archive was not read from its first page again')
+  second = page(200, 10)
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(archiveStarts().length, 2)
+})
+
+test('a wiki link to an issue the list does not hold shows its detail on the list tab', async () => {
+  const old = { id: 'mgd-old1', title: 'Finished long ago', status: 'done', kind: 'issue' }
+  const page = { slug: 'home', title: 'Home', path: 'docs/home.md', bytes: 30, issues: [{ id: 'mgd-old1', exists: true }], links: [], linked_from: [], conflict: false }
+  const panel = await runPanel(board({
+    'buzzni.moai.wiki-ls': JSON.stringify({ dir: 'docs', pages: [page] }),
+    'buzzni.moai.wiki-show': JSON.stringify({ ...page, body: '# Home\n\nSee mgd-old1.\n' }),
+    'buzzni.moai.show': (id) => (id === 'mgd-old1' ? JSON.stringify(old) : null),
+  }))
+  press(panel, ' ', 'g', 'w')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  await flush()
+  const link = panel.$('.m-pane-wiki a[data-kind="issue"][data-issue="mgd-old1"]')
+  assert.ok(link, 'the page links the issue')
+  link.click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.starts().at(-1), ['buzzni.moai.show', 'mgd-old1'])
+  assert.equal(panel.$('[role="tab"][data-tab="list"]').getAttribute('aria-selected'), 'true')
+  assert.equal(panel.$('.moai-detail h2').textContent, 'Finished long ago', 'shown, not closed as a row a reload removed')
+})
+
+test('turning archived rows off while the archive still pages drops its late answer', async () => {
+  const page = (from, n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ id: `z-${String(from + i).padStart(4, '0')}`, title: 'Old', status: 'done', kind: 'issue', priority: 0 })))
+  let firstPages = 0
+  let second = null
+  const panel = await runPanel(board({
+    // The first read's first page answers; the read after it is held on its first page.
+    'buzzni.moai.show-archived': () => (++firstPages === 1 ? page(0, 200) : null),
+    'buzzni.moai.show-archived-after': () => second,
+  }))
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  await flush()
+  // Off while the second page runs; then that page answers.
+  press(panel, ' ', 'v', 'o', 'Escape')
+  second = page(200, 10)
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  // On again: the new read is still on its first page, so no archive row may show — the late answer was dropped.
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual([...panel.rows()].sort(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
