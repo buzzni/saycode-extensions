@@ -5,7 +5,7 @@
  * inside their own group without touching another's lines.
  */
 import type { RefusalCode } from '../data/client.js'
-import type { SortField } from '../store.js'
+import type { GrepScope, SortKey } from '../data/query.js'
 
 export type Language = 'en' | 'ko' | 'ja' | 'zh'
 
@@ -34,11 +34,19 @@ export interface ShellCopy {
   backlog: string
   /** `sort {by}` — only when the order is not the default. */
   sorted: (by: string) => string
-  sortFields: Record<SortField, string>
+  sortFields: Record<SortKey, string>
+  /** After the order's words when the whole list is turned around. */
+  reversed: string
   /** After a search or filter badge: how to take it off. */
   clearHint: string
   addLabel: string
   wikiPlaceholder: string
+  /** The wiki tab with no wiki reads to call (the data layer has not given them). */
+  wikiUnavailable: string
+  /** `wiki ls` failed; the reason follows. */
+  wikiListFailed: (reason: string) => string
+  /** `show --all` was cut at the output limit: the list stands on prime's rows and the backlog (source.ts loadAllRows). */
+  truncated: string
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -58,10 +66,14 @@ const SHELL: Record<Language, ShellCopy> = {
     deferred: 'deferred',
     backlog: 'backlog',
     sorted: (by) => `sort ${by}`,
-    sortFields: { priority: 'priority', created: 'created', updated: 'updated', column: 'column', assignee: 'assignee', title: 'title' },
+    sortFields: { priority: 'priority', created: 'created', updated: 'updated', status: 'status', assignee: 'assignee', title: 'title', id: 'id' },
+    reversed: '(reversed)',
     clearHint: 'Esc clears it',
     addLabel: 'New task title',
     wikiPlaceholder: 'The wiki is not here yet.',
+    wikiUnavailable: 'The wiki cannot be read here yet.',
+    wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
+    truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -79,10 +91,14 @@ const SHELL: Record<Language, ShellCopy> = {
     deferred: '미룸',
     backlog: '백로그',
     sorted: (by) => `정렬 ${by}`,
-    sortFields: { priority: '우선순위', created: '만든 날', updated: '고친 날', column: '칸', assignee: '담당', title: '제목' },
+    sortFields: { priority: '우선순위', created: '만든 날', updated: '고친 날', status: '칸', assignee: '담당', title: '제목', id: 'ID' },
+    reversed: '(뒤집음)',
     clearHint: 'Esc로 해제',
     addLabel: '새 할 일 제목',
     wikiPlaceholder: '위키는 아직 준비 중입니다.',
+    wikiUnavailable: '아직 여기서는 위키를 읽을 수 없습니다.',
+    wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
+    truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -100,10 +116,14 @@ const SHELL: Record<Language, ShellCopy> = {
     deferred: '保留',
     backlog: 'バックログ',
     sorted: (by) => `並べ替え ${by}`,
-    sortFields: { priority: '優先度', created: '作成', updated: '更新', column: '列', assignee: '担当', title: 'タイトル' },
+    sortFields: { priority: '優先度', created: '作成', updated: '更新', status: '列', assignee: '担当', title: 'タイトル', id: 'ID' },
+    reversed: '(逆順)',
     clearHint: 'Esc で解除',
     addLabel: '新しいタスクのタイトル',
     wikiPlaceholder: 'Wiki はまだ準備中です。',
+    wikiUnavailable: 'ここではまだ Wiki を読めません。',
+    wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
+    truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -121,10 +141,14 @@ const SHELL: Record<Language, ShellCopy> = {
     deferred: '推迟',
     backlog: '待办池',
     sorted: (by) => `排序 ${by}`,
-    sortFields: { priority: '优先级', created: '创建', updated: '更新', column: '列', assignee: '负责人', title: '标题' },
+    sortFields: { priority: '优先级', created: '创建', updated: '更新', status: '列', assignee: '负责人', title: '标题', id: 'ID' },
+    reversed: '(反向)',
     clearHint: '按 Esc 清除',
     addLabel: '新任务标题',
     wikiPlaceholder: 'Wiki 尚未就绪。',
+    wikiUnavailable: '这里暂时无法读取 Wiki。',
+    wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
+    truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务（以及待办池）。',
   },
 }
 
@@ -146,6 +170,8 @@ export interface ListCopy {
   hiddenCount: (n: number) => string
   /** Lifts the status, deferred and backlog hiding (`SPC v a`); archived rows stay hidden. */
   showAll: string
+  /** After the title of a row the view hides that a search shows anyway. */
+  hiddenMark: string
 }
 
 const LIST: Record<Language, ListCopy> = {
@@ -158,6 +184,7 @@ const LIST: Record<Language, ListCopy> = {
     sortBy: (column) => `Sort by ${column}`,
     hiddenCount: (n) => `${n} hidden`,
     showAll: 'Show all',
+    hiddenMark: 'hidden',
   },
   ko: {
     label: '할 일 목록',
@@ -168,6 +195,7 @@ const LIST: Record<Language, ListCopy> = {
     sortBy: (column) => `${column}(으)로 정렬`,
     hiddenCount: (n) => `${n}개 숨김`,
     showAll: '모두 보이기',
+    hiddenMark: '숨김',
   },
   ja: {
     label: 'タスク一覧',
@@ -178,6 +206,7 @@ const LIST: Record<Language, ListCopy> = {
     sortBy: (column) => `${column}で並べ替え`,
     hiddenCount: (n) => `${n} 件を非表示`,
     showAll: 'すべて表示',
+    hiddenMark: '非表示',
   },
   zh: {
     label: '任务列表',
@@ -188,6 +217,7 @@ const LIST: Record<Language, ListCopy> = {
     sortBy: (column) => `按${column}排序`,
     hiddenCount: (n) => `已隐藏 ${n} 项`,
     showAll: '全部显示',
+    hiddenMark: '已隐藏',
   },
 }
 
@@ -321,6 +351,113 @@ const DETAIL: Record<Language, DetailCopy> = {
   },
 }
 
+// ── toolbar: search, filter and sort above the list and board (E4 se-cv7w) ───────────────────────────
+
+/** Why the list would hide a row that a search shows (view/list-model.ts viewHides): the view toggle that hides it. */
+export type HiddenReason = 'column' | 'deferred' | 'backlog' | 'archived'
+
+export interface ToolbarCopy {
+  search: string
+  searchPlaceholder: string
+  /** Accessible name of the search scope select. */
+  scope: string
+  scopes: Record<GrepScope, string>
+  filter: string
+  filterPlaceholder: string
+  removeChip: string
+  /** Accessible name of the filter's suggestion list. */
+  hints: string
+  sort: string
+  sortEdit: string
+  reversed: string
+  replace: string
+  append: string
+  flip: string
+  sortKeys: Record<SortKey, string>
+  /** `N hidden` — rows the search shows that the view hides. */
+  hidden: (n: number) => string
+  hiddenReasons: Record<HiddenReason, string>
+}
+
+const TOOLBAR: Record<Language, ToolbarCopy> = {
+  en: {
+    search: 'Search', searchPlaceholder: 'Search (/)', scope: 'Search in',
+    scopes: { all: 'All', id: 'ID', title: 'Title', tag: 'Tag', body: 'Body', note: 'Note' },
+    filter: 'Filter', filterPlaceholder: 'status=todo tag=bug,ui (Enter applies)', removeChip: 'Remove filter item', hints: 'Suggestions',
+    sort: 'Sort', sortEdit: 'Edit sort', reversed: 'reversed', replace: 'Only this', append: 'Add', flip: 'Flip direction',
+    sortKeys: { priority: 'Priority', created: 'Created', updated: 'Updated', status: 'Status', assignee: 'Assignee', title: 'Title', id: 'ID' },
+    hidden: (n) => `${n} hidden`,
+    hiddenReasons: { column: 'hidden column', deferred: 'deferred', backlog: 'backlog', archived: 'archived' },
+  },
+  ko: {
+    search: '검색', searchPlaceholder: '검색 (/)', scope: '검색 범위',
+    scopes: { all: '전체', id: 'ID', title: '제목', tag: '태그', body: '본문', note: '메모' },
+    filter: '필터', filterPlaceholder: 'status=todo tag=bug,ui (Enter로 적용)', removeChip: '필터 항목 지우기', hints: '자동 완성',
+    sort: '정렬', sortEdit: '정렬 편집', reversed: '뒤집힘', replace: '이것만', append: '추가', flip: '방향 바꿈',
+    sortKeys: { priority: '우선순위', created: '만든 때', updated: '고친 때', status: '상태', assignee: '담당', title: '제목', id: 'ID' },
+    hidden: (n) => `${n}건 숨김`,
+    hiddenReasons: { column: '숨긴 칸', deferred: '미룸', backlog: '백로그', archived: '보관' },
+  },
+  ja: {
+    search: '検索', searchPlaceholder: '検索 (/)', scope: '検索範囲',
+    scopes: { all: 'すべて', id: 'ID', title: 'タイトル', tag: 'タグ', body: '本文', note: 'メモ' },
+    filter: 'フィルター', filterPlaceholder: 'status=todo tag=bug,ui (Enter で適用)', removeChip: 'フィルター項目を削除', hints: '候補',
+    sort: '並べ替え', sortEdit: '並べ替えを編集', reversed: '逆順', replace: 'これだけ', append: '追加', flip: '向きを反転',
+    sortKeys: { priority: '優先度', created: '作成', updated: '更新', status: '状態', assignee: '担当', title: 'タイトル', id: 'ID' },
+    hidden: (n) => `${n} 件を非表示`,
+    hiddenReasons: { column: '非表示の列', deferred: '保留', backlog: 'バックログ', archived: 'アーカイブ' },
+  },
+  zh: {
+    search: '搜索', searchPlaceholder: '搜索 (/)', scope: '搜索范围',
+    scopes: { all: '全部', id: 'ID', title: '标题', tag: '标签', body: '正文', note: '备注' },
+    filter: '筛选', filterPlaceholder: 'status=todo tag=bug,ui (按 Enter 应用)', removeChip: '删除筛选项', hints: '建议',
+    sort: '排序', sortEdit: '编辑排序', reversed: '反向', replace: '仅此项', append: '添加', flip: '反转方向',
+    sortKeys: { priority: '优先级', created: '创建', updated: '更新', status: '状态', assignee: '负责人', title: '标题', id: 'ID' },
+    hidden: (n) => `已隐藏 ${n} 项`,
+    hiddenReasons: { column: '隐藏的列', deferred: '推迟', backlog: '待办池', archived: '已归档' },
+  },
+}
+
+// ── keys: the key router's words (se-jwl3); the key table's own labels live in keys/table.ts ─────────────
+
+export interface KeysCopy {
+  /** Shown while the panel's frame has no keyboard focus (the host does not give it one). */
+  focusHint: string
+  /** `r`, `SPC m a`, `SPC m g` in a panel given no read-mark writes (keys/wiring.ts `read`). */
+  readUnavailable: string
+  /** `SPC m g` with neither a group under the cursor nor a group to stand in. */
+  readNoGroup: string
+  /** `D` in the sort editor: the panel has nowhere to keep a default order yet. */
+  sortDefaultUnavailable: string
+}
+
+const KEYS: Record<Language, KeysCopy> = {
+  en: {
+    focusHint: 'Click to use the keyboard',
+    readUnavailable: 'Marking items read is not available in the panel yet.',
+    readNoGroup: 'Move to a milestone or epic to mark its items read.',
+    sortDefaultUnavailable: 'Saving a default sort is not available in the panel yet.',
+  },
+  ko: {
+    focusHint: '클릭하면 키보드를 쓸 수 있습니다',
+    readUnavailable: '읽음 표시는 아직 패널에서 쓸 수 없습니다.',
+    readNoGroup: '읽음으로 표시할 마일스톤이나 에픽으로 옮겨 가세요.',
+    sortDefaultUnavailable: '기본 정렬 저장은 아직 패널에서 쓸 수 없습니다.',
+  },
+  ja: {
+    focusHint: 'クリックするとキーボードを使えます',
+    readUnavailable: '既読の記録はまだパネルでは使えません。',
+    readNoGroup: '既読にするマイルストーンかエピックに移動してください。',
+    sortDefaultUnavailable: '既定の並べ替えの保存はまだパネルでは使えません。',
+  },
+  zh: {
+    focusHint: '点击后即可使用键盘',
+    readUnavailable: '面板中暂时还不能标记为已读。',
+    readNoGroup: '请移到要标记为已读的里程碑或史诗。',
+    sortDefaultUnavailable: '面板中暂时还不能保存默认排序。',
+  },
+}
+
 // ── the 1.x words, and the groups put together ───────────────────────────────────────────────────────
 
 export interface Copy {
@@ -353,6 +490,8 @@ export interface Copy {
   list: ListCopy
   board: BoardCopy
   detail: DetailCopy
+  toolbar: ToolbarCopy
+  keys: KeysCopy
 }
 
 const en: Copy = {
@@ -374,7 +513,7 @@ const en: Copy = {
     'unsupported-daemon': "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.",
   },
   notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
-  shell: SHELL.en, list: LIST.en, board: BOARD.en, detail: DETAIL.en,
+  shell: SHELL.en, list: LIST.en, board: BOARD.en, detail: DETAIL.en, toolbar: TOOLBAR.en, keys: KEYS.en,
 }
 
 const ko: Copy = {
@@ -396,7 +535,7 @@ const ko: Copy = {
     'unsupported-daemon': '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.',
   },
   notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
-  shell: SHELL.ko, list: LIST.ko, board: BOARD.ko, detail: DETAIL.ko,
+  shell: SHELL.ko, list: LIST.ko, board: BOARD.ko, detail: DETAIL.ko, toolbar: TOOLBAR.ko, keys: KEYS.ko,
 }
 
 const ja: Copy = {
@@ -418,7 +557,7 @@ const ja: Copy = {
     'unsupported-daemon': 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。',
   },
   notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
-  shell: SHELL.ja, list: LIST.ja, board: BOARD.ja, detail: DETAIL.ja,
+  shell: SHELL.ja, list: LIST.ja, board: BOARD.ja, detail: DETAIL.ja, toolbar: TOOLBAR.ja, keys: KEYS.ja,
 }
 
 const zh: Copy = {
@@ -440,7 +579,7 @@ const zh: Copy = {
     'unsupported-daemon': '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。',
   },
   notInitialized: ['此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 ', '，然后重试。如果找不到 moai，请使用「设置 → 扩展」的机器工具中显示的 Moai 路径运行。'],
-  shell: SHELL.zh, list: LIST.zh, board: BOARD.zh, detail: DETAIL.zh,
+  shell: SHELL.zh, list: LIST.zh, board: BOARD.zh, detail: DETAIL.zh, toolbar: TOOLBAR.zh, keys: KEYS.zh,
 }
 
 export const COPY: Record<Language, Copy> = { en, ko, ja, zh }

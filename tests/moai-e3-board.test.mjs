@@ -80,7 +80,13 @@ test('groupBoard: the board is a layout of the list: done rows past the archive 
   assert.deepEqual(cards(groupBoard(idx, look({ cursor: 'd1' })), 'done'), ['d1', 'd2'], 'the cursor card is kept')
   // Without sort keys: (priority, id). With the list's: its order, a title without regard to case.
   assert.deepEqual(cards(hidden, 'todo'), ['t3', 't1', 't2'])
-  assert.deepEqual(cards(groupBoard(idx, look({ sort: [{ field: 'title', descending: false }] })), 'todo'), ['t2', 't1', 't3'])
+  assert.deepEqual(cards(groupBoard(idx, look({ sort: { fields: [{ key: 'title', dir: 'asc' }], reversed: false } })), 'todo'), ['t2', 't1', 't3'])
+  // The list's filter and search narrow the cards; a search also lifts the view's hiding (the archive here).
+  const lit = new Set(['t1', 'd1'].map((id) => idx.find(id)))
+  const narrowed = groupBoard(idx, look({ match: (at) => lit.has(at) }))
+  assert.deepEqual([cards(narrowed, 'todo'), cards(narrowed, 'done')], [['t1'], []])
+  const found = groupBoard(idx, look({ match: (at) => lit.has(at), reveal: true }))
+  assert.deepEqual([cards(found, 'todo'), cards(found, 'done')], [['t1'], ['d1']])
 })
 
 test('groupBoard: a thought that is closed is not a card', () => {
@@ -128,7 +134,7 @@ const mount = (state, rows = ROWS) => {
   const root = dom.window.document.getElementById('r')
   const ctx = {
     document: dom.window.document, copy: copyFor('en'), language: 'en',
-    intents: { choose: (id) => chosen.push(id) }, layout: () => ({}), focusPane: () => {},
+    intents: { choose: (id) => chosen.push(id), point: (id) => chosen.push(`point:${id}`) }, layout: () => ({}), focusPane: () => {},
   }
   const view = mountBoard(root, ctx)
   view.render(state, new IssueIndex(rows))
@@ -166,16 +172,21 @@ test('board view: one card is always the tab stop, Space is left to the key laye
   assert.deepEqual(tabbable(mount({ ...initialState(), tab: 'board', cursor: 'e1' }).root).length, 1, 'a cursor on a group is not a card')
   assert.deepEqual(tabbable(mount({ ...initialState(), tab: 'board', cursor: 'e1.b' }).root), ['e1.b'])
 
-  // Enter chooses; Space is the SPC leader and stays unhandled so the key layer sees it.
-  const { root, chosen, dom } = mount({ ...initialState(), tab: 'board', cursor: 'e1.b' })
+  // The cards listen for no keys: Space (the SPC leader) and Enter are the key router's, which hands the board
+  // the action (command) — Enter shows the cursor's card, h/l go to the next column that has cards.
+  const { root, chosen, dom, view } = mount({ ...initialState(), tab: 'board', cursor: 'e1.b' })
   const card = root.querySelector('[data-id="e1.a"]')
-  const space = new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
-  card.dispatchEvent(space)
-  assert.equal(space.defaultPrevented, false)
-  const enter = new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
-  card.dispatchEvent(enter)
-  assert.equal(enter.defaultPrevented, true)
-  assert.deepEqual(chosen, ['e1.a'])
+  for (const key of [' ', 'Enter']) {
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    card.dispatchEvent(event)
+    assert.equal(event.defaultPrevented, false)
+  }
+  assert.deepEqual(chosen, [])
+  assert.equal(view.command('enter'), true)
+  assert.deepEqual(chosen, ['e1.b'])
+  view.command('collapse')
+  assert.deepEqual(chosen.at(-1), 'point:e1.a', 'h goes to the column on the left, at the same height')
+  assert.equal(view.command('read'), false, 'not a board action')
 
   // A `tags` that is a string or an object (not what the CLI writes) draws no chips and does not throw.
   const odd = ROWS.map((row) => (row.id === 'e1.a' ? { ...row, tags: 'bug' } : row.id === 'e1.b' ? { ...row, tags: { a: 1 } } : row))

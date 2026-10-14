@@ -569,7 +569,10 @@ export class IssueIndex {
     return [at, ...this.descendants(this.dirPath(at))]
   }
 
-  /** Progress under a place: the detail rollup and the listing's `n/n` use the same count. */
+  /**
+   * Progress under a place, from the rows the index holds (what dates a group for the archive). The `n/n` the list
+   * and the detail draw is {@link tally}, which for a milestone or epic prefers the count `moai status` gave.
+   */
   progress(path: Path): Progress {
     const kids = this.descendants(path)
     const work = kids.filter((at) => isWork(this.rows[at]!))

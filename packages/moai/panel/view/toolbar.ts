@@ -1,12 +1,12 @@
-// Search / filter / sort toolbar of the list. State and reducer are pure (testable without the store);
-// renderToolbar() turns a state into DOM through the shared components and reports every user act as an
-// action. What is searched (rows, context) comes in through deps; where the state lives is the caller's.
+// Search / filter / sort toolbar of the list and board. State and reducer are pure (testable without the
+// store, which keeps the state: store.ts toolbarOf); createToolbar() builds the DOM once through the shared
+// components and update() brings it to a state, so the inputs are never rebuilt under the caret or an IME
+// composition. Every user act is reported as an action. What is searched (rows, context) comes in with update.
 
 import {
   GREP_SCOPES,
   SORT_KEYS,
   badFilterMessage,
-  hiding,
   hintsAt,
   items,
   nextScope,
@@ -16,7 +16,6 @@ import {
   sortBadge,
   sortEdit,
   type Context,
-  type Filter,
   type GrepScope,
   type Hint,
   type Slot,
@@ -25,58 +24,13 @@ import {
   type SortKey,
 } from "../data/query.ts"
 import type { Row } from "../data/index.ts"
+import { copyFor, type HiddenReason, type Language, type ToolbarCopy } from "../i18n/index.ts"
 import { button, chip, el, icon, iconButton, menu, searchBox, textInput } from "./components.ts"
+import { kbdHint } from "./help.ts"
 
-// ---- strings (local until the i18n catalogue takes them) ----------------------------------------------
+// ---- strings: the i18n catalogue's toolbar group (i18n/index.ts) ---------------------------------------
 
-export type Lang = "ko" | "en"
-
-export const TOOLBAR_TEXT = {
-  ko: {
-    search: "검색",
-    searchPlaceholder: "검색 (/)",
-    scope: "검색 범위",
-    scopes: { all: "전체", id: "ID", title: "제목", tag: "태그", body: "본문", note: "메모" } as Record<GrepScope, string>,
-    filter: "필터",
-    filterPlaceholder: "status=todo tag=bug,ui",
-    removeChip: "필터 항목 지우기",
-    hints: "자동 완성",
-    sort: "정렬",
-    sortEdit: "정렬 편집",
-    reversed: "뒤집힘",
-    asc: "오름차순",
-    desc: "내림차순",
-    replace: "이것만",
-    append: "추가",
-    flip: "방향 바꿈",
-    sortKeys: { priority: "우선순위", created: "만든 때", updated: "고친 때", status: "상태", assignee: "담당", title: "제목", id: "ID" } as Record<SortKey, string>,
-    hidden: "숨겨진 행",
-    hiddenReasons: { done: "완료", backlog: "백로그", deferred: "보류", archived: "보관" } as Record<HiddenReason, string>,
-  },
-  en: {
-    search: "Search",
-    searchPlaceholder: "Search (/)",
-    scope: "Search in",
-    scopes: { all: "All", id: "ID", title: "Title", tag: "Tag", body: "Body", note: "Note" } as Record<GrepScope, string>,
-    filter: "Filter",
-    filterPlaceholder: "status=todo tag=bug,ui",
-    removeChip: "Remove filter item",
-    hints: "Suggestions",
-    sort: "Sort",
-    sortEdit: "Edit sort",
-    reversed: "reversed",
-    asc: "ascending",
-    desc: "descending",
-    replace: "Only this",
-    append: "Add",
-    flip: "Flip direction",
-    sortKeys: { priority: "Priority", created: "Created", updated: "Updated", status: "Status", assignee: "Assignee", title: "Title", id: "ID" } as Record<SortKey, string>,
-    hidden: "Hidden rows",
-    hiddenReasons: { done: "done", backlog: "backlog", deferred: "deferred", archived: "archived" } as Record<HiddenReason, string>,
-  },
-} as const
-
-export type HiddenReason = "done" | "backlog" | "deferred" | "archived"
+export type { HiddenReason, ToolbarCopy }
 
 // ---- state ----------------------------------------------------------------------------------------------
 
@@ -84,7 +38,10 @@ export interface ToolbarState {
   searchOpen: boolean
   searchText: string
   scope: GrepScope
+  /** The filter as typed. */
   filterText: string
+  /** The filter that narrows the rows: Enter applies the typed text (when it parses), a chip removal at once (design §4.5). */
+  filterApplied: string
   /** Caret of the filter input (UTF-16 index); the hints follow it. */
   cursor: number
   /** The hint dropdown is shown. */
@@ -100,6 +57,7 @@ export const initialToolbar = (): ToolbarState => ({
   searchText: "",
   scope: "all",
   filterText: "",
+  filterApplied: "",
   cursor: 0,
   hintsOpen: false,
   hintIndex: -1,
@@ -116,6 +74,7 @@ export type ToolbarAction =
   | { type: "scope-set"; scope: GrepScope }
   | { type: "filter-text"; text: string; cursor: number }
   | { type: "filter-cursor"; cursor: number }
+  | { type: "filter-apply" }
   | { type: "chip-remove"; index: number }
   | { type: "hints-open" }
   | { type: "hints-close" }
@@ -125,15 +84,42 @@ export type ToolbarAction =
   | { type: "sort-edit"; key: SortKey; how: SortEdit }
   | { type: "sort-set"; sort: Sort }
 
-/** The text and caret after a hint is chosen: a key gets its `=`, a value replaces the piece being typed. */
+const isSpaceChar = (c: string | undefined): boolean => c !== undefined && /\s/.test(c)
+
+/**
+ * The text and caret after a hint is chosen: a key gets its `=`, a value replaces the piece being typed.
+ * {@link slotAt} ends the slot at the caret; the piece goes on to its end — the rest of the key word (and the
+ * `=` already after it, which is not doubled), or the rest of the value up to a comma, a space or the closing
+ * quote — so a caret inside a word does not leave the word's tail behind it.
+ */
 export function acceptHint(text: string, slot: Slot, hint: Hint): { text: string; cursor: number } {
-  const keyOnly = slot.key === undefined
-  let insert = keyOnly ? `${hint.value}=` : hint.value
+  if (slot.key === undefined) {
+    let to = slot.to
+    while (to < text.length && text[to] !== "=" && !isSpaceChar(text[to])) to++
+    if (text[to] === "=") to++
+    const insert = `${hint.value}=`
+    return { text: text.slice(0, slot.from) + insert + text.slice(to), cursor: slot.from + insert.length }
+  }
+  // The quote that opens this value, when it has one (items() records it; slotAt starts the value inside it).
+  const quote = items(text).find((item) => item.quote !== undefined && item.quote.open < slot.from && slot.from <= item.end)?.quote
+  let to = slot.to
+  if (quote?.close !== undefined) {
+    // A caret past the closing quote still replaces only what is inside it.
+    to = Math.min(to, quote.close)
+    while (to < quote.close && text[to] !== ",") to++
+  } else if (quote) {
+    // An open quote runs to the end of the line, over the items typed after it: the piece ends at its word.
+    while (to < text.length && text[to] !== "," && !isSpaceChar(text[to])) to++
+  } else {
+    while (to < text.length && text[to] !== "," && !isSpaceChar(text[to])) to++
+  }
+  let insert = hint.value
   // A value with a space is kept whole (and the hints stay on it) only in quotes, and a quote must open the
   // value. A comma is "or" even inside quotes, as in moai, so quoting does not save it.
-  if (!keyOnly && /\s/.test(insert) && text[slot.from - 1] === "=") insert = `"${insert}"`
-  const next = text.slice(0, slot.from) + insert + text.slice(slot.to)
-  return { text: next, cursor: slot.from + insert.length }
+  if (!quote && /\s/.test(insert) && text[slot.from - 1] === "=") insert = `"${insert}"`
+  // A quote left open would swallow every item typed after it: the chosen value closes it.
+  if (quote && quote.close === undefined) insert += text[quote.open]
+  return { text: text.slice(0, slot.from) + insert + text.slice(to), cursor: slot.from + insert.length }
 }
 
 /** The filter text without its `index`-th item (the item's span, up to where the next one starts). */
@@ -165,9 +151,15 @@ export function toolbarReduce(state: ToolbarState, action: ToolbarAction): Toolb
       return { ...state, filterText: action.text, cursor: clamp(action.cursor, action.text.length), hintsOpen: true, hintIndex: -1 }
     case "filter-cursor":
       return { ...state, cursor: clamp(action.cursor, state.filterText.length), hintIndex: -1 }
+    case "filter-apply":
+      // A text that does not parse is not applied: the rows stay as the last good filter left them, and the
+      // error stands under the input.
+      return parseFilter(state.filterText).ok ? { ...state, filterApplied: state.filterText, hintsOpen: false, hintIndex: -1 } : state
     case "chip-remove": {
       const text = removeItem(state.filterText, action.index)
-      return text === state.filterText ? state : { ...state, filterText: text, cursor: text.length, hintIndex: -1 }
+      if (text === state.filterText) return state
+      // A chip applies at once (design §4.5), unless the rest does not parse.
+      return { ...state, filterText: text, filterApplied: parseFilter(text).ok ? text : state.filterApplied, cursor: text.length, hintIndex: -1 }
     }
     case "hints-open":
       return { ...state, hintsOpen: true }
@@ -211,43 +203,55 @@ export function highlight(doc: Document, text: string, q: string): Array<Node | 
   let last = 0
   for (const [from, to] of highlightRanges(text, q)) {
     if (from > last) out.push(text.slice(last, from))
-    out.push(el(doc, "mark", {}, text.slice(from, to)))
+    out.push(el(doc, "mark", { class: "m-mark" }, text.slice(from, to)))
     last = to
   }
   if (last < text.length) out.push(text.slice(last))
   return out
 }
 
-/** The search result, and how many of the found rows the default list still hides, by the reason. */
+/**
+ * The search result, and how many of the found rows only the search shows, by the reason the list would hide
+ * them. `hiddenBy` is the caller's: the panel's own view toggles (and its filter) decide what the list hides,
+ * not what the moai CLI hides by default (view/list-model.ts narrow). Without it nothing is counted.
+ */
 export function searchView<T extends Row>(
   rows: readonly T[],
   state: Pick<ToolbarState, "searchText" | "scope">,
-  filter: Filter,
+  hiddenBy?: (row: T) => HiddenReason | undefined,
   ctx: Context = {},
 ): { found: T[]; hidden: Partial<Record<HiddenReason, number>> } {
-  const found = search(rows, state.searchText, state.scope, ctx)
+  // Trimmed, as the list reads it (list-model.ts narrow): "login " finds what the list draws for "login".
+  const q = state.searchText.trim()
+  const found = search(rows, q, state.scope, ctx)
   const hidden: Partial<Record<HiddenReason, number>> = {}
-  if (state.searchText.trim() === "") return { found, hidden }
-  const hiddenBy = hiding(filter, rows, ctx)
+  if (q === "" || !hiddenBy) return { found, hidden }
   for (const row of found) {
     const why = hiddenBy(row)
-    // A row no one word opens is not counted, as in the CLI's tail.
-    if (why && why !== "unopenable") hidden[why] = (hidden[why] ?? 0) + 1
+    if (why) hidden[why] = (hidden[why] ?? 0) + 1
   }
   return { found, hidden }
 }
 
 // ---- render ---------------------------------------------------------------------------------------------
 
-export interface ToolbarDeps {
-  doc: Document
+/** What the toolbar reads besides its state: the rows it hints from and searches, and why the list hides one. */
+export interface ToolbarData {
   rows: readonly Row[]
   ctx?: Context
-  lang?: Lang
+  /** Why the list would hide a row the search shows ({@link searchView}); the hidden note counts these. */
+  hiddenBy?: (row: Row) => HiddenReason | undefined
+}
+
+export interface ToolbarDeps extends ToolbarData {
+  doc: Document
+  /** The words; `copy` wins over `lang`, Korean when neither is given. */
+  copy?: ToolbarCopy
+  lang?: Language
 }
 
 export interface ToolbarHandlers {
-  /** Every user act, as a reducer action. The caller reduces, stores and re-renders. */
+  /** Every user act, as a reducer action. The caller reduces, stores and calls update(). */
   dispatch: (action: ToolbarAction) => void
 }
 
@@ -260,16 +264,49 @@ export interface Toolbar {
   hidden: Partial<Record<HiddenReason, number>>
 }
 
+export interface LiveToolbar extends Toolbar {
+  /** Bring the DOM to `state`. Inputs are written only when their text differs, and never while an IME composes. */
+  update(state: ToolbarState, data: ToolbarData): void
+  /** How many suggestions the filter has for its caret, whether the list is shown or not. */
+  readonly hintCount: number
+  destroy(): void
+}
+
+/** One state drawn once: a toolbar built and brought to `state` (tests, and a caller that redraws whole). */
 export function renderToolbar(state: ToolbarState, deps: ToolbarDeps, handlers: ToolbarHandlers): Toolbar {
+  const toolbar = createToolbar(deps, handlers)
+  toolbar.update(state, deps)
+  return toolbar
+}
+
+export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, handlers: ToolbarHandlers): LiveToolbar {
   const { doc } = deps
-  const t = TOOLBAR_TEXT[deps.lang ?? "ko"]
+  const t = deps.copy ?? copyFor(deps.lang ?? "ko").toolbar
   const { dispatch } = handlers
-  const parsed = parseFilter(state.filterText)
-  const filter = parsed.ok ? parsed.value : undefined
+  let state: ToolbarState = initialToolbar()
+  let data: ToolbarData = { rows: [] }
+  let slot: Slot = { partial: "", from: 0, to: 0 }
+  let hints: Hint[] = []
   const root = el(doc, "div", { class: "m-toolbar-stack", "data-toolbar": "" })
 
-  // Search: opened by `/` (bound by the caller), applies as you type. Alt+ArrowDown / Alt+ArrowUp in the input
-  // cycle the scope (the explorer's Tab / Shift-Tab order); the select sets it directly.
+  /** An input's IME composition: while it runs the input's text is the IME's, and is not written over. */
+  const composing = new WeakSet<HTMLInputElement>()
+  const trackComposition = (input: HTMLInputElement, report: () => void) => {
+    input.addEventListener("compositionstart", () => composing.add(input))
+    input.addEventListener("compositionend", () => {
+      composing.delete(input)
+      // Some engines send the last input event before compositionend: report the committed text once more.
+      report()
+    })
+  }
+  const write = (input: HTMLInputElement, value: string, caret?: number) => {
+    if (composing.has(input) || input.value === value) return
+    input.value = value
+    if (caret !== undefined && doc.activeElement === input) input.setSelectionRange(caret, caret)
+  }
+
+  // Search: opened by `/` (bound by the caller) or the search button, applies as you type. Alt+ArrowDown /
+  // Alt+ArrowUp in the input cycle the scope (the explorer's Tab / Shift-Tab order); the select sets it directly.
   const searchRow = el(doc, "div", { class: "m-toolbar", role: "search" })
   const box = searchBox(doc, {
     placeholder: t.searchPlaceholder,
@@ -278,30 +315,24 @@ export function renderToolbar(state: ToolbarState, deps: ToolbarDeps, handlers: 
     scopeLabel: t.scope,
     hint: "/",
   })
-  box.input.value = state.searchText
-  if (box.select) {
-    box.select.value = state.scope
-    box.select.addEventListener("change", () => dispatch({ type: "scope-set", scope: box.select!.value as GrepScope }))
-  }
-  box.input.addEventListener("input", () => dispatch({ type: "search-text", text: box.input.value }))
+  box.select?.addEventListener("change", () => dispatch({ type: "scope-set", scope: box.select!.value as GrepScope }))
+  const reportSearch = () => dispatch({ type: "search-text", text: box.input.value })
+  box.input.addEventListener("input", reportSearch)
+  trackComposition(box.input, reportSearch)
   box.input.addEventListener("keydown", (event) => {
+    if (event.isComposing) return
     if (event.key === "Escape") dispatch({ type: "search-close" })
     else if (event.key === "ArrowDown" && event.altKey) dispatch({ type: "scope-next" })
     else if (event.key === "ArrowUp" && event.altKey) dispatch({ type: "scope-prev" })
   })
   searchRow.append(box.el)
-  searchRow.dataset.open = String(state.searchOpen)
-  searchRow.hidden = !state.searchOpen
 
   // Filter text with the hint dropdown under it.
   const filterWrap = el(doc, "div", { class: "m-filter", style: "position:relative;flex:1 1 200px" })
-  const filterInput = textInput(doc, { label: t.filter, placeholder: t.filterPlaceholder, invalid: !parsed.ok })
-  filterInput.value = state.filterText
-  const { slot, hints } = hintsAt(deps.rows, state.filterText, state.cursor, deps.ctx)
-  const open = state.hintsOpen && hints.length > 0
-  filterInput.addEventListener("input", () =>
-    dispatch({ type: "filter-text", text: filterInput.value, cursor: filterInput.selectionStart ?? filterInput.value.length }),
-  )
+  const filterInput = textInput(doc, { label: t.filter, placeholder: t.filterPlaceholder })
+  const reportFilter = () => dispatch({ type: "filter-text", text: filterInput.value, cursor: filterInput.selectionStart ?? filterInput.value.length })
+  filterInput.addEventListener("input", reportFilter)
+  trackComposition(filterInput, reportFilter)
   filterInput.addEventListener("keyup", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
     dispatch({ type: "filter-cursor", cursor: filterInput.selectionStart ?? 0 })
@@ -309,86 +340,190 @@ export function renderToolbar(state: ToolbarState, deps: ToolbarDeps, handlers: 
   // A click moves the caret too; without this the hints stay on the item the keyboard last left.
   filterInput.addEventListener("click", () => dispatch({ type: "filter-cursor", cursor: filterInput.selectionStart ?? 0 }))
   filterInput.addEventListener("keydown", (event) => {
+    if (event.isComposing) return
+    const open = state.hintsOpen && hints.length > 0
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
       dispatch({ type: "hint-move", delta: event.key === "ArrowDown" ? 1 : -1, count: hints.length })
-    } else if ((event.key === "Enter" || event.key === "Tab") && open && state.hintIndex >= 0) {
+    } else if ((event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) && open && state.hintIndex >= 0) {
+      // Shift-Tab is not taken here: it moves back through the suggestions (the key router's prompt.prev).
       event.preventDefault()
       dispatch({ type: "hint-accept", slot, hint: hints[state.hintIndex]! })
-    } else if (event.key === "Escape") dispatch({ type: "hints-close" })
+    } else if (event.key === "Enter") {
+      event.preventDefault()
+      dispatch({ type: "filter-apply" })
+    }
+    // Esc is the key router's alone (keys/wiring.ts prompt.cancel, keybindings.md 3.7): it closes the suggestions,
+    // puts the applied filter back and leaves the input, all at once.
   })
   filterWrap.append(filterInput)
-  if (open) {
-    const list = menu(
-      doc,
-      hints.map((hint, index) => ({ id: String(index), label: hint.label ? `${hint.value}  ${hint.label}` : hint.value, hint: hint.count ? String(hint.count) : undefined })),
-      (id) => dispatch({ type: "hint-accept", slot, hint: hints[Number(id)]! }),
-    )
-    list.setAttribute("aria-label", t.hints)
-    list.classList.add("m-hints")
-    list.style.cssText = "position:absolute;top:100%;left:0;right:0;z-index:20"
-    list.querySelectorAll<HTMLElement>(".m-menu-item").forEach((node, index) => {
-      if (index === state.hintIndex) node.setAttribute("aria-current", "true")
-    })
-    filterWrap.append(list)
-  }
+  let hintList: HTMLElement | null = null
+  let hintsDrawn = ""
 
   // Sort badge and its edit popover.
-  const badge = sortBadge(state.sort)
   const sortWrap = el(doc, "div", { class: "m-sort", style: "position:relative" })
-  const label = badge.parts
-    .map((part) => `${t.sortKeys[part.key]}${part.dir === "asc" ? "↑" : "↓"}`)
-    .join(" ")
-  const sortButton = button(doc, { label: `${t.sort}: ${label}${badge.reversed ? ` (${t.reversed})` : ""}`, icon: "arrow-up-down", small: true, onClick: () => dispatch({ type: "sort-toggle" }) })
-  sortButton.setAttribute("aria-expanded", String(state.sortOpen))
-  sortButton.dataset.sort = badge.text
+  const sortButton = button(doc, { label: t.sort, icon: "arrow-up-down", small: true, onClick: () => dispatch({ type: "sort-toggle" }) })
   sortWrap.append(sortButton)
-  if (state.sortOpen) {
-    const pop = el(doc, "div", { class: "m-menu m-sort-pop", role: "dialog", "aria-label": t.sortEdit, style: "position:absolute;top:100%;right:0;z-index:20" })
-    for (const key of SORT_KEYS) {
-      const field = state.sort.fields.find((one) => one.key === key)
-      const rowEl = el(doc, "div", { class: "m-menu-item", "data-key": key, style: "gap:4px" })
-      rowEl.append(el(doc, "span", { style: "flex:1" }, `${t.sortKeys[key]}${field ? (field.dir === "asc" ? " ↑" : " ↓") : ""}`))
-      for (const how of ["replace", "append", "flip"] as const) {
-        const b = button(doc, { label: t[how], variant: "ghost", small: true, onClick: () => dispatch({ type: "sort-edit", key, how }) })
-        b.dataset.how = how
-        rowEl.append(b)
-      }
-      pop.append(rowEl)
-    }
-    sortWrap.append(pop)
-  }
+  let sortPop: HTMLElement | null = null
+  let sortDrawn = ""
 
-  const bar = el(doc, "div", { class: "m-toolbar" })
-  bar.append(icon(doc, "filter", 14), filterWrap, sortWrap)
-  if (!state.searchOpen) {
-    bar.append(iconButton(doc, { icon: "search", label: t.search, onClick: () => dispatch({ type: "search-open" }) }))
-  }
+  const openSearch = iconButton(doc, {
+    icon: "search",
+    label: t.search,
+    onClick: () => {
+      dispatch({ type: "search-open" })
+      box.input.focus()
+    },
+  })
+  openSearch.setAttribute("aria-keyshortcuts", "/")
+  // The key that opens the search, next to its button (keys/table.ts `/`); the open search box carries its own.
+  const searchShortcut = kbdHint(doc, "/")
+  searchShortcut.setAttribute("aria-hidden", "true")
+  sortButton.setAttribute("aria-keyshortcuts", "Space s e")
+  const bar = el(doc, "div", { class: "m-toolbar" }, icon(doc, "filter", 14), filterWrap, sortWrap, openSearch, searchShortcut)
 
   // Chips of the parsed filter (comma is OR inside one chip, a repeated key is AND between chips).
   const chips = el(doc, "div", { class: "m-chips", style: "display:flex;flex-wrap:wrap;gap:4px;padding:0 8px" })
-  items(state.filterText).forEach((item, index) => {
-    if (item.text.trim() === "") return
-    chips.append(chip(doc, { label: item.text, tone: parsed.ok ? "accent" : "neutral", removeLabel: t.removeChip, onRemove: () => dispatch({ type: "chip-remove", index }) }))
-  })
-  chips.hidden = chips.childElementCount === 0
+  // Removing a chip redraws the chips: the focus stays where it was instead of dropping to <body> with its x button.
+  chips.addEventListener("mousedown", (event) => event.preventDefault())
+  let chipsDrawn: string | null = null
+  const error = el(doc, "div", { class: "m-banner m-banner-danger", role: "alert", hidden: true })
+  const note = el(doc, "div", { class: "m-hidden-note", role: "status", hidden: true })
+  root.append(searchRow, bar, chips, error, note)
 
-  const error = parsed.ok ? null : el(doc, "div", { class: "m-banner m-banner-danger", role: "alert" }, badFilterMessage(parsed.error))
+  // What the last update computed from: hints and the search are read again only when their inputs change.
+  let hintsFor: unknown[] = []
+  let searchFor: unknown[] = []
+  const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((value, n) => value === b[n])
+  const view: { found: Row[]; hidden: Partial<Record<HiddenReason, number>> } = { found: [], hidden: {} }
 
-  // Search result and the note on rows the list still hides.
-  const view = searchView(deps.rows, state, filter ?? parseOk(), deps.ctx)
-  const reasons = (Object.keys(view.hidden) as HiddenReason[]).map((reason) => `${t.hiddenReasons[reason]} ${view.hidden[reason]}`)
-  const note = reasons.length ? el(doc, "div", { class: "m-hidden-note", role: "status" }, `${t.hidden}: ${reasons.join(", ")}`) : null
+  function update(next: ToolbarState, nextData: ToolbarData) {
+    state = next
+    data = nextData
+    const parsed = parseFilter(state.filterText)
 
-  root.append(searchRow, bar, chips)
-  if (error) root.append(error)
-  if (note) root.append(note)
-  return { el: root, searchInput: box.input, filterInput, found: view.found, hidden: view.hidden }
-}
+    searchRow.dataset.open = String(state.searchOpen)
+    searchRow.hidden = !state.searchOpen
+    openSearch.hidden = state.searchOpen
+    searchShortcut.hidden = state.searchOpen
+    write(box.input, state.searchText)
+    if (box.select && box.select.value !== state.scope) box.select.value = state.scope
 
-/** The empty filter (what the rows are held against while the typed one does not parse). */
-function parseOk(): Filter {
-  const parsed = parseFilter("")
-  if (!parsed.ok) throw new Error("the empty filter always parses")
-  return parsed.value
+    write(filterInput, state.filterText, state.cursor)
+    if (parsed.ok) filterInput.removeAttribute("aria-invalid")
+    else filterInput.setAttribute("aria-invalid", "true")
+    const hintKey = [data.rows, state.filterText, state.cursor, data.ctx]
+    if (!same(hintKey, hintsFor)) {
+      hintsFor = hintKey
+      ;({ slot, hints } = hintsAt(data.rows, state.filterText, state.cursor, data.ctx))
+    }
+    const open = state.hintsOpen && hints.length > 0
+    const drawnKey = open ? JSON.stringify([hints, state.hintIndex]) : ""
+    if (drawnKey !== hintsDrawn) {
+      hintsDrawn = drawnKey
+      hintList?.remove()
+      hintList = null
+      if (open) {
+        const shown = hints
+        const list = menu(
+          doc,
+          shown.map((hint, index) => ({ id: String(index), label: hint.label ? `${hint.value}  ${hint.label}` : hint.value, hint: hint.count ? String(hint.count) : undefined })),
+          (id) => dispatch({ type: "hint-accept", slot, hint: shown[Number(id)]! }),
+        )
+        list.setAttribute("aria-label", t.hints)
+        list.classList.add("m-hints")
+        // A click must not take the caret out of the filter: the list is rebuilt under the clicked item, and the focus
+        // would drop to <body>, where what is typed next runs as shortcuts (as view/menu.ts does for its items).
+        list.addEventListener("mousedown", (event) => event.preventDefault())
+        list.style.cssText = "position:absolute;top:100%;left:0;right:0;z-index:20"
+        list.querySelectorAll<HTMLElement>(".m-menu-item").forEach((node, index) => {
+          if (index === state.hintIndex) node.setAttribute("aria-current", "true")
+        })
+        filterWrap.append(list)
+        hintList = list
+      }
+    }
+
+    const badge = sortBadge(state.sort)
+    const label = badge.parts.map((part) => `${t.sortKeys[part.key]}${part.dir === "asc" ? "↑" : "↓"}`).join(" ")
+    const sortLabel = `${t.sort}: ${label}${badge.reversed ? ` (${t.reversed})` : ""}`
+    if (sortButton.getAttribute("aria-label") !== sortLabel) {
+      sortButton.setAttribute("aria-label", sortLabel)
+      sortButton.title = sortLabel
+      const text = sortButton.querySelector(".m-btn-label")
+      if (text) text.textContent = sortLabel
+    }
+    sortButton.setAttribute("aria-expanded", String(state.sortOpen))
+    sortButton.dataset.sort = badge.text
+    const popKey = state.sortOpen ? JSON.stringify(state.sort) : ""
+    if (popKey !== sortDrawn) {
+      sortDrawn = popKey
+      sortPop?.remove()
+      sortPop = null
+      if (state.sortOpen) {
+        const pop = el(doc, "div", { class: "m-menu m-sort-pop", role: "dialog", "aria-label": t.sortEdit, style: "position:absolute;top:100%;right:0;z-index:20" })
+        for (const key of SORT_KEYS) {
+          const field = state.sort.fields.find((one) => one.key === key)
+          const rowEl = el(doc, "div", { class: "m-menu-item", "data-key": key, style: "gap:4px" })
+          rowEl.append(el(doc, "span", { style: "flex:1" }, `${t.sortKeys[key]}${field ? (field.dir === "asc" ? " ↑" : " ↓") : ""}`))
+          for (const how of ["replace", "append", "flip"] as const) {
+            const b = button(doc, { label: t[how], variant: "ghost", small: true, onClick: () => dispatch({ type: "sort-edit", key, how }) })
+            b.dataset.how = how
+            rowEl.append(b)
+          }
+          pop.append(rowEl)
+        }
+        sortWrap.append(pop)
+        sortPop = pop
+      }
+    }
+
+    const chipKey = JSON.stringify([state.filterText, parsed.ok])
+    if (chipKey !== chipsDrawn) {
+      chipsDrawn = chipKey
+      const made: Node[] = []
+      items(state.filterText).forEach((item, index) => {
+        if (item.text.trim() === "") return
+        made.push(chip(doc, { label: item.text, tone: parsed.ok ? "accent" : "neutral", removeLabel: t.removeChip, onRemove: () => dispatch({ type: "chip-remove", index }) }))
+      })
+      chips.replaceChildren(...made)
+      chips.hidden = made.length === 0
+    }
+
+    const problem = parsed.ok ? "" : badFilterMessage(parsed.error)
+    if (error.textContent !== problem) error.textContent = problem
+    error.hidden = parsed.ok
+
+    // Search result and the note on rows only the search shows.
+    const searchKey = [data.rows, state.searchText, state.scope, data.hiddenBy, data.ctx]
+    if (!same(searchKey, searchFor)) {
+      searchFor = searchKey
+      Object.assign(view, searchView(data.rows, state, data.hiddenBy, data.ctx))
+    }
+    const reasons = (Object.keys(view.hidden) as HiddenReason[]).map((reason) => `${t.hiddenReasons[reason]} ${view.hidden[reason]}`)
+    const total = Object.values(view.hidden).reduce((sum, n) => sum + (n ?? 0), 0)
+    const said = total ? `${t.hidden(total)}: ${reasons.join(", ")}` : ""
+    // A live region: written only when it says something new.
+    if (note.textContent !== said) note.textContent = said
+    note.hidden = total === 0
+  }
+
+  return {
+    el: root,
+    searchInput: box.input,
+    filterInput,
+    get found() {
+      return view.found
+    },
+    get hidden() {
+      return view.hidden
+    },
+    get hintCount() {
+      return hints.length
+    },
+    update,
+    destroy() {
+      root.remove()
+    },
+  }
 }

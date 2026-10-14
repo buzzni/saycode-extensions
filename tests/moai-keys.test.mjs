@@ -666,3 +666,30 @@ test('kbdHint: kbd chips with key labels; focus hint text', () => {
   assert.deepEqual([...kbdHint(document, ['C-d', 'g g']).querySelectorAll('kbd')].map((k) => k.textContent), ['Ctrl-d', 'gg'])
   assert.equal(focusHint(document).textContent, '클릭하면 키보드를 쓸 수 있습니다')
 })
+
+test('keyToken: a Korean input source falls back to event.code (jamo, Process), ASCII keys stay', () => {
+  assert.equal(keyToken({ key: 'ㅓ', code: 'KeyJ' }), 'j')
+  assert.equal(keyToken({ key: 'ㅎ', code: 'KeyG', shiftKey: true }), 'G')
+  assert.equal(keyToken({ key: 'ㅎ', code: 'KeyG' }), 'g')
+  assert.equal(keyToken({ key: 'Process', code: 'KeyK', keyCode: 229 }), 'k')
+  assert.equal(keyToken({ key: 'ㅓ', code: 'KeyJ', ctrlKey: true }), 'C-j')
+  // AZERTY: 'a' typed on the physical KeyQ is still 'a'.
+  assert.equal(keyToken({ key: 'a', code: 'KeyQ' }), 'a')
+  // No Key*/Digit* code: what it was before.
+  assert.equal(keyToken({ key: 'ㅓ' }), 'ㅓ')
+  assert.equal(keyToken({ key: 'ㅓ', code: 'Space' }), 'ㅓ')
+  assert.equal(keyToken({ key: 'Process' }), null)
+})
+
+test('router: Korean letters run the vim keys in a non-editable target, composing in an editable one is ignored', () => {
+  const { key, ids } = setup()
+  const r = key('ㅓ', { code: 'KeyJ' })
+  assert.equal(r.handled, true)
+  const p = key('Process', { code: 'KeyK', keyCode: 229, isComposing: false })
+  assert.equal(p.handled, true)
+  assert.equal(ids().length >= 2, true)
+  const e = key('ㅓ', { code: 'KeyJ', isComposing: true, editable: true })
+  assert.equal(e.handled, false)
+  assert.equal(key('Process', { code: 'KeyK', keyCode: 229, editable: true }).handled, false)
+  assert.equal(key('ㅓ', { isComposing: true }).handled, false)
+})

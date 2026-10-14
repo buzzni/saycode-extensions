@@ -12,9 +12,8 @@
  *   shared read refused so goes back to the queue after a backoff that grows by `busyBackoffMs` each time
  *   (1×, 2×, 3× …) and is tried up to `busyAttempts` times in all before it resolves refused. A write
  *   (`share: false`) is never retried: whether to send it again is the user's call.
- * - The bare defaults are still one run at a time and no busy retry, the 1.x behaviour main.ts and the
- *   board's jsdom tests (tests/moai.test.mjs) rely on; both are held by other work. Turning the panel over
- *   is `createClient(bridge, PANEL_CLIENT_OPTIONS)` in main.ts together with those tests.
+ * - The bare defaults are one run at a time and no busy retry (the 1.x behaviour); the panel runs on
+ *   `createClient(bridge, PANEL_CLIENT_OPTIONS)` in main.ts.
  * - The daemon cuts stdout at the profile's `outputLimitBytes` and says so with `truncated: true` (a flag
  *   on a finished status, not an error code). The outcome carries it as `truncated: true` on the kind it
  *   would have anyway: cut JSON does not parse, so a cut list is `unreadable` with `truncated: true`
@@ -90,6 +89,8 @@ export interface RequestState {
   phase: Phase
   /** Known once the run is accepted; until then Desktop may be showing its confirmation. */
   operationId: string | null
+  /** A read, shared by everyone who asks for it; false for a write (an add, a read mark). */
+  share: boolean
 }
 
 export interface RequestOptions {
@@ -164,7 +165,6 @@ interface Pending extends RequestState {
   promise: Promise<Outcome>
   resolve: (outcome: Outcome) => void
   cancelled: boolean
-  share: boolean
   /** Starts tried so far. */
   attempts: number
   /** Waiting out a `workspace-busy` backoff: queued, but not to be picked yet. */
@@ -315,7 +315,7 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
       }
     },
     requests() {
-      return pending.map(({ key, profileId, value, priority, phase, operationId }) => ({ key, profileId, value, priority, phase, operationId }))
+      return pending.map(({ key, profileId, value, priority, phase, operationId, share }) => ({ key, profileId, value, priority, phase, operationId, share }))
     },
     subscribe(listener) {
       listeners.add(listener)

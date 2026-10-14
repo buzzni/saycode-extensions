@@ -1,5 +1,5 @@
-// The panel's frame (design §1): the tab bar (board, list, wiki; the refresh time, the detail toggles), a
-// slot for the toolbar, the path line, the banners, the add field, the run's activity, and under them the
+// The panel's frame (design §1): the tab bar (board, list, wiki; the refresh time, the detail toggles), the
+// search / filter / sort toolbar (view/toolbar.ts, its state in the store), the path line, the banners, the add field, the run's activity, and under them the
 // split holding the list or board beside the detail. The panes are filled by the views named in
 // view/panes.ts through the contract in view/types.ts; the shell renders the panes that show on every store
 // change, and moves the split to the panel's width as it changes.
@@ -11,14 +11,15 @@ import { isInformation, type Outcome } from "../data/client.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
-import type { Focus, State, Store, Tab } from "../store.ts"
+import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
 import { mountCrumbs } from "./crumbs.ts"
 import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
-import { segKey } from "./list-model.ts"
+import { narrow, segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
-import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents } from "./types.ts"
+import { createToolbar, type LiveToolbar } from "./toolbar.ts"
+import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource } from "./types.ts"
 
 export interface Activity {
   /** 'starting' while Desktop may show its confirmation, 'running' once the machine runs it. */
@@ -45,6 +46,8 @@ export interface ShellOptions {
   /** The index of the state's rows; the caller builds it once per read. */
   index(state: State): IssueIndex | null
   activity(): Activity
+  /** The wiki's reads, handed to the wiki pane; without them the wiki tab says it cannot read the wiki. */
+  wiki?: WikiSource
 }
 
 export interface Shell {
@@ -60,13 +63,22 @@ export interface Shell {
   /** The add field; the caller clears it after an add went through. */
   input: HTMLInputElement
   /**
-   * Places other parts mount into: `toolbar` under the tab bar (view/toolbar.ts), `actions` at the end of the
-   * tab bar (the help button). Both are empty and take no room until something is put in them.
+   * Places other parts mount into: `toolbar` under the tab bar (holds the search / filter / sort toolbar, which
+   * the shell mounts; hidden on the wiki tab), `actions` at the end of the tab bar (the help button, empty and
+   * taking no room until something is put in it).
    */
   slots: { toolbar: HTMLElement; actions: HTMLElement }
   /** The panel's width changed. A ResizeObserver on the shell calls this; tests call it by hand. */
   setWidth(width: number): void
   layout(): PaneLayout
+  /** The views in the panes, for the key router (panel/keys/wiring.ts) to hand its actions to. */
+  panes(): { list: PaneView; board: PaneView; detail: PaneView; wiki: PaneView | null }
+  /** Move the keyboard focus into a pane of the shown tab (its view's focus()). */
+  focusPane(area: Focus): void
+  /** Move the keyboard focus to the selected tab of the tab bar: the way out of the wiki, whose Tab cycles its links. */
+  focusTabs(): void
+  /** The search / filter / sort toolbar (its inputs: `/` and `SPC f` put the caret in them). */
+  toolbar: LiveToolbar
   destroy(): void
 }
 
@@ -145,7 +157,11 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     el(doc, "div", { class: "m-tabbar-actions" }, refresh, visibility, position.el, actions))
 
   // ── under the tab bar: toolbar slot, path line, activity, banners, add field ──
-  const toolbar = el(doc, "div", { class: "m-toolbar-slot" })
+  const toolbar = el(doc, "div", { class: "m-toolbar-slot", hidden: state.tab === "wiki" })
+  // The toolbar is built once and brought to the store's state on every render (its inputs are never rebuilt
+  // under the caret or an IME composition); what it does goes back to the store as a `toolbar` action.
+  const bar = createToolbar({ doc, copy: copy.toolbar }, { dispatch: (action) => store.dispatch({ type: "toolbar", action }) })
+  toolbar.append(bar.el)
   const crumbs = mountCrumbs(doc, copy, (path) => {
     // Going up lands on the place just left, as Backspace does (list.ts leave()).
     const from = store.getState().path
@@ -162,21 +178,29 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const notice = el(doc, "div", { class: "m-banner moai-notice", role: "status" })
   const error = el(doc, "div", { class: "m-banner m-banner-danger moai-error", role: "alert" })
   const more = el(doc, "p", { class: "moai-more" })
+  // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
+  const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
   addButton.classList.add("moai-add-button")
-  // The panel iframe has no allow-forms, so Enter is handled here — and not while an IME composes.
+  // The panel iframe has no allow-forms, so Enter is handled here — and not while an IME composes. Esc leaves the
+  // field for the list (keybindings.md 3.5: in an input it blurs), its text kept: the key router leaves an editable
+  // target that is not a search or filter prompt alone, so nothing else would take the caret out (`SPC n` put it in).
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.isComposing) {
+    if (event.isComposing) return
+    if (event.key === "Enter") {
       event.preventDefault()
       submit()
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      focusPane("list")
     }
   })
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -239,7 +263,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     const view = mainViews[now.tab]
     return view.focus ? view.focus() : mainRoots[now.tab].focus()
   }
-  const ctx: ViewContext = { document: doc, copy, language, intents: viewIntents, layout, focusPane }
+  const ctx: ViewContext = { document: doc, copy, language, intents: viewIntents, layout, focusPane, wiki: options.wiki }
   const mainViews: Record<"list" | "board", PaneView> = {
     list: options.panes.list(mainRoots.list, ctx),
     board: options.panes.board(mainRoots.board, ctx),
@@ -247,6 +271,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const detailView = options.panes.detail(detailRoot, ctx)
   const wikiView = options.panes.wiki?.(wiki, ctx) ?? null
   if (!wikiView) wiki.append(emptyState(doc, { icon: "book-open", title: copy.shell.wikiPlaceholder }))
+  // Inside the wiki, Tab cycles the page's links, so a keyboard cannot Tab out of it: an Esc the wiki does not
+  // use (no link selected, no search to clear) moves the focus to the tab bar. The key router does that
+  // (keys/wiring.ts `wiki.clear`): it is the one keydown listener.
+  const focusTabs = () => tabs.el.querySelector<HTMLElement>(`#${tabDomId(store.getState().tab)}`)?.focus()
 
   // ── tab switching: each tab keeps its scroll offsets (display:none drops them) ──
   const containers: Record<Tab, HTMLElement> = { list: mainRoots.list, board: mainRoots.board, wiki }
@@ -262,6 +290,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     containers[tab].hidden = false
     work.hidden = tab === "wiki"
     head.hidden = tab === "wiki"
+    toolbar.hidden = tab === "wiki"
     shownTab = tab
     const offsets = saved.get(tab) ?? []
     restoreScroll(offsets.slice(0, 1))
@@ -312,6 +341,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     const index = options.index(state)
     if (tabs.selected() !== state.tab) tabs.setSelected(state.tab)
     work.setAttribute("aria-labelledby", tabDomId(state.tab === "board" ? "board" : "list"))
+    const left = shownTab
     const putBack = showTab(state.tab)
 
     const loadedAt = state.board.value?.loadedAt
@@ -328,15 +358,21 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explain(state.board.problem ?? (state.detail.visible ? null : state.shown.problem))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
+    // Written only when it changes: it is a live region.
+    const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
+    if (truncated.textContent !== partial) truncated.textContent = partial
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)
     } else {
+      bar.update(toolbarOf(state), { rows: index?.rows ?? [], hiddenBy: index ? narrow(state, index).hiddenBy : undefined })
       crumbs.render(state, index)
       mainViews[state.tab].render(state, index)
       if (state.detail.visible) detailView.render(state, index)
     }
     putBack()
+    // Last, as it dispatches (and so renders again): the wiki saves its page and trail into the store.
+    if (left === "wiki" && state.tab !== "wiki") wikiView?.leave?.()
   }
 
   function setWidth(next: number) {
@@ -345,12 +381,15 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     split.setWidth(width)
     position.update(split.position(), width)
     shell.dataset.position = split.position()
+    const current = store.getState()
+    // The wiki pane lays itself out from the width it is given when it renders (view/wiki.ts mountWiki): a narrow
+    // panel stacks its list over the page.
+    if (current.tab === "wiki") return wikiView?.render(current, options.index(current))
     // The list drops right-hand columns as it narrows; draw it again only when a breakpoint is crossed.
     const now = columnBand(layout().mainWidth)
     if (now === band) return
     band = now
-    const current = store.getState()
-    if (current.tab !== "wiki") mainViews[current.tab].render(current, options.index(current))
+    mainViews[current.tab].render(current, options.index(current))
   }
 
   const observer = win && "ResizeObserver" in win ? new win.ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0)) : null
@@ -378,6 +417,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     slots: { toolbar, actions },
     setWidth,
     layout,
+    panes: () => ({ list: mainViews.list, board: mainViews.board, detail: detailView, wiki: wikiView }),
+    focusPane,
+    focusTabs,
+    toolbar: bar,
     destroy() {
       unsubscribe()
       observer?.disconnect()
@@ -387,6 +430,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
       mainViews.board.destroy?.()
       detailView.destroy?.()
       wikiView?.destroy?.()
+      bar.destroy()
     },
   }
 }

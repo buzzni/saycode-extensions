@@ -118,26 +118,33 @@ export interface Rollup {
   byStatus: [string, number][]
 }
 
-/** `n/n` for a group, from the index the list uses — the same count. Null for anything that is not a group. */
+/**
+ * `n/n` for a group, the count the list draws: `index.tally()`, which for a milestone or epic is the one `moai
+ * status` gave (archived done members included). The per-status counts are the rows the index holds, with the done
+ * members it does not (the archive's) counted as done. Null for anything that is not a group.
+ */
 export function rollupOf(row: Row, index: IssueIndex | null): Rollup | null {
   if (!index) return null
   const at = index.find(row.id)
   // A group, or an issue with `.child` ids — whatever the list draws as a folder with an n/n.
   if (at === undefined || !(isGroup(row) || index.isDir(at))) return null
-  const progress: Progress = index.progress(index.dirPath(at))
+  const path = index.dirPath(at)
+  const progress: Progress = index.progress(path)
+  const [done, total] = index.tally(path)
   const counts = new Map<string, number>()
   for (const work of progress.work) {
     const status = text(index.rows[work]!.status) || 'todo'
     counts.set(status, (counts.get(status) ?? 0) + 1)
   }
-  const total = progress.work.length
+  const unheld = done - progress.done
+  if (unheld > 0) counts.set('done', (counts.get('done') ?? 0) + unheld)
   // The columns in their order (todo, in_progress, review, done), then any other in the order met.
   const rank = (status: string) => {
     const at = STATUS_ORDER.indexOf(status)
     return at < 0 ? STATUS_ORDER.length : at
   }
   const byStatus = [...counts].sort((a, b) => rank(a[0]) - rank(b[0]))
-  return { done: progress.done, work: total, percent: total ? Math.floor((progress.done * 100) / total) : undefined, byStatus }
+  return { done, work: total, percent: total ? Math.floor((done * 100) / total) : undefined, byStatus }
 }
 
 export interface Field {

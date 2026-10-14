@@ -12,9 +12,10 @@ export function kbdHint(doc: Document, notation: string | ReadonlyArray<string>)
   return wrap
 }
 
-/** "클릭하면 키보드를 쓸 수 있습니다" (keybindings.md 1): shown while the panel has no keyboard focus. */
-export function focusHint(doc: Document): HTMLElement {
-  return el(doc, "div", { class: "m-focus-hint", role: "status" }, "클릭하면 키보드를 쓸 수 있습니다")
+/** "클릭하면 키보드를 쓸 수 있습니다" (keybindings.md 1): shown while the panel has no keyboard focus. `text` is the
+ *  i18n catalogue's (copy.keys.focusHint). */
+export function focusHint(doc: Document, text = "클릭하면 키보드를 쓸 수 있습니다"): HTMLElement {
+  return el(doc, "div", { class: "m-focus-hint", role: "status" }, text)
 }
 
 export interface HelpProps {

@@ -7,11 +7,9 @@
  *   Moai's clock too (a row done for `archive_days`), so a group's old done members are not among these rows
  *   until the archive is read. If the daemon cut `show --all` at the 1 MiB output limit the rows fall back to
  *   `prime` (what is held and what is ready) with `truncated: true`, so the view can say the list is partial.
- * - {@link loadRows}, which the panel boots with today, still reads `prime` alone: the board's jsdom tests
- *   (tests/moai.test.mjs) and main.ts answer only `prime`, and both are held by other work. Switching is
- *   main.ts calling {@link loadAllRows} (same arguments) once those tests answer `show-all` and `backlog-all`,
- *   with the board state taking `truncated` along: BoardData holds only `rows` and `more`, and in the fallback
- *   `more` counts only what prime held back, not what `show --all` would have listed.
+ * - main.ts boots on {@link loadAllRows} and keeps `truncated` in the board state for its banner; in the
+ *   fallback `more` counts only what prime held back, not what `show --all` would have listed.
+ *   {@link loadRows} reads `prime` alone and is that fallback.
  * - A partial answer (Moai's non-zero exit with its whole JSON still printed; see client.ts) is read like a
  *   whole one: the rows it could read, the wiki pages it did not skip. `prime` ends such a run with 0 itself.
  * - The column names come from `status` ({@link loadStatuses}).
@@ -115,7 +113,7 @@ export function rowsFromLists(all: unknown, backlog: unknown): Loaded<Rows> {
   return { ok: true, value: { rows: withBacklog(items(all), backlog), more: 0, truncated: false } }
 }
 
-/** The index rows from `prime` alone: what is held and what is ready (the panel's reader until it switches). */
+/** The index rows from `prime` alone: what is held and what is ready (loadAllRows' fallback when `show --all` was cut). */
 export async function loadRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
   const outcome = seen(probe, PROFILE.prime, await client.request(PROFILE.prime, undefined, { priority }))
   return outcome.kind === 'passed' ? rowsFromPrime(outcome.output) : { ok: false, outcome }
@@ -132,8 +130,9 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
   const all = seen(probe, PROFILE.showAll, await listing)
   const cut = all.kind === 'unreadable' && all.truncated === true
   if (!cut && answerOf(all) === undefined) {
-    // show --all alone decides this load (declined, no tracker): a backlog read still queued behind it
-    // would only open a second confirmation for a load that already failed.
+    // show --all alone decides this load (declined, no tracker): the backlog read is called off. One still queued
+    // ends at once; one already starting beside it (the panel runs up to 3 reads at once) is cancelled as soon as
+    // it is accepted, though its confirmation may already be showing.
     client.cancel(requestKey(PROFILE.backlog))
     // A read that already ended keeps its outcome, and compat learns it; a cancelled one says nothing.
     // Not awaited: the panel does not wait on a read it no longer wants.

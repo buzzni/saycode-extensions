@@ -2,7 +2,8 @@
 // menu.rs feed). Pure: createKeyRouter() knows no DOM; attachKeyRouter() is the thin adapter that wires a document.
 //
 // Rules:
-//   - isComposing (Korean IME) → nothing at all, the buffer is left alone.
+//   - isComposing / keyCode 229 (an IME at work, Korean) → nothing at all in an editable target or the prompt, the
+//     buffer is left alone; on any other target only a letter or digit event.code names goes on (codeKey).
 //   - Cmd/Meta combinations and lone modifier keys are not ours (the host's shortcuts; Shift before 'G' must not
 //     drop a pending 'g').
 //   - prompt mode: only the prompt table (Enter, Esc, Tab, …); other keys type into the input.
@@ -15,6 +16,8 @@
 //     unknown or unavailable key is ignored, a toggle item keeps the menu open, an action item closes it, a motion key
 //     the layer does not carry closes the menu and moves. Auto-repeats of SPC or of a key inside the menu are ignored.
 //   - a key pressed inside an open modal dialog (the shortcut help) is the dialog's (attachKeyRouter).
+//   - Enter or Space on a focused button, link, checkbox, radio or summary is the control's own (its click), unless
+//     a sequence or the SPC menu is held (attachKeyRouter).
 
 import {
   KEY_TABLE,
@@ -39,11 +42,15 @@ export interface KeyEventLike {
   isComposing?: boolean
   /** 229 while an IME is busy (Chrome reports it before isComposing turns true). */
   keyCode?: number
+  /** Physical key ('KeyJ', 'Digit1'): the stand-in for a letter an input source (Korean) turned into a jamo. */
+  code?: string
   /** An auto-repeat of a held key. */
   repeat?: boolean
   /** The event target is editable. When absent, `target` is checked with isEditableTarget(). */
   editable?: boolean
   target?: unknown
+  /** The DOM event itself (attachKeyRouter fills it), for a dispatch that hands the key on (the wiki's handleKey). */
+  source?: unknown
 }
 
 export interface DispatchedAction {
@@ -116,9 +123,27 @@ const NOT_KEYS = new Set([
   "Fn", "FnLock", "Dead", "Unidentified", "Process", "Compose", "HangulMode", "HanjaMode", "KanaMode",
 ])
 
+const ASCII_PRINTABLE = /^[\x20-\x7e]$/
+const DIGIT_SHIFT = ")!@#$%^&*("
+
+/**
+ * The key a keydown stands for. With a Korean (or any non-Latin) input source event.key is a jamo ('ㅓ' for J) or
+ * 'Process'; then the US-layout character of event.code (KeyA..KeyZ, Digit0..Digit9) is used, with Shift honoured.
+ * An ASCII event.key is left alone (AZERTY, Dvorak). Anything else without such a code is returned as it was.
+ */
+function codeKey(event: KeyEventLike): string {
+  const key = event.key
+  if (!key || ASCII_PRINTABLE.test(key)) return key
+  if (key.length > 1 && key !== "Process" && /^[A-Za-z]/.test(key)) return key // a named key (Enter, F1, ...)
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code ?? "")
+  if (!m) return key
+  if (m[1]) return event.shiftKey ? m[1] : m[1].toLowerCase()
+  return event.shiftKey ? DIGIT_SHIFT[Number(m[2])]! : m[2]!
+}
+
 /** A keydown to its token in the table's notation, or null when it is not a key the panel handles. */
 export function keyToken(event: KeyEventLike): string | null {
-  const key = event.key
+  const key = codeKey(event)
   if (!key || event.metaKey || NOT_KEYS.has(key)) return null
   const ctrl = event.ctrlKey ? "C-" : ""
   const alt = event.altKey ? "A-" : ""
@@ -238,11 +263,15 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
 
   return {
     handle(event) {
-      // 'Process' (an IME key) is in NOT_KEYS, so keyToken drops it.
-      if (event.isComposing || event.keyCode === 229) return none
+      const ctx = options.getContext()
+      if (event.isComposing || event.keyCode === 229) {
+        // An IME at work in an editable target (or the prompt) is its own. In a non-editable one Chrome sends
+        // 'Process'/a jamo: only a key event.code can name goes on ('Process' without one is in NOT_KEYS).
+        if (ctx.mode === "prompt" || (event.editable ?? isEditableTarget(event.target))) return none
+        if (codeKey(event) === event.key) return none
+      }
       const token = keyToken(event)
       if (token === null) return none
-      const ctx = options.getContext()
       if (ctx.mode !== "prompt") {
         const editable = event.editable ?? isEditableTarget(event.target)
         if (editable) {
@@ -309,13 +338,44 @@ function inModal(target: unknown): boolean {
   return typeof el?.closest === "function" && el.closest('[aria-modal="true"]:not([hidden])') != null
 }
 
+const CLICKABLE_INPUTS = new Set(["button", "checkbox", "radio", "reset", "submit", "image"])
+
+/**
+ * A control that Enter or Space activates itself (a button, a link, a checkbox or radio, a <summary>). The router
+ * leaves those keys to it: running `enter` and preventDefault there would swallow the control's click.
+ */
+export function isActivatable(target: unknown): boolean {
+  if (!target || typeof target !== "object") return false
+  const el = target as ElementLike & { hasAttribute?: (name: string) => boolean; getAttribute?: (name: string) => string | null }
+  const tag = (el.tagName ?? "").toUpperCase()
+  if (tag === "BUTTON" || tag === "SUMMARY") return true
+  if (tag === "A") return el.hasAttribute?.("href") === true
+  if (tag === "INPUT") return CLICKABLE_INPUTS.has((el.type ?? "text").toLowerCase())
+  const role = el.getAttribute?.("role")
+  return role === "button" || role === "checkbox" || role === "radio" || role === "link" || role === "menuitem" || role === "menuitemcheckbox" || role === "tab"
+}
+
+export interface AttachOptions {
+  /**
+   * Sees every keydown first; true takes it from the router (an overlay that keeps the panel quiet while it is
+   * open, even when the focus has left it). It calls preventDefault itself when it wants that.
+   */
+  intercept?: (event: KeyboardEventLike) => boolean
+}
+
 /**
  * Wire the router to a document's keydown. A key a component already handled (defaultPrevented: the tab strip's
- * arrows, the split resizer) or pressed inside a modal dialog is left alone. Returns the function that unwires it.
+ * arrows, the split resizer), pressed inside a modal dialog, or an Enter / Space on a focused control that clicks
+ * on it (isActivatable) is left alone. Returns the function that unwires it.
  */
-export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => void {
+export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter, options: AttachOptions = {}): () => void {
   const onKeyDown = (event: KeyboardEventLike): void => {
     if (event.defaultPrevented || inModal(event.target)) return
+    if (options.intercept?.(event)) return
+    if ((event.key === "Enter" || event.key === " ") && isActivatable(event.target)) {
+      const held = router.state()
+      if (held.menu === null && held.pending.length === 0) return
+    }
     const result = router.handle({
       key: event.key,
       ctrlKey: event.ctrlKey,
@@ -324,8 +384,11 @@ export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => vo
       shiftKey: event.shiftKey,
       isComposing: event.isComposing,
       keyCode: event.keyCode,
+      code: event.code,
       repeat: event.repeat,
       editable: isEditableTarget(event.target),
+      target: event.target,
+      source: event,
     })
     if (result.preventDefault) event.preventDefault()
   }

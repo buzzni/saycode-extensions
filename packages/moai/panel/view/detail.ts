@@ -6,6 +6,7 @@
  */
 import { isInformation } from '../data/client.js'
 import type { IssueIndex, Row } from '../data/index.js'
+import { sees } from '../data/query.js'
 import type { State } from '../store.js'
 import { banner, button, chip, el, emptyState } from './components.ts'
 import {
@@ -24,6 +25,7 @@ import {
   workOf,
 } from './detail-format.ts'
 import { renderMarkdown } from './markdown.ts'
+import { highlight } from './toolbar.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
 /** The body as markdown (view/markdown.ts: raw HTML stays text, links are only recorded, never followed). */
@@ -50,6 +52,7 @@ const STYLE = `
 .moai-detail-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
 .moai-detail-bar > span { display: block; height: 100%; background: var(--ok); }
 .moai-detail-body { overflow-wrap: anywhere; }
+.moai-detail-raw { margin: 0; white-space: pre-wrap; font-family: var(--mono, monospace); font-size: 12px; }
 .moai-detail h3, .moai-detail summary { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .moai-detail summary { cursor: pointer; }
 .moai-detail-list { margin: 4px 0 0; padding: 0; list-style: none; }
@@ -109,7 +112,10 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   let shownId: string | null = null
   /** What the pane was drawn from: it is drawn again only when one of them changed (a redraw loses a text
    *  selection and the focus on a folded section's summary, and the shell renders it on every store change). */
-  let drawn: { shown: State['shown']; index: IssueIndex | null } | null = null
+  let drawn: { shown: State['shown']; index: IssueIndex | null; search: State['search'] } | null = null
+  /** `SPC v r`: the body as the markdown it was written in. */
+  let raw = false
+  let last: { state: State; index: IssueIndex | null } | null = null
 
   function closeButton() {
     const close = button(doc, { label: d.close, variant: 'ghost', small: true, icon: 'x', onClick: () => intents.closeDetail() })
@@ -117,7 +123,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     return close
   }
 
-  function content(row: Row, index: IssueIndex | null): Node[] {
+  function content(row: Row, index: IssueIndex | null, search: State['search']): Node[] {
     const head = headOf(row, copy)
     const chips = el(doc, 'div', { class: 'moai-detail-chips' })
     if (head.status) chips.append(chip(doc, { label: head.statusLabel, tone: head.tone }))
@@ -129,8 +135,8 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     const out: Node[] = [
       el(doc, 'div', { class: 'moai-detail-head' },
         el(doc, 'div', { class: 'moai-detail-headtext' },
-          el(doc, 'div', { class: 'moai-detail-id' }, head.id),
-          el(doc, 'h2', { class: 'moai-detail-title' }, head.title),
+          el(doc, 'div', { class: 'moai-detail-id' }, ...painted(head.id, 'id', search)),
+          el(doc, 'h2', { class: 'moai-detail-title' }, ...painted(head.title, 'title', search)),
           chips),
         closeButton()),
     ]
@@ -152,7 +158,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
       out.push(section(doc, d.rollup, el(doc, 'div', { class: 'moai-detail-rollup' }, d.rollupText(rollup.done, rollup.work, rollup.percent)), bar, counts ? el(doc, 'div', { class: 'moai-detail-meta' }, counts) : null))
     }
     const body = typeof row.body === 'string' ? row.body.trim() : ''
-    if (body) out.push(section(doc, d.body, renderBody(doc, body)))
+    if (body) out.push(section(doc, d.body, raw ? el(doc, 'pre', { class: 'moai-detail-body moai-detail-raw' }, body) : renderBody(doc, body)))
     const children = childrenOf(row, index)
     if (children.length) {
       const list = el(doc, 'ul', { class: 'moai-detail-list' })
@@ -180,9 +186,14 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     return out
   }
 
+  /** A search paints its hits in the id and title it looks in (design §4.4); the body is drawn as it is. */
+  const painted = (text: string, part: 'id' | 'title', search: State['search']): Array<Node | string> =>
+    search.text.trim() && sees(search.scope, part) ? highlight(doc, text, search.text) : [text]
+
   function render(state: State, index: IssueIndex | null) {
-    if (drawn && drawn.shown === state.shown && drawn.index === index) return
-    drawn = { shown: state.shown, index }
+    last = { state, index }
+    if (drawn && drawn.shown === state.shown && drawn.index === index && drawn.search === state.search) return
+    drawn = { shown: state.shown, index, search: state.search }
     const { value, loading, problem } = state.shown
     // Another row's detail starts at the top; the same row redrawn (a refresh) keeps its place.
     const id = value?.id ?? null
@@ -195,7 +206,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
       const said = problemText(problem, copy)
       children.push(banner(doc, isInformation(problem) ? 'info' : 'danger', said ? `${d.problem} ${said}` : d.problem))
     }
-    if (value) children.push(...content(value.row, index))
+    if (value) children.push(...content(value.row, index, state.search))
     else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
     else if (!problem) children.push(emptyState(doc, { title: d.none }))
     view.replaceChildren(...children)
@@ -203,10 +214,33 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     if (key !== undefined) view.querySelector<HTMLElement>(`[data-focus="${key}"]`)?.focus({ preventScroll: true })
   }
 
+  /** A key-table action while the detail has the focus (keys/wiring.ts): the moves scroll it. */
+  function command(action: string): boolean {
+    const box = scroller()
+    const line = 40
+    const page = Math.max(line, box.clientHeight - line)
+    const by: Record<string, number> = {
+      'move.down': line, 'move.up': -line, 'move.halfDown': page / 2, 'move.halfUp': -page / 2,
+      'move.pageDown': page, 'move.pageUp': -page, 'move.top': -Infinity, 'move.bottom': Infinity,
+    }
+    const step = by[action]
+    if (step === undefined) return false
+    box.scrollTop = step === -Infinity ? 0 : step === Infinity ? box.scrollHeight : Math.max(0, box.scrollTop + step)
+    return true
+  }
+
   return {
     render,
-    // The pane itself takes the focus while it has no control yet (it is still reading), so the focus is
-    // never left behind in the list that asked for it.
-    focus: () => (view.querySelector<HTMLElement>('button') ?? root).focus({ preventScroll: true }),
+    command,
+    toggleRaw() {
+      raw = !raw
+      drawn = null
+      if (last) render(last.state, last.index)
+    },
+    raw: () => raw,
+    // The pane itself takes the focus, never its first control: that is Close, and the key router leaves Enter and
+    // Space on a focused button to the button (keys/router.ts isActivatable), so SPC meant for the menu, or Enter,
+    // would close the detail. From the pane the keys stay the router's (j/k scroll it, SPC opens the menu).
+    focus: () => root.focus({ preventScroll: true }),
   }
 }

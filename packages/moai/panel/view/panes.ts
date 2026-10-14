@@ -4,10 +4,11 @@ import type { Panes } from "./types.ts"
 import { mountList } from "./list.ts"
 import { mountBoard } from "./board.ts"
 import { mountDetail } from "./detail.ts"
+import { mountWiki } from "./wiki.ts"
 
 export const PANES: Panes = {
   list: mountList,
   board: mountBoard,
   detail: mountDetail,
-  // wiki: the wiki tab (E7 se-rhu3) — until it is named here the tab shows a placeholder.
+  wiki: mountWiki,
 }

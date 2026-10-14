@@ -55,7 +55,9 @@ marks the whole group read, and `SPC m a` marks everything read. Marking read wr
 ## Keyboard
 
 - Typing in an input (search, filter, add) turns the single-key shortcuts off, and nothing is handled during IME
-  composition.
+  composition there. Outside an input the letter keys work with a Korean (or other non-Latin) input source too:
+  the key's position counts, so `ㅓ` is `j`.
+- `Enter` and `Space` on a focused button, link or checkbox press that control instead of running a shortcut.
 - Sequences work as in vim: `gg`, and `SPC` followed by letters. `SPC` opens a menu showing what each next key does;
   `Esc` or `SPC` closes it, `Backspace` goes up one level, and clicking an item is the same as pressing its key.
 - `Ctrl-w` window moves are taken by the Desktop (tab close) on Linux and Windows, so use `SPC w …` there; macOS
