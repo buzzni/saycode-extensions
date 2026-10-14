@@ -33,7 +33,7 @@ import { refusalCode, type Outcome } from './client.js'
 import type { Row } from './index.js'
 import { PROFILE } from './source.js'
 
-export type Feature = 'all-rows' | 'backlog' | 'archive' | 'wiki' | 'read-marks' | 'unread' | 'status-order' | 'tallies'
+export type Feature = 'all-rows' | 'backlog' | 'archive' | 'wiki' | 'read-marks' | 'status-order' | 'tallies'
 
 export interface CompatReport {
   /** `old`: a shape only an older moai prints. `unknown`: nothing seen decides it (or `moai` is missing). */

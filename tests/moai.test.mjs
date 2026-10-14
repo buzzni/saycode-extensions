@@ -407,7 +407,7 @@ test('a list cut at the output limit stands on prime, says so in a banner and ho
   const panel = await runPanel(board({ 'buzzni.moai.show-all': cut, 'buzzni.moai.prime': JSON.stringify({ ...JSON.parse(PRIME), rest: 3, others_rest: 2 }) }))
   assert.deepEqual(panel.starts().map(([profile]) => profile), ['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.status', 'buzzni.moai.prime'])
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
-  assert.equal(panel.$('.moai-truncated').textContent, 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.')
+  assert.equal(panel.$('.moai-truncated').textContent, 'The whole list was too large to read, so only the tasks held and ready to pick up are shown, with the backlog when it could be read.')
   assert.notEqual(panel.window.getComputedStyle(panel.$('.moai-truncated')).display, 'none')
   assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
   // The whole list read again: the banner goes.
