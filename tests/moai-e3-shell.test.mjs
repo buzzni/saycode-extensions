@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const { crumbSegments, crumbLine, hungBadge, lookBadge, segLabel, sortWords } = await panelModule('view/crumbs.ts')
-const { MEMORY_KEY, createMemory, normalizeMemory, remember } = await panelModule('data/memory.ts')
+const { MEMORY_KEY, SORT_DEFAULT_KEY, createMemory, createSortDefault, createSessionStorage, normalizeSort, QUERY_KEY, normalizeQuery, normalizeMemory, remember } = await panelModule('data/memory.ts')
 const { createStore, initialState, reduce } = await panelModule('store.ts')
 const { IssueIndex, LOST, NO_MILESTONE } = await panelModule('data/index.ts')
 const { copyFor } = await panelModule('i18n/index.ts')
@@ -121,7 +121,7 @@ test('memory: restored into the store at boot, saved only when a remembered sett
   let writes = 0
   const counting = { getItem: storage.getItem, setItem: (key, value) => { writes++; storage.setItem(key, value) } }
   const store = createStore()
-  remember(store, createMemory(() => counting))
+  remember(store, createMemory(() => counting), createSortDefault(), createSessionStorage())
   const state = store.getState()
   assert.equal(state.tab, 'board')
   assert.deepEqual(state.detail, { visible: false, position: 'left', ratio: { left: 0.6, bottom: 0.25 } })
@@ -154,7 +154,7 @@ function boot(storage, { rows = ROWS, indexOf = null } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><head></head><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
-  remember(store, createMemory(() => storage))
+  remember(store, createMemory(() => storage), createSortDefault(), createSessionStorage())
   const calls = []
   const rowIndex = new IssueIndex(rows)
   const shell = mountShell(doc.getElementById('moai-app'), {
@@ -528,4 +528,102 @@ test('shell: the activity line asks to approve a waiting run beside one that run
   panel.shell.activity({ phase: 'starting', waiting: true, cancellable: false })
   assert.equal(line.textContent, en.starting)
   assert.equal(panel.$('.moai-cancel').hidden, true)
+})
+
+test('memory: the default sort lasts for the session, lives under one key, and is applied at boot', () => {
+  const storage = createSessionStorage()
+  const sortDefault = createSortDefault(storage)
+  assert.equal(sortDefault.get(), null)
+  assert.equal(sortDefault.persistent, false)
+  const sort = { fields: [{ key: 'updated', dir: 'desc' }, { key: 'title', dir: 'asc' }], reversed: true }
+  sortDefault.set(sort)
+  assert.deepEqual(sortDefault.get(), sort)
+  assert.deepEqual(JSON.parse(storage.read(SORT_DEFAULT_KEY)), sort, 'a persisting backend finds it under the same key')
+  const store = createStore()
+  remember(store, createMemory(() => null), sortDefault, storage)
+  assert.deepEqual(store.getState().sort, sort)
+  sortDefault.clear()
+  assert.equal(sortDefault.get(), null)
+})
+
+test('memory: a stored sort that is not usable is no default', () => {
+  assert.equal(normalizeSort(null), null)
+  assert.equal(normalizeSort({ fields: [] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'nope', dir: 'asc' }] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'title', dir: 'sideways' }] }), null)
+  assert.equal(normalizeSort({ fields: [{ key: 'title', dir: 'asc' }, { key: 'title', dir: 'desc' }] }), null)
+  const storage = createSessionStorage()
+  storage.write(SORT_DEFAULT_KEY, '{not json')
+  assert.equal(createSortDefault(storage).get(), null)
+})
+
+test('memory: search scope, filter, sort, cells and view are kept under one key and restored at boot', () => {
+  const storage = createSessionStorage()
+  const none = createSortDefault(storage)
+  const first = createStore()
+  remember(first, createMemory(() => null), none, storage)
+  first.dispatch({ type: 'search', text: 'abc', scope: 'title' })
+  first.dispatch({ type: 'filter', text: 'status=todo' })
+  first.dispatch({ type: 'sort', sort: { fields: [{ key: 'title', dir: 'desc' }], reversed: false } })
+  first.dispatch({ type: 'column', column: 'tags', on: true })
+  first.dispatch({ type: 'view', view: { hideBacklog: true, hiddenStatuses: ['done'] } })
+  assert.ok(storage.read(QUERY_KEY))
+  const second = createStore()
+  remember(second, createMemory(() => null), none, storage)
+  const state = second.getState()
+  assert.equal(state.search.scope, 'title')
+  assert.equal(state.search.text, '', 'the search text is not kept')
+  assert.equal(state.filter.applied, 'status=todo')
+  assert.deepEqual(state.sort.fields, [{ key: 'title', dir: 'desc' }])
+  assert.equal(state.columns.tags, true)
+  assert.equal(state.view.hideBacklog, true)
+  assert.deepEqual(state.view.hiddenStatuses, ['done'])
+})
+
+test('memory: an order that is the default is not kept, so a later default decides the next opening', () => {
+  const storage = createSessionStorage()
+  const defaults = createSortDefault(storage)
+  const first = createStore()
+  remember(first, createMemory(() => null), defaults, storage)
+  // A cell toggled on the default order: the workspace keeps the cell, not the order.
+  first.dispatch({ type: 'column', column: 'tags', on: true })
+  assert.equal(JSON.parse(storage.read(QUERY_KEY)).sort, null)
+  // `D` saves another order as the default afterwards.
+  defaults.set({ fields: [{ key: 'updated', dir: 'desc' }], reversed: false })
+  const second = createStore()
+  remember(second, createMemory(() => null), defaults, storage)
+  assert.deepEqual(second.getState().sort.fields, [{ key: 'updated', dir: 'desc' }], 'the next opening is on the saved default')
+  assert.equal(second.getState().columns.tags, true)
+  // A cursor move writes nothing; an order of the workspace's own is kept and wins over the default.
+  let writes = 0
+  const counting = { read: (key) => storage.read(key), write: (key, value) => { writes++; storage.write(key, value) }, persistent: false }
+  const third = createStore()
+  remember(third, createMemory(() => null), defaults, counting)
+  third.dispatch({ type: 'cursor', id: 'se-e1.a' })
+  assert.equal(writes, 0)
+  third.dispatch({ type: 'sort', sort: { fields: [{ key: 'title', dir: 'asc' }], reversed: false } })
+  assert.equal(writes, 1)
+  const fourth = createStore()
+  remember(fourth, createMemory(() => null), defaults, storage)
+  assert.deepEqual(fourth.getState().sort.fields, [{ key: 'title', dir: 'asc' }])
+})
+
+test('memory: a settings storage that throws only forgets; the store and its other listeners go on', () => {
+  const broken = { read: () => { throw new Error('unavailable') }, write: () => { throw new Error('quota') }, persistent: true }
+  const defaults = createSortDefault(broken)
+  assert.equal(defaults.get(), null)
+  defaults.set({ fields: [{ key: 'title', dir: 'asc' }], reversed: false })
+  defaults.clear()
+  const store = createStore()
+  remember(store, createMemory(() => null), defaults, broken)
+  let drawn = 0
+  store.subscribe(() => drawn++)
+  store.dispatch({ type: 'column', column: 'tags', on: true })
+  assert.equal(store.getState().columns.tags, true)
+  assert.equal(drawn, 1, 'a listener after remember() still hears the change')
+})
+
+test('memory: query settings that are not usable are left out', () => {
+  assert.deepEqual(normalizeQuery(null), {})
+  assert.deepEqual(normalizeQuery({ scope: 'nope', filter: 3, sort: { fields: [] }, columns: { tags: 'x', id: false }, view: { hideDeferred: 1 } }), { columns: { id: false }, view: {} })
 })

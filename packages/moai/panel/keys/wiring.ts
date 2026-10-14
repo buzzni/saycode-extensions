@@ -11,6 +11,7 @@
 import type { Outcome } from "../data/client.ts"
 import { compatTells } from "../data/compat.ts"
 import { NO_MILESTONE, type Row } from "../data/index.ts"
+import { sortDefault, type SortDefault } from "../data/memory.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
 import { withArchive } from "../data/source.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -68,9 +69,7 @@ export function keyContext(state: State, env: ContextEnv): KeyContext {
  * Table actions that do nothing yet, and why. Their keys stay in the table (the help lists them as usable), so a
  * dispatch that reaches one only says so.
  */
-export const NOT_WIRED: Readonly<Record<string, string>> = {
-  "sorter.default": "no place keeps a default sort yet (data/memory.ts)",
-}
+export const NOT_WIRED: Readonly<Record<string, string>> = {}
 
 /**
  * The read-mark writes (data/read.ts markRead, markAllRead, markGroupRead), each answering null when it went
@@ -85,6 +84,10 @@ export interface ReadMarks {
   group(id: string): Promise<Outcome | null>
 }
 
+// i18n pass: keys.sortDefaultSaved / keys.sortDefaultSavedSession (Korean literals until then).
+const SORT_DEFAULT_SAVED = "기본 정렬로 저장했습니다."
+const SORT_DEFAULT_SAVED_SESSION = "기본 정렬로 저장했습니다. 설정 저장소가 생기기 전까지는 이 세션에서만 유지됩니다."
+
 export interface KeyWiringOptions {
   document: Document
   store: Store
@@ -94,6 +97,8 @@ export interface KeyWiringOptions {
   platform?: Platform
   /** The read-mark writes; without them `r` and `SPC m` are not offered (KeyContext.readable). */
   read?: ReadMarks
+  /** Where `D` saves the default sort and an emptied order returns to; defaults to the panel's shared one. */
+  sortDefault?: SortDefault
 }
 
 export interface KeyWiring {
@@ -199,7 +204,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   let sorterAt = 0
   let sorterFrom: Sort | null = null
   const sortKey = (): SortKey => SORT_KEYS[sorterAt]!
-  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort })
+  const defaults = options.sortDefault ?? sortDefault
+  // An order emptied of every field is the reset: it goes back to the saved default, else the store's own.
+  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort: sort.fields.length ? sort : (defaults.get() ?? sort) })
 
   function paintSorter() {
     for (const row of bar.el.querySelectorAll<HTMLElement>(".m-sort-pop .m-menu-item[data-key]")) {
@@ -469,8 +476,12 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     },
     "sorter.flip": () => setSort(sortEdit(store.getState().sort, sortKey(), "flip")),
     "sorter.apply": () => closeSorter(true),
-    // hookup: no place keeps a default sort yet — save store.getState().sort as the default here.
-    "sorter.default": () => say(copy.keys.sortDefaultUnavailable),
+    "sorter.default": () => {
+      defaults.set(store.getState().sort)
+      say(defaults.persistent ? SORT_DEFAULT_SAVED : SORT_DEFAULT_SAVED_SESSION)
+      // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
+      closeSorter(true)
+    },
     "sorter.cancel": () => closeSorter(false),
     "wiki.enter": wiki,
     "wiki.back": wiki,

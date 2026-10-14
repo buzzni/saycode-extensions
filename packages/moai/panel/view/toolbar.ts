@@ -480,6 +480,8 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
           }
           pop.append(rowEl)
         }
+        // i18n pass: toolbar.sortDefaultSessionNote. Said plainly until a settings storage keeps the default.
+        pop.append(el(doc, "div", { class: "m-sort-note", "data-sort-note": "default" }, "D: 기본 정렬로 저장 — 이 세션에서만 유지됩니다."))
         sortWrap.append(pop)
         sortPop = pop
       }
