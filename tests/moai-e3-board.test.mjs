@@ -278,7 +278,7 @@ test('board view: NEW stands before the title of an unread card only (se-ehdi.zc
   assert.equal(title('e1.a').firstChild.textContent, 'NEW')
   assert.ok(title('e1.a').firstChild.classList.contains('m-chip-new'))
   assert.match(title('e1.a').textContent, /^NEW A$/)
-  assert.equal(title('e1.b').querySelector('.m-chip-new'), null, 'an archive row is never NEW')
+  assert.equal(title('e1.b')?.querySelector('.m-chip-new') ?? null, null, 'an archive row is never NEW (and the board no longer draws it unless shown)')
   assert.equal(title('e1.c').querySelector('.m-chip-new'), null)
   assert.equal(mount({ ...initialState(), tab: 'board' }).root.querySelector('.m-chip-new'), null)
 })

@@ -19,6 +19,7 @@ import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
 import { narrow, segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
+import { unreadBadges } from "./unread.ts"
 import { createToolbar, type LiveToolbar } from "./toolbar.ts"
 import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource } from "./types.ts"
 
@@ -400,6 +401,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     state = store.getState()
     const index = options.index(state)
     if (tabs.selected() !== state.tab) tabs.setSelected(state.tab)
+    // The unread count rides the board and list tabs; with no index there is nothing to count (se-ehdi.zcx).
+    const badges = unreadBadges(index?.rows ?? [])
+    tabs.setBadge("board", badges.board)
+    tabs.setBadge("list", badges.list)
     work.setAttribute("aria-labelledby", tabDomId(state.tab === "board" ? "board" : "list"))
     const left = shownTab
     const putBack = showTab(state.tab)

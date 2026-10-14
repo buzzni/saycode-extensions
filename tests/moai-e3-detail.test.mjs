@@ -196,6 +196,21 @@ test('pane: nothing chosen, loading and a problem', () => {
   assert.match(root.textContent, /boom/)
 })
 
+test('pane: a tool-missing refusal the compat banner tells is not said again; unsupported-daemon still is (se-p314)', () => {
+  const { root, view } = mount()
+  const missing = { kind: 'refused', code: 'tool-missing' }
+  const told = { toolMissing: true, catalog: { state: 'ok' } }
+  const base = stateWith({ problem: missing })
+  view.render({ ...base, compat: null }, index)
+  assert.match(root.textContent, /\S/)
+  assert.ok(root.querySelector('.m-banner'), 'nobody told it: the detail says it')
+  view.render({ ...base, compat: told }, index)
+  assert.equal(root.querySelector('.m-banner'), null, 'the banner told it: the detail keeps quiet')
+  const daemon = stateWith({ problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  view.render({ ...daemon, compat: { toolMissing: false, catalog: { state: 'missing' } } }, index)
+  assert.ok(root.querySelector('.m-banner'), 'the detail read is not heard by the probe: unsupported-daemon is its own')
+})
+
 test('pane: the focus goes to the pane itself while it has no control, and the scroll is the split container\'s', () => {
   const dom = new JSDOM('<!doctype html><body><div id="scroller" data-keep-scroll><div id="r" tabindex="-1"></div></div></body>')
   const doc = dom.window.document
