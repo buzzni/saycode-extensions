@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
-const { CompatProbe, sameReport } = await panelModule('data/compat.ts')
+const { CompatProbe, compatTells, sameReport } = await panelModule('data/compat.ts')
 const { PROFILE, loadAllRows, loadStatuses, loadArchived, loadWikiListing } = await panelModule('data/source.ts')
 const { markRead } = await panelModule('data/read.ts')
 
@@ -41,7 +41,7 @@ test('the assumed shapes (statuses[], tallies, unread) read as a whole new setup
   assert.deepEqual(probe.report(), { moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [] })
 })
 
-test('real 0.16 output: no statuses[] is an old moai, the order falls back and NEW still works', async () => {
+test('real 0.16 output: no statuses[] is an old moai, yet nothing the panel uses falls back', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({ [PROFILE.status]: passed(await fixture('status-v016.json')) }))
   await loadAllRows(client, undefined, probe)
@@ -49,11 +49,12 @@ test('real 0.16 output: no statuses[] is an old moai, the order falls back and N
   assert.deepEqual(statuses.value, ['todo', 'in_progress', 'review', 'done'])
   const report = probe.report()
   assert.equal(report.moai, 'old')
-  assert.deepEqual(report.degraded, ['status-order'])
+  // The columns are ordered from the rows, not from `status` (loadStatuses has no caller), and 0.16 prints the tallies.
+  assert.deepEqual(report.degraded, [])
   assert.equal(report.catalog.state, 'ok')
 })
 
-test('rows without `unread` on an old moai also turn the marks off', async () => {
+test('rows without `unread` on an old moai are not named while NEW marks are not drawn', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({
     [PROFILE.showAll]: passed(withoutUnread(await fixture('show-all-unread-v016.json'))),
@@ -62,7 +63,7 @@ test('rows without `unread` on an old moai also turn the marks off', async () =>
   }))
   await loadAllRows(client, undefined, probe)
   await loadStatuses(client, undefined, probe)
-  assert.deepEqual(probe.report().degraded, ['unread', 'status-order'])
+  assert.deepEqual(probe.report().degraded, [])
 })
 
 test('rows without `unread` alone are not proof: moai stays unknown', async () => {
@@ -121,9 +122,9 @@ test('tool-missing is its own flag and does not blame the catalog', async () => 
   assert.deepEqual(probe.report(), { moai: 'unknown', toolMissing: true, catalog: { state: 'unknown', missing: [] }, degraded: [] })
 })
 
-test('a profile that only ever fails to start (binding-mismatch is thrown, its code carried) is read as missing; a pass clears it', async () => {
+test('a start that failed naming unsupported-daemon (a thrown start, its code carried) is read as missing; a pass clears it', async () => {
   const probe = new CompatProbe()
-  const reads = [{ kind: 'not-started', code: 'binding-mismatch' }, passed({ read: ['a'], missing: [], held: [], problems: [], at: 'now' })]
+  const reads = [{ kind: 'not-started', code: 'unsupported-daemon' }, passed({ read: ['a'], missing: [], held: [], problems: [], at: 'now' })]
   const client = clientOf({ [PROFILE.status]: passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }), [PROFILE.read]: () => reads.shift() })
   await loadStatuses(client, undefined, probe)
   await markRead(client, { id: 'a' }, probe)
@@ -131,6 +132,15 @@ test('a profile that only ever fails to start (binding-mismatch is thrown, its c
   assert.deepEqual(probe.report().degraded, ['read-marks'])
   await markRead(client, { id: 'a' }, probe)
   assert.deepEqual(probe.report().catalog, { state: 'ok', missing: [] })
+})
+
+test('binding-mismatch says the binding or the approval changed, nothing of the catalog', async () => {
+  const probe = new CompatProbe()
+  const client = clientOf({ [PROFILE.status]: passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }), [PROFILE.read]: { kind: 'not-started', code: 'binding-mismatch' } })
+  await loadStatuses(client, undefined, probe)
+  await markRead(client, { id: 'a' }, probe)
+  assert.deepEqual(probe.report().catalog, { state: 'ok', missing: [] })
+  assert.deepEqual(probe.report().degraded, [])
 })
 
 test('a start that failed without naming a catalog code leaves the catalog unknown, not missing', async () => {
@@ -168,4 +178,42 @@ test('tool-missing goes once a run starts there again (moai installed while the 
   assert.equal(probe.report().toolMissing, true, 'a refusal that says nothing of the tool keeps it')
   probe.observe(PROFILE.status, passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }))
   assert.equal(probe.report().toolMissing, false)
+})
+
+test('the banner tells moai missing and a profile the catalog lacks; other refusals stay the board\'s', () => {
+  const report = (change = {}) => ({ moai: 'unknown', toolMissing: false, catalog: { state: 'unknown', missing: [] }, degraded: [], ...change })
+  assert.equal(compatTells(report({ toolMissing: true }), refused('tool-missing')), true)
+  assert.equal(compatTells(report(), refused('tool-missing')), false, 'not while the banner does not say it')
+  assert.equal(compatTells(report({ catalog: { state: 'missing', missing: [PROFILE.showAll] } }), refused('unsupported-daemon')), true)
+  // The daemon as a whole too old: the catalog line says nothing, so the board's banner tells it.
+  assert.equal(compatTells(report(), refused('unsupported-daemon')), false)
+  const told = report({ toolMissing: true, catalog: { state: 'missing', missing: [PROFILE.showAll] } })
+  for (const outcome of [refused('workspace-busy'), refused('unsupported-platform'), { kind: 'failed' }, { kind: 'not-started', code: 'unsupported-daemon' }, null]) {
+    assert.equal(compatTells(told, outcome), false, JSON.stringify(outcome))
+  }
+  assert.equal(compatTells(null, refused('tool-missing')), false)
+})
+
+test('refusals before anything has run leave the catalog unknown: a daemon too old for machine.run refuses them too', () => {
+  const probe = new CompatProbe()
+  probe.observe(PROFILE.showAll, refused('unsupported-daemon'))
+  probe.observe(PROFILE.backlog, { kind: 'not-started', code: 'unsupported-daemon' })
+  assert.deepEqual(probe.report().catalog, { state: 'unknown', missing: [] })
+  // An added profile still counts as off, whatever the catalog turns out to be.
+  assert.deepEqual(probe.report().degraded, ['all-rows', 'backlog'])
+  probe.observe(PROFILE.status, passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }))
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.showAll, PROFILE.backlog] })
+})
+
+test('the probe tells its listeners after each thing handed over, until unsubscribed', () => {
+  const probe = new CompatProbe()
+  let told = 0
+  const unsubscribe = probe.subscribe(() => { told += 1 })
+  probe.observe(PROFILE.status, refused('tool-missing'))
+  probe.observeStatus({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] })
+  probe.observeRows([{ id: 'a' }])
+  assert.equal(told, 3)
+  unsubscribe()
+  probe.observe(PROFILE.status, passed({ counts: { todo: 0 } }))
+  assert.equal(told, 3)
 })

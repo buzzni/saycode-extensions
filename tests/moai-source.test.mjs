@@ -250,12 +250,17 @@ test('a failed read of either list is the load failure; a missing board says not
   assert.deepEqual(await loadAllRows(lone), { ok: false, outcome: declined })
   assert.deepEqual(lone.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
   assert.deepEqual(lone.cancels, [PROFILE.backlog])
-  // compat still learns what the backlog read ended with when show --all decided the load.
+  // compat still learns what the backlog read ended with when show --all decided the load, and tells its listeners,
+  // though the load does not wait for it. The status read ran, so the catalog can be judged.
   const probe = new CompatProbe()
+  probe.observe(PROFILE.status, passed(STATUS))
+  const told = []
+  probe.subscribe(() => told.push(probe.report().catalog))
   const gone = { kind: 'refused', code: 'unsupported-daemon' }
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: declined, [PROFILE.backlog]: gone }), undefined, probe), { ok: false, outcome: declined })
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.backlog] })
+  assert.deepEqual(told.at(-1), { state: 'missing', missing: [PROFILE.backlog] }, 'the listeners hear the backlog outcome')
   const whole = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
   await loadAllRows(whole)
   assert.deepEqual(whole.cancels, [])

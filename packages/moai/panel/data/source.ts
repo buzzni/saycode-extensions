@@ -136,7 +136,8 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
     // it is accepted, though its confirmation may already be showing.
     client.cancel(requestKey(PROFILE.backlog))
     // A read that already ended keeps its outcome, and compat learns it; a cancelled one says nothing.
-    // Not awaited: the panel does not wait on a read it no longer wants.
+    // Not awaited: the panel does not wait on a read it no longer wants. The probe tells its listeners when the
+    // outcome lands, after this load has ended (main.ts puts the report in the store then).
     if (probe) void reading.then((outcome) => probe.observe(PROFILE.backlog, outcome))
     return { ok: false, outcome: all }
   }

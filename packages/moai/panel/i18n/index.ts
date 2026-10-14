@@ -16,7 +16,7 @@ export type Language = 'en' | 'ko' | 'ja' | 'zh'
 export interface CompatCopy {
   /** `moai` is not installed where the daemon runs. */
   toolMissing: string
-  /** An older moai: the features on a fallback follow (maybe none). */
+  /** An older moai: the features the panel uses that are on a fallback follow (one at least). */
   oldMoai: (features: string[]) => string
   /** The daemon's catalog lacks `missing` of the panel's profiles; the features they serve follow. */
   catalog: (missing: number, features: string[]) => string

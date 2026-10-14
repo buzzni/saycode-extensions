@@ -43,7 +43,7 @@
 
 ### 아직 열려 있는 것
 
-`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-hd7v`·`se-q1l4`(호환 배너 잔여), `se-4f4s`(잘린 목록의 `r`), `se-ehdi.zcx`(NEW 뱃지), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
+`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-4f4s`(잘린 목록의 `r`), `se-ehdi.zcx`(NEW 뱃지), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 
