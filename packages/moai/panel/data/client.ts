@@ -1,0 +1,232 @@
+/**
+ * The request queue: every Moai run the panel starts goes through here. There is no global busy lock —
+ * each request carries its own phase, so a slow list refresh does not lock the detail or the add field.
+ *
+ * - A request is `start` (`buzzni.moai.run`) → poll (`buzzni.moai.status` every `pollMs`) → parse.
+ * - A read already queued or running with the same profile and value is shared, not started twice.
+ * - At most `concurrency` runs are in flight; the rest wait in priority order (detail before wiki before
+ *   list). Whether Desktop runs several `machine.run` operations at once is still to be measured
+ *   (se-0g4a.fjl), so the default is 1.
+ * - Core's refusal codes, Moai's own errors and a missing `.moai/` come back as an {@link Outcome}, so each
+ *   area of the panel can explain its own failure.
+ */
+
+export interface Bridge {
+  invokeCommand(command: string, args: unknown[]): Promise<unknown>
+}
+
+export const COMMAND = {
+  run: 'buzzni.moai.run',
+  status: 'buzzni.moai.status',
+  cancel: 'buzzni.moai.cancel',
+} as const
+
+/** Refusals Core explains with a code; the extension returns them as `{state: 'refused', code}`. */
+export const REFUSAL_CODES = ['declined', 'approval-timeout', 'workspace-busy', 'tool-missing', 'unsupported-platform', 'unsupported-daemon'] as const
+export type RefusalCode = (typeof REFUSAL_CODES)[number]
+/** Refusals the user chose or can simply retry: information, not errors. */
+export const INFO_REFUSALS: ReadonlySet<RefusalCode> = new Set(['declined', 'approval-timeout', 'workspace-busy'])
+
+export type Outcome =
+  | { kind: 'passed'; output: unknown }
+  | { kind: 'refused'; code: RefusalCode }
+  /** The start threw, or came back without an operation (an older Desktop, an unknown refusal). */
+  | { kind: 'not-started' }
+  /** Moai says this folder has no `.moai/`; the panel cannot run `moai init` itself. */
+  | { kind: 'not-initialized' }
+  | { kind: 'moai-error'; message: string }
+  | { kind: 'failed' }
+  /** It passed but stdout was not JSON. */
+  | { kind: 'unreadable' }
+  | { kind: 'cancelled'; mayContinue: boolean }
+
+export type Phase = 'queued' | 'starting' | 'running'
+
+/** Lower runs first. */
+export const PRIORITY = { detail: 0, wiki: 1, list: 2, background: 3 } as const
+
+export interface RequestState {
+  key: string
+  profileId: string
+  value: string | undefined
+  priority: number
+  phase: Phase
+  /** Known once the run is accepted; until then Desktop may be showing its confirmation. */
+  operationId: string | null
+}
+
+export interface RequestOptions {
+  priority?: number
+  /** Writes are never shared: two adds of the same title are two adds. */
+  share?: boolean
+}
+
+export interface ClientOptions {
+  pollMs?: number
+  concurrency?: number
+  sleep?: (ms: number) => Promise<void>
+}
+
+const NOT_A_REPOSITORY = /Not a moai repository/
+
+const parse = (text: unknown): unknown => {
+  if (typeof text !== 'string') return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+/** What a finished status says, read the way the 1.x panel read it. */
+export function outcomeOf(finished: unknown): Outcome {
+  if (!isRecord(finished)) return { kind: 'failed' }
+  if (finished.state === 'cancelled') return { kind: 'cancelled', mayContinue: finished.remoteMayContinue === true }
+  const output = parse(finished.stdout ?? '')
+  if (finished.state === 'passed') return output === null ? { kind: 'unreadable' } : { kind: 'passed', output }
+  // Moai prints its JSON error on stderr.
+  const problem = parse(finished.stderr ?? '') ?? output
+  const reason = isRecord(problem) && typeof problem.error === 'string' ? problem.error : null
+  if (reason && NOT_A_REPOSITORY.test(reason)) return { kind: 'not-initialized' }
+  return reason ? { kind: 'moai-error', message: reason } : { kind: 'failed' }
+}
+
+/** What a start answer says, or null when it was accepted with an operation id. */
+export function refusalOf(started: unknown): Outcome | null {
+  if (isRecord(started) && started.state === 'refused') {
+    const code = started.code
+    return typeof code === 'string' && (REFUSAL_CODES as readonly string[]).includes(code) ? { kind: 'refused', code: code as RefusalCode } : { kind: 'not-started' }
+  }
+  if (!isRecord(started) || started.state !== 'accepted' || typeof started.operationId !== 'string') return { kind: 'not-started' }
+  return null
+}
+
+interface Pending extends RequestState {
+  seq: number
+  promise: Promise<Outcome>
+  resolve: (outcome: Outcome) => void
+  cancelled: boolean
+  share: boolean
+}
+
+export interface Client {
+  request(profileId: string, value?: string, options?: RequestOptions): Promise<Outcome>
+  /** Cancels a queued request at once, or asks the machine to cancel a running one. */
+  cancel(key: string): void
+  requests(): RequestState[]
+  subscribe(listener: () => void): () => void
+}
+
+export const requestKey = (profileId: string, value?: string): string => (value === undefined ? profileId : `${profileId}\u0000${value}`)
+
+export function createClient(bridge: Bridge, options: ClientOptions = {}): Client {
+  const pollMs = options.pollMs ?? 500
+  const concurrency = Math.max(1, options.concurrency ?? 1)
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const pending: Pending[] = []
+  const listeners = new Set<() => void>()
+  let seq = 0
+
+  const notify = () => {
+    for (const listener of [...listeners]) listener()
+  }
+  const running = () => pending.filter((entry) => entry.phase !== 'queued').length
+
+  const settle = (entry: Pending, outcome: Outcome) => {
+    const at = pending.indexOf(entry)
+    if (at >= 0) pending.splice(at, 1)
+    entry.resolve(outcome)
+    notify()
+    pump()
+  }
+
+  async function poll(operationId: string): Promise<unknown> {
+    for (;;) {
+      const result = await bridge.invokeCommand(COMMAND.status, [operationId])
+      if (!isRecord(result) || result.state !== 'running') return result
+      await sleep(pollMs)
+    }
+  }
+
+  async function execute(entry: Pending): Promise<Outcome> {
+    let started: unknown
+    try {
+      started = await bridge.invokeCommand(COMMAND.run, entry.value === undefined ? [entry.profileId] : [entry.profileId, entry.value])
+    } catch {
+      return { kind: 'not-started' }
+    }
+    const refusal = refusalOf(started)
+    if (refusal) return refusal
+    entry.operationId = (started as { operationId: string }).operationId
+    entry.phase = 'running'
+    notify()
+    // A cancel asked for while the confirmation was open is sent as soon as there is something to cancel.
+    if (entry.cancelled) sendCancel(entry)
+    try {
+      return outcomeOf(await poll(entry.operationId))
+    } catch {
+      return { kind: 'failed' }
+    }
+  }
+
+  function pump() {
+    while (running() < concurrency) {
+      const next = pending.filter((entry) => entry.phase === 'queued').sort((a, b) => a.priority - b.priority || a.seq - b.seq)[0]
+      if (!next) return
+      next.phase = 'starting'
+      notify()
+      void execute(next).then((outcome) => settle(next, outcome))
+    }
+  }
+
+  function sendCancel(entry: Pending) {
+    if (entry.operationId) void bridge.invokeCommand(COMMAND.cancel, [entry.operationId]).catch(() => {})
+  }
+
+  return {
+    request(profileId, value, requestOptions = {}) {
+      const key = requestKey(profileId, value)
+      const priority = requestOptions.priority ?? PRIORITY.list
+      if (requestOptions.share !== false) {
+        const shared = pending.find((entry) => entry.key === key && !entry.cancelled && entry.share)
+        if (shared) {
+          // Someone now waits on it sooner: a queued shared request moves up.
+          if (priority < shared.priority) {
+            shared.priority = priority
+            notify()
+          }
+          return shared.promise
+        }
+      }
+      let resolve!: (outcome: Outcome) => void
+      const promise = new Promise<Outcome>((done) => (resolve = done))
+      const entry: Pending = {
+        key, profileId, value, priority, phase: 'queued', operationId: null,
+        seq: seq++, promise, resolve, cancelled: false, share: requestOptions.share !== false,
+      }
+      pending.push(entry)
+      notify()
+      pump()
+      return promise
+    },
+    cancel(key) {
+      for (const entry of pending.filter((candidate) => candidate.key === key)) {
+        if (entry.phase === 'queued') {
+          settle(entry, { kind: 'cancelled', mayContinue: false })
+          continue
+        }
+        entry.cancelled = true
+        sendCancel(entry)
+      }
+    },
+    requests() {
+      return pending.map(({ key, profileId, value, priority, phase, operationId }) => ({ key, profileId, value, priority, phase, operationId }))
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
