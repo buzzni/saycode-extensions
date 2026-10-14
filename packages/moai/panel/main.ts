@@ -8,7 +8,7 @@ import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, markArchived, type Loaded } from './data/source.js'
+import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -33,18 +33,6 @@ remember(store, createMemory(() => window.localStorage))
 // Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
 
-/**
- * The active rows, then the archive's rows no active row holds (only while archived rows are shown), tagged
- * `archived: true` against the rows held now: a row the clock archived after the archive was read left `show --all`
- * and is in the archive's answer untagged (it was active then), and it stays in the list as an archived row.
- */
-function withArchive(rows: Row[], archive: Row[] | null): Row[] {
-  if (!archive) return rows
-  const active = new Set(rows.map((row) => row.id))
-  const away = markArchived(archive, active).filter((row) => !active.has(row.id))
-  return away.length ? [...rows, ...away] : rows
-}
-
 // The index is built once per read, not per render: again when the rows, the status counts or the archive shown change.
 let indexed: { rows: Row[]; tallies: BoardData['tallies']; archive: Row[] | null; index: IssueIndex } | null = null
 function indexOf(state: State): IssueIndex | null {
@@ -52,7 +40,7 @@ function indexOf(state: State): IssueIndex | null {
   if (!board) return null
   const archive = state.view.showArchived ? state.archive : null
   if (indexed?.rows !== board.rows || indexed.tallies !== board.tallies || indexed.archive !== archive) {
-    indexed = { rows: board.rows, tallies: board.tallies, archive, index: new IssueIndex(withArchive(board.rows, archive), board.tallies) }
+    indexed = { rows: board.rows, tallies: board.tallies, archive, index: new IssueIndex(withArchive(board, archive), board.tallies) }
   }
   return indexed.index
 }
@@ -69,18 +57,21 @@ function drawnOrder(): string[] {
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   // The rows and the milestone and epic counts `moai status` prints (they count archived rows too) side by side.
-  // Without the counts the board counts its own rows. A load the rows already failed does not wait for the counts
-  // (their confirmation may still be open): the failure is told at once, and the next load shares that read.
+  // Without the counts the board counts its own rows. The rows do not wait for the counts (their confirmation may
+  // still be open): a failure is told at once, and rows are drawn at once, with the counts put on them when they
+  // come. A load the rows failed does not wait for them at all; the next load shares that read.
   const listing = loadAllRows(client)
   const counting = loadTallies(client)
+  let counted: Awaited<typeof counting> | undefined
+  void counting.then((tallies) => { counted = tallies })
   const loaded = await listing
   if (!loaded.ok) {
     store.dispatch({ type: 'board-failed', problem: loaded.outcome })
     return
   }
-  const tallies = await counting
   const { rows, more, truncated } = loaded.value
-  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(tallies.ok ? { tallies: tallies.value } : {}) }
+  // Counts that came first go in with the rows, so the board is not drawn twice.
+  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(counted?.ok ? { tallies: counted.value } : {}) }
   const before = store.getState()
   const shownBefore = before.shown.value
   // The detail on screen was read before this list and stands beside it: when its row has left the list
@@ -94,23 +85,32 @@ async function loadBoard(): Promise<void> {
   // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed). Not while
   // a read still pages: that one would be cancelled and the paging started over.
   if (state.view.showArchived && state.archive === null && archiveRunning === null) void loadArchive()
+  // The load ends with its counts, so a refresh asked for meanwhile joins this one rather than reading status
+  // again, and a `fresh` read after a write waits them out too. A later load's board drops them (store 'tallies').
+  if (counted === undefined) {
+    const tallies = await counting
+    if (tallies.ok) store.dispatch({ type: 'tallies', data, tallies: tallies.value })
+  }
 }
 
 // The archive is read when archived rows are shown (`SPC v o`), each time they are turned on, once the active
-// rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked).
+// rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked;
+// a cut list judges by column instead, source.ts activeIds).
 let archiving = 0
 /** The `archiving` number of the archive read still paging, or null when none is. */
 let archiveRunning: number | null = null
 async function loadArchive(): Promise<void> {
-  const rows = store.getState().board.value?.rows
-  if (!rows) return
+  if (!store.getState().board.value) return
   const mine = ++archiving
   archiveRunning = mine
   try {
-    const loaded = await loadArchived(client, { active: new Set(rows.map((row) => row.id)), cancelled: () => mine !== archiving })
+    // Read untagged: withArchive tags the archive-only rows against the rows held when it draws, and a cut list
+    // needs the archive's own rows to judge by (source.ts activeIds).
+    const loaded = await loadArchived(client, { cancelled: () => mine !== archiving })
     if (mine !== archiving) return
+    // The archive's own problem: the board's rows and whatever the board said stand.
     if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
-    else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+    else store.dispatch({ type: 'archive-failed', problem: loaded.outcome })
   } finally {
     if (archiveRunning === mine) archiveRunning = null
   }

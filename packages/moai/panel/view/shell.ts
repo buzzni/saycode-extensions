@@ -180,6 +180,8 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const more = el(doc, "p", { class: "moai-more" })
   // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
+  // Why the archive could not be read (`SPC v o`): its own line, as the board's rows and their banners stand.
+  const archiveNote = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
@@ -200,7 +202,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, archiveNote, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -322,6 +324,16 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
   }
 
+  let archiveTold: Outcome | null = null
+  function explainArchive(outcome: Outcome | null) {
+    // A live region too: written once per outcome, as explain() does.
+    if (outcome === archiveTold) return
+    archiveTold = outcome
+    const said = outcome ? describe(outcome, copy, doc) : null
+    archiveNote.replaceChildren(...(said ? [el(doc, "span", {}, copy.shell.archiveFailed, " ", ...said.parts)] : []))
+    archiveNote.classList.toggle("m-banner-danger", said !== null && !said.info)
+  }
+
   function paintLayout(current: State) {
     const detail = current.detail
     if (split.preferred() !== detail.position) split.setPosition(detail.position)
@@ -361,6 +373,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     // Written only when it changes: it is a live region.
     const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
     if (truncated.textContent !== partial) truncated.textContent = partial
+    explainArchive(state.archiveProblem)
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

@@ -47,6 +47,8 @@ export interface ShellCopy {
   wikiListFailed: (reason: string) => string
   /** `show --all` was cut at the output limit: the list stands on prime's rows and the backlog (source.ts loadAllRows). */
   truncated: string
+  /** The archive read failed (`SPC v o`); why follows. The board's rows stand. */
+  archiveFailed: string
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -74,6 +76,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: 'The wiki cannot be read here yet.',
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
     truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
+    archiveFailed: 'Archived rows could not be read:',
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -99,6 +102,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: '아직 여기서는 위키를 읽을 수 없습니다.',
     wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
     truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
+    archiveFailed: '아카이브된 항목을 읽지 못했습니다:',
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -124,6 +128,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: 'ここではまだ Wiki を読めません。',
     wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
     truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
+    archiveFailed: 'アーカイブ済みの項目を読めませんでした:',
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -149,6 +154,7 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: '这里暂时无法读取 Wiki。',
     wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
     truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务（以及待办池）。',
+    archiveFailed: '无法读取已归档的条目:',
   },
 }
 

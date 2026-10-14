@@ -34,7 +34,7 @@
 .m-shell-notes > * { margin: 8px 8px 0; }
 .m-shell-notes > :last-child { margin-bottom: 8px; }
 .moai-hint, .moai-more { color: var(--muted); font-size: 12px; }
-.moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-more:empty, .moai-result:empty { display: none; }
+.moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-more:empty, .moai-result:empty { display: none; }
 .moai-result { font-size: 12px; }
 .m-addbar { display: flex; align-items: center; gap: 8px; }
 .m-addbar .m-input { flex: 1 1 auto; padding: 4px 8px; }

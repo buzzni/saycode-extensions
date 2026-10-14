@@ -24,7 +24,7 @@
  */
 import { PRIORITY, answerOf, requestKey, type Client, type Outcome } from './client.js'
 import type { CompatProbe } from './compat.js'
-import { DEFAULT_STATUSES, type Row } from './index.js'
+import { DEFAULT_STATUSES, isDone, type Row } from './index.js'
 
 export const PROFILE = {
   status: 'buzzni.moai.status',
@@ -227,6 +227,36 @@ export interface ArchiveOptions {
 /** `rows` with `archived: true` on those whose id is not in `active`. */
 export function markArchived(rows: readonly Row[], active: ReadonlySet<string>): Row[] {
   return rows.map((row) => (active.has(row.id) ? row : { ...row, archived: true }))
+}
+
+/** The rows a list read stands on, and whether `show --all` was cut ({@link Rows}). */
+export type Listed = Pick<Rows, 'rows'> & { truncated?: boolean }
+
+/**
+ * The ids of the active rows, to tell the archive's archive-only rows by: `--archived` lists the active rows too,
+ * and its rows carry no mark of their own. A whole list holds every active row. A cut one (`truncated`: prime's
+ * rows) does not, so absence from it is not taken as archived: moai archives only rows that stood done for
+ * `archive_days`, so an archive row in any other column is active. A done one is still tagged — at worst a row
+ * done lately draws no NEW and takes no read mark until the whole list reads again, where an archived row left
+ * untagged would offer a read mark `moai read` refuses.
+ */
+export function activeIds(listed: Listed, archive: readonly Row[] = []): Set<string> {
+  const active = new Set(listed.rows.map((row) => row.id))
+  if (listed.truncated) for (const row of archive) if (!isDone(row)) active.add(row.id)
+  return active
+}
+
+/**
+ * The listed rows, then the archive's rows they do not hold (only while archived rows are shown), tagged
+ * `archived: true` against the rows held now: a row the clock archived after the archive was read left `show --all`
+ * and is in the archive's answer untagged (it was active then), and it stays in the list as an archived row.
+ */
+export function withArchive(listed: Listed, archive: readonly Row[] | null): Row[] {
+  const { rows } = listed
+  if (!archive) return rows
+  const held = new Set(rows.map((row) => row.id))
+  const away = markArchived(archive, activeIds(listed, archive)).filter((row) => !held.has(row.id))
+  return away.length ? [...rows, ...away] : rows
 }
 
 /**

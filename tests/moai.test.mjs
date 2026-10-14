@@ -777,3 +777,36 @@ test('turning archived rows off while the archive still pages drops its late ans
   await flush()
   assert.deepEqual([...panel.rows()].sort(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
+
+test('the rows show while the counts read still waits for its confirmation, and the counts follow when it runs', async () => {
+  const status = JSON.parse(STATUS_V016)
+  status.milestones[0] = { ...status.milestones[0], done: 5, total: 9 }
+  let approve
+  const answer = board({ 'buzzni.moai.show-all': SHOW_ALL_V016, 'buzzni.moai.backlog-all': BACKLOG_V016, 'buzzni.moai.status': JSON.stringify(status) })
+  answer.start = (args) => (args[0] === 'buzzni.moai.status' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
+  const panel = await runPanel(answer)
+  // Not on Loading: the board counts its own rows until status answers.
+  assert.ok(panel.row('tracker-e0ue'), 'the rows are drawn')
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '1/2')
+  approve()
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  await flush()
+  assert.equal(countsOf(panel, 'tracker-e0ue'), '5/9')
+  assert.equal(panel.$('.moai-error').textContent, '')
+})
+
+test('an archive read that fails is told on its own line; the board and its banners stand', async () => {
+  const answer = board()
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-archived' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.equal(panel.$('.moai-archive-problem').textContent, 'Archived rows could not be read: The run did not start: the confirmation was declined.')
+  assert.equal(panel.$('.moai-notice').textContent, '', 'not told as the board\'s problem')
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  // Archived rows turned off: the line goes with them.
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.equal(panel.$('.moai-archive-problem').textContent, '')
+})
