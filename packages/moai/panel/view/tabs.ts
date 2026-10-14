@@ -31,11 +31,12 @@ export function normalizeTab(value: unknown): TabId {
 export function nextTab(current: TabId, key: string): TabId | null {
   const index = TABS.findIndex((tab) => tab.id === current)
   if (index < 0) return null
+  const at = (i: number): TabId => TABS[i]!.id
   switch (key) {
-    case "ArrowRight": return TABS[(index + 1) % TABS.length].id
-    case "ArrowLeft": return TABS[(index - 1 + TABS.length) % TABS.length].id
-    case "Home": return TABS[0].id
-    case "End": return TABS[TABS.length - 1].id
+    case "ArrowRight": return at((index + 1) % TABS.length)
+    case "ArrowLeft": return at((index - 1 + TABS.length) % TABS.length)
+    case "Home": return at(0)
+    case "End": return at(TABS.length - 1)
     default: return null
   }
 }
@@ -124,7 +125,7 @@ export function createTabs(doc: Document, props: TabsProps): Tabs {
         existing.textContent = text
         return
       }
-      const badge = el(doc, "span", { class: "m-chip m-chip-new", "aria-label": `${text}` }, text)
+      const badge = el(doc, "span", { class: "m-chip m-chip-new" }, text)
       badges.set(id, badge)
       buttons.get(id)?.append(badge)
     },
@@ -143,11 +144,13 @@ export interface TabPanels {
  * The panels the tabs switch. Every panel stays in the document, only hidden, so what a view built
  * (cursor, selection, wiki trail) survives a tab change. Scroll offsets do not survive display:none, so the
  * elements marked data-keep-scroll (and the panel itself) are saved on the way out and put back on the way in.
+ * Offsets are kept per element, so a view that re-renders while hidden gets them back only on the elements
+ * that are still there; new ones start at the top.
  */
 export function createTabPanels(doc: Document, initial: TabId): TabPanels {
   const root = el(doc, "div", { class: "m-body" })
   const panels = new Map<TabId, HTMLDivElement>()
-  const saved = new Map<TabId, Array<[number, number]>>()
+  const saved = new Map<TabId, Array<[HTMLElement, number, number]>>()
   let current = initial
 
   const scrollers = (panel: HTMLElement): HTMLElement[] => [panel, ...panel.querySelectorAll<HTMLElement>("[data-keep-scroll]")]
@@ -171,16 +174,15 @@ export function createTabPanels(doc: Document, initial: TabId): TabPanels {
     show(id) {
       if (id === current) return
       const leaving = panels.get(current)!
-      saved.set(current, scrollers(leaving).map((node) => [node.scrollTop, node.scrollLeft]))
+      saved.set(current, scrollers(leaving).map((node) => [node, node.scrollTop, node.scrollLeft]))
       leaving.hidden = true
       const entering = panels.get(id)!
       entering.hidden = false
-      const offsets = saved.get(id)
-      if (offsets) scrollers(entering).forEach((node, index) => {
-        const [top, left] = offsets[index] ?? [0, 0]
+      for (const [node, top, left] of saved.get(id) ?? []) {
+        if (!entering.contains(node)) continue
         node.scrollTop = top
         node.scrollLeft = left
-      })
+      }
       current = id
     },
   }

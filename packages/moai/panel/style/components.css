@@ -186,10 +186,10 @@ kbd, .m-kbd {
   color: var(--text); font-size: 12px; box-shadow: var(--shadow-md);
 }
 
-/* ---- Toolbar: narrow widths fold labels away (6ml) ---- */
+/* ---- Toolbar: narrow widths fold button labels away, leaving the icon (6ml) ---- */
 .m-toolbar { container-type: inline-size; container-name: m-toolbar; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border-soft); }
 .m-toolbar .m-search { flex: 1 1 160px; }
-@container m-toolbar (max-width: 499px) { .m-toolbar .m-btn-label, .m-toolbar .m-search .m-select { display: none; } }
+@container m-toolbar (max-width: 499px) { .m-toolbar .m-btn-label { display: none; } }
 
 /* ---- Split: list and detail (5.8) ---- */
 .m-split { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }

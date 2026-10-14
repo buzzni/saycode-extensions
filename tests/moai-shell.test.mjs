@@ -59,6 +59,18 @@ test('components: icon button names itself and reflects pressed', () => {
   assert.ok(button.querySelector('svg.m-icon'))
 })
 
+test('components: a text button with an icon keeps its name when a narrow toolbar hides the label', () => {
+  const folded = components.button(doc, { label: '정렬', icon: 'arrow-up-down' })
+  assert.equal(folded.getAttribute('aria-label'), '정렬')
+  assert.equal(folded.title, '정렬')
+  assert.equal(components.button(doc, { label: '확인' }).hasAttribute('title'), false)
+  // The narrow toolbar folds button labels only; the search scope select stays.
+  const narrow = componentsCss.match(/@container m-toolbar \([^)]*\) \{([^}]*)\}/)
+  assert.ok(narrow)
+  assert.match(narrow[1], /\.m-btn-label/)
+  assert.doesNotMatch(narrow[1], /m-select/)
+})
+
 test('components: text goes in as text, never as markup', () => {
   const hostile = '<img src=x onerror=alert(1)>'
   for (const node of [
@@ -153,6 +165,16 @@ test('tabs: unknown stored tab falls back; panels keep their DOM and scroll', ()
   panels.show('list')
   assert.equal(scroller.scrollTop, 120)
   assert.equal(panels.panel('list').getAttribute('aria-labelledby'), 'm-tab-list')
+
+  // A view that re-renders while hidden: offsets go back to the elements they came from, not by position.
+  panels.show('wiki')
+  scroller.scrollTop = 0
+  const added = doc.createElement('div')
+  added.dataset.keepScroll = ''
+  panels.panel('list').prepend(added)
+  panels.show('list')
+  assert.equal(scroller.scrollTop, 120)
+  assert.equal(added.scrollTop, 0)
 })
 
 test('responsive: width below 640 forces bottom; columns drop date, epic, assignee, tags', () => {
@@ -251,7 +273,9 @@ test('split: dragging the resizer sets the ratio and reports once at the end', (
   doc.body.append(split.el)
   split.el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 1000, right: 800, bottom: 1000 })
   const fire = (type, init) => split.resizer.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), init))
-  fire('pointerdown', { pointerId: 1, clientX: 0, clientY: 700 })
+  fire('pointerdown', { pointerId: 1, button: 2, clientX: 0, clientY: 700 })
+  assert.ok(!doc.body.classList.contains('m-resizing'), 'a right click does not start a drag')
+  fire('pointerdown', { pointerId: 1, button: 0, clientX: 0, clientY: 700 })
   assert.ok(doc.body.classList.contains('m-resizing'))
   fire('pointermove', { clientX: 0, clientY: 500 })
   fire('pointermove', { clientX: 0, clientY: 400 })

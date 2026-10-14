@@ -68,12 +68,17 @@ export interface ButtonProps {
   onClick?: (event: MouseEvent) => void
 }
 
-/** Text button (look-and-feel 5.3). A screen should hold one primary at most. */
+/**
+ * Text button (look-and-feel 5.3). A screen should hold one primary at most. A button with an icon also
+ * carries its label as aria-label and title, because a narrow toolbar hides the label text and leaves the icon.
+ */
 export function button(doc: Document, props: ButtonProps): HTMLButtonElement {
   const variant = props.variant ?? "outline"
   const node = el(doc, "button", {
     type: "button",
     class: `m-btn m-btn-${variant}${props.small ? " m-btn-sm" : ""}`,
+    "aria-label": props.icon ? props.label : null,
+    title: props.icon ? props.label : null,
     disabled: props.disabled,
   })
   if (props.icon) node.append(icon(doc, props.icon))

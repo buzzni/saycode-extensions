@@ -115,6 +115,8 @@ export function createSplit(doc: Document, props: SplitProps): Split {
   }
 
   function onPointerDown(event: PointerEvent): void {
+    // Primary button (or touch/pen contact) only: a right or middle click must not start a drag.
+    if (event.button !== 0) return
     event.preventDefault()
     const position = shown
     resizer.setPointerCapture?.(event.pointerId)
