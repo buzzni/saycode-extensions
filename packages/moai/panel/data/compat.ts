@@ -12,16 +12,17 @@
  * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it (or the daemon is too
  *   old for the machine run at all, when the baseline profiles refuse too: the catalog is then `unknown`
  *   as a whole, not 13 missing ones). `tool-missing`: `moai` is not installed there.
- * - `binding-mismatch` comes back as a refusal the panel does not list (the extension answers every SDK refusal
- *   code as `{state: 'refused', code}`, src/index.ts; an older host may name it in a thrown start's message
- *   instead); client.ts carries the code on the `not-started` outcome. A
- *   profile whose start named `binding-mismatch` or `unsupported-daemon` is read as missing from the catalog;
- *   one pass of the same profile clears it. A start that failed without naming either says nothing of the
- *   catalog (`unknown`).
+ * - A start that failed comes back `not-started` (client.ts), with the code it named when it named one: an older
+ *   host may name `unsupported-daemon` in a thrown start's message, which is read as the refusal is. A profile
+ *   read as missing stays so until one pass of the same profile clears it. `binding-mismatch` (a refusal the
+ *   panel does not list; the extension answers every SDK refusal code, src/index.ts) says the binding or the
+ *   approval changed, nothing of the catalog: it counts as a start that failed, as one naming no code does.
  * - The shape of `status --json` is the strong sign of an old moai: new moai prints `statuses[]` and the
  *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`. The `unread` key on
  *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
  *   alone say `unknown`, never `old`.
+ * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and what it lacks
+ *   (`statuses[]`, maybe `unread`) serves nothing drawn yet, so a 0.16 reads `old` with nothing degraded.
  */
 import type { Outcome } from './client.js'
 import type { Row } from './index.js'
@@ -39,7 +40,7 @@ export interface CompatReport {
     state: 'ok' | 'missing' | 'unknown'
     missing: string[]
   }
-  /** Features running on a fallback or off, in a fixed order. */
+  /** Features the panel uses that run on a fallback or are off, in a fixed order. */
   degraded: Feature[]
 }
 
@@ -58,7 +59,12 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
   [PROFILE.readGroup]: 'read-marks',
 }
 
-const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'unread', 'status-order', 'tallies']
+/**
+ * The features the panel uses, in the banner's order; one judged off that is not here is left out of `degraded`.
+ * `unread` (NEW marks: read.ts isUnread) and `status-order` (the columns from `status`: source.ts loadStatuses)
+ * are told apart below but have no callers yet: put one back here when it is drawn.
+ */
+const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'tallies']
 
 type Seen = 'unsupported' | 'unstarted' | 'failed-start' | 'passed'
 
@@ -68,6 +74,17 @@ const sameList = (a: readonly string[], b: readonly string[]): boolean => a.leng
 export function sameReport(a: CompatReport, b: CompatReport): boolean {
   return a.moai === b.moai && a.toolMissing === b.toolMissing && a.catalog.state === b.catalog.state &&
     sameList(a.catalog.missing, b.catalog.missing) && sameList(a.degraded, b.degraded)
+}
+
+/**
+ * The compatibility banner already tells this refusal (install moai, update the catalog), so the board's own
+ * banners need not tell it again. An `unsupported-daemon` the catalog line does not stand for (the daemon as a
+ * whole too old, or nothing decided yet) is still the board's to tell.
+ */
+export function compatTells(report: CompatReport | null, outcome: Outcome | null): boolean {
+  if (!report || outcome?.kind !== 'refused') return false
+  if (outcome.code === 'tool-missing') return report.toolMissing
+  return outcome.code === 'unsupported-daemon' && report.catalog.state === 'missing'
 }
 
 export class CompatProbe {
@@ -86,7 +103,8 @@ export class CompatProbe {
         else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, 'unsupported')
         return
       case 'not-started':
-        if (outcome.code === 'binding-mismatch' || outcome.code === 'unsupported-daemon') {
+        // Only `unsupported-daemon` is about the catalog; `binding-mismatch` and the rest are a start that failed.
+        if (outcome.code === 'unsupported-daemon') {
           if (this.seen.get(profile) !== 'passed' && this.seen.get(profile) !== 'unsupported') this.seen.set(profile, 'unstarted')
         } else if (!this.seen.has(profile)) {
           this.seen.set(profile, 'failed-start')

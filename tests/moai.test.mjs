@@ -286,8 +286,9 @@ test('choosing a task shows its details beside the list, with history and status
 })
 
 test('a refused read is explained where it happened; user choices are information, machine problems errors', async () => {
-  // workspace-busy is tried again before it is told (the next test).
-  for (const [code, info] of [['declined', true], ['tool-missing', false], ['unsupported-daemon', false]]) {
+  // workspace-busy is tried again before it is told (the next test); tool-missing is the compatibility banner's to
+  // tell. unsupported-daemon on every profile is the daemon as a whole, which that banner does not name.
+  for (const [code, info] of [['declined', true], ['unsupported-platform', false], ['unsupported-daemon', false]]) {
     const answer = stdoutFor({})
     answer.start = () => ({ action: 'start', state: 'refused', code })
     const panel = await runPanel(answer, 'ko')
@@ -842,27 +843,62 @@ test('compatibility: a profile the daemon catalog lacks asks to update the catal
   answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
+  // The banner tells the refusal; the board's error banner does not say it again.
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.equal(panel.$('.moai-notice').textContent, '')
 })
 
-test('compatibility: the old status shape asks to upgrade moai, naming what falls back, in the panel language', async () => {
+// A status without the `milestones[]`/`epics[]` tallies: the board counts its own rows, which leave archived ones out.
+const STATUS_NO_TALLIES = JSON.stringify({ counts: { done: 0, in_progress: 1, review: 1, todo: 1 }, total: 3 })
+
+test('compatibility: moai 0.16 (no statuses[], the tallies printed) is not asked to upgrade', async () => {
   const panel = await runPanel(board())
-  assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: NEW marks, the column order). Upgrade moai."])
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), [])
+})
+
+test('compatibility: a status without the tallies asks to upgrade moai, naming the counts, in the panel language', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }))
+  assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: milestone and epic counts). Upgrade moai."])
   // The rows that work keep showing.
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
-  const ko = await runPanel(board(), 'ko')
-  assert.deepEqual(compatLine(ko), ['그 머신의 moai가 이 패널이 기대하는 버전보다 오래되었습니다(대체 방식으로 동작: NEW 표시, 칸 순서). moai를 업그레이드하세요.'])
+  const ko = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ko')
+  assert.deepEqual(compatLine(ko), ['그 머신의 moai가 이 패널이 기대하는 버전보다 오래되었습니다(대체 방식으로 동작: 마일스톤·에픽 개수). moai를 업그레이드하세요.'])
 })
 
-test('compatibility: moai missing on the machine asks to install it', async () => {
+test('compatibility: moai missing on the machine asks to install it, told by that banner alone', async () => {
   const answer = stdoutFor({})
   answer.start = () => ({ action: 'start', state: 'refused', code: 'tool-missing' })
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), ['Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.'])
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.equal(panel.$('.moai-notice').textContent, '')
+})
+
+test('compatibility: a refusal the banner does not tell still shows as the board\'s error', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-platform' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), [])
+  assert.equal(panel.$('.moai-error').textContent, "Moai cannot run on that machine's operating system.")
+})
+
+test('compatibility: beside a catalog line, a refusal of another kind still shows as the board\'s error', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.backlog-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-platform' }
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.equal(compatLine(panel).length, 1)
+  assert.equal(panel.$('.moai-error').textContent, "Moai cannot run on that machine's operating system.")
 })
 
 test('compatibility: a report that says the same is not written again (it is a live region)', async () => {
-  const panel = await runPanel(board())
+  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }))
   const before = panel.$('.moai-compat').firstChild
+  assert.ok(before)
   panel.$('.moai-refresh').click()
   await new Promise((resolve) => setTimeout(resolve, 700))
   await flush()
@@ -924,11 +960,23 @@ test('compatibility: a new report that leaves the sentences as they were does no
 
 test('an archive read that fails with an error is told as an alert, information as status text', async () => {
   const answer = board()
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-archived' ? { action: 'start', state: 'refused', code: 'unsupported-platform' } : null)
+  const panel = await runPanel(answer)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, "Archived rows could not be read: Moai cannot run on that machine's operating system.")
+  assert.equal(panel.$('.moai-archive-problem[role="status"]').textContent, '')
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('compatibility: an archive profile the catalog lacks is told by the banner, not again on the archive line', async () => {
+  const answer = board()
   answer.start = (args) => (args[0] === 'buzzni.moai.show-archived' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
   press(panel, ' ', 'v', 'o', 'Escape')
   await flush()
-  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, "Archived rows could not be read: That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.")
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (archived rows). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, '')
   assert.equal(panel.$('.moai-archive-problem[role="status"]').textContent, '')
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
@@ -980,8 +1028,8 @@ test('a read mark reads the list again at once, though the status read of the lo
 })
 
 test('compatibility: the banner speaks Japanese and Chinese too', async () => {
-  const ja = await runPanel(board(), 'ja')
-  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: NEW 表示、列の順序）。moai をアップグレードしてください。'])
-  const zh = await runPanel(board(), 'zh')
-  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：NEW 标记、列的顺序）。请升级 moai。'])
+  const ja = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ja')
+  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
+  const zh = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'zh')
+  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：里程碑和史诗的计数）。请升级 moai。'])
 })

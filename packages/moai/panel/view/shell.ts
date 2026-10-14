@@ -8,7 +8,7 @@
 // (main.ts) and arrive as ShellIntents.
 
 import { isInformation, type Outcome } from "../data/client.ts"
-import type { CompatReport, Feature } from "../data/compat.ts"
+import { compatTells, type CompatReport, type Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -110,20 +110,23 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
   }
 }
 
-// Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints.
+// Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints. `degraded`
+// holds only the features the panel uses (data/compat.ts ORDER), so `unread` and `status-order` stand here unused.
 const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
 const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
 
 /**
  * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
- * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named.
+ * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named, and an old moai
+ * none of whose fallbacks the panel uses (0.16 lacks only what is not drawn yet) is not asked to upgrade.
  */
 export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
   if (!report) return []
   const named = (among: readonly Feature[]) => report.degraded.filter((feature) => among.includes(feature)).map((feature) => copy.features[feature])
   const lines: string[] = []
   if (report.toolMissing) lines.push(copy.toolMissing)
-  if (report.moai === "old") lines.push(copy.oldMoai(named(MOAI_FEATURES)))
+  const older = report.moai === "old" ? named(MOAI_FEATURES) : []
+  if (older.length > 0) lines.push(copy.oldMoai(older))
   if (report.catalog.state === "missing") lines.push(copy.catalog(report.catalog.missing.length, named(CATALOG_FEATURES)))
   return lines
 }
@@ -412,13 +415,15 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
     showActivity(options.activity())
     hint.hidden = state.board.value !== null
-    explain(state.board.problem ?? (state.detail.visible ? null : state.shown.problem))
+    // A refusal the compatibility banner tells (moai missing, a profile the catalog lacks) is told there alone.
+    const problem = state.board.problem ?? (state.detail.visible ? null : state.shown.problem)
+    explain(compatTells(state.compat, problem) ? null : problem)
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
     // Written only when it changes: it is a live region.
     const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
     if (truncated.textContent !== partial) truncated.textContent = partial
-    explainArchive(state.archiveProblem)
+    explainArchive(compatTells(state.compat, state.archiveProblem) ? null : state.archiveProblem)
     explainCompat(state.compat)
 
     if (state.tab === "wiki") {
