@@ -37,6 +37,8 @@ jobs:
       - run: npm run typecheck -w @buzzni/saycode-extension-telegram -w @buzzni/saycode-extension-slack -w @buzzni/saycode-extension-discord -w @buzzni/saycode-extension-document-templates -w @buzzni/saycode-extension-moai
       # Packaged adapters exercise the SDK contract inside the test host.
       - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs tests/document-templates.test.mjs tests/moai.test.mjs
+      # The Moai panel's modules (index, store, request queue, refresh, shell) and their tests.
+      - run: node --test tests/moai-index.test.mjs tests/moai-store.test.mjs tests/moai-client.test.mjs tests/moai-refresh.test.mjs tests/moai-shell.test.mjs
 
   cli-and-package:
     runs-on: ubuntu-latest

@@ -19,7 +19,7 @@
       { "id": "buzzni.moai.cancel", "title": "Cancel Moai" }
     ],
     "panels": [
-      { "id": "buzzni.moai.panel", "title": "Moai", "entrypoint": "panel.html", "surfaceSize": "compact" }
+      { "id": "buzzni.moai.panel", "title": "Moai", "entrypoint": "dist/panel.html", "surfaceSize": "compact" }
     ],
     "projectTools": [
       { "id": "buzzni.moai.board", "title": "Moai", "command": "buzzni.moai.open" }
