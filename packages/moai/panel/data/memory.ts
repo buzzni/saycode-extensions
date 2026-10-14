@@ -259,7 +259,7 @@ export function queryOf(state: State, defaultSort: Sort = DEFAULT_SORT): QuerySe
 
 /** The slices {@link queryOf} reads are the ones `previous` had: the reducer keeps an unchanged slice's object. */
 const sameQuerySlices = (a: State, b: State): boolean =>
-  a.search.scope === b.search.scope && a.filter.applied === b.filter.applied && a.sort === b.sort && a.columns === b.columns && a.view === b.view
+  a.search.scope === b.search.scope && a.filter.applied === b.filter.applied && a.sort === b.sort && a.defaultSort === b.defaultSort && a.columns === b.columns && a.view === b.view
 
 /** Stored query settings (parsed JSON, or anything else) to what can be applied; what is wrong is left out. */
 export function normalizeQuery(value: unknown): Partial<QuerySettings> {
@@ -313,6 +313,7 @@ export function remember(
 ): () => void {
   store.dispatch({ type: 'restore', settings: memory.load() })
   const saved = defaults.get()
+  store.dispatch({ type: 'sort-default', sort: saved })
   if (saved) store.dispatch({ type: 'sort', sort: saved })
   try {
     const text = storage.read(QUERY_KEY)
@@ -320,7 +321,7 @@ export function remember(
   } catch {
     // Unreadable: the panel starts from its defaults.
   }
-  const written = (state: State) => JSON.stringify(queryOf(state, defaults.get() ?? DEFAULT_SORT))
+  const written = (state: State) => JSON.stringify(queryOf(state, state.defaultSort))
   let last = written(store.getState())
   return store.subscribe((state, previous) => {
     const now = rememberedOf(state)

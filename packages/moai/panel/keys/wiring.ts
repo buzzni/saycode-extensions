@@ -205,8 +205,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   let sorterFrom: Sort | null = null
   const sortKey = (): SortKey => SORT_KEYS[sorterAt]!
   const defaults = options.sortDefault ?? sortDefault
-  // An order emptied of every field is the reset: it goes back to the saved default, else the store's own.
-  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort: sort.fields.length ? sort : (defaults.get() ?? sort) })
+  // An order emptied of every field is the reset: the store puts back the saved default (State.defaultSort).
+  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort })
 
   function paintSorter() {
     for (const row of bar.el.querySelectorAll<HTMLElement>(".m-sort-pop .m-menu-item[data-key]")) {
@@ -478,6 +478,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     "sorter.apply": () => closeSorter(true),
     "sorter.default": () => {
       defaults.set(store.getState().sort)
+      store.dispatch({ type: "sort-default", sort: store.getState().sort })
       say(defaults.persistent ? SORT_DEFAULT_SAVED : SORT_DEFAULT_SAVED_SESSION)
       // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
       closeSorter(true)
