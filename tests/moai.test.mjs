@@ -848,12 +848,35 @@ test('compatibility: a profile the daemon catalog lacks asks to update the catal
   assert.equal(panel.$('.moai-notice').textContent, '')
 })
 
+test('compatibility: without show --all in the catalog the board falls back to prime, the catalog line naming the whole list', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_V017, 'buzzni.moai.prime': PRIME })
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(panel.starts().map(([profile]) => profile), ['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.status', 'buzzni.moai.prime'])
+  // The working reads keep showing, as the banner promises.
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
+  // The catalog line says why the list is partial; the cut banner, which says it was too large, does not.
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  assert.equal(panel.$('.moai-error').textContent, '')
+})
+
+test('compatibility: without backlog show --all in the catalog the list stands without the backlog, the catalog line naming it', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
+  answer.start = (args) => (args[0] === 'buzzni.moai.backlog-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'], 'not an empty list')
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the backlog). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+})
+
 // A status without the `milestones[]`/`epics[]` tallies: the board counts its own rows, which leave archived ones out.
 const STATUS_NO_TALLIES = JSON.stringify({ counts: { done: 0, in_progress: 1, review: 1, todo: 1 }, total: 3 })
 
-test('compatibility: a backlog refusal that lands after the load ended still reaches the banner, with no read again', async () => {
+test('compatibility: without show --all the load waits on the backlog read, and a late backlog refusal leaves prime alone', async () => {
   let refuse
-  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017, 'buzzni.moai.prime': PRIME })
   answer.start = (args) => {
     if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
     if (args[0] === 'buzzni.moai.backlog-all') return new Promise((resolve) => { refuse = () => resolve({ action: 'start', state: 'refused', code: 'unsupported-daemon' }) })
@@ -861,10 +884,31 @@ test('compatibility: a backlog refusal that lands after the load ended still rea
   }
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
+  assert.deepEqual(panel.rows(), [], 'still waiting on the backlog read')
+  const before = panel.starts().length
+  refuse()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-error').textContent, '')
+  assert.equal(panel.starts().length, before, 'nothing is read again')
+})
+
+test('compatibility: a backlog refusal that lands after a declined load ended still reaches the banner, with no read again', async () => {
+  let refuse
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'declined' }
+    if (args[0] === 'buzzni.moai.backlog-all') return new Promise((resolve) => { refuse = () => resolve({ action: 'start', state: 'refused', code: 'unsupported-daemon' }) })
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), [])
   const before = panel.starts().length
   refuse()
   await flush()
-  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the backlog). Update the daemon catalog."])
   assert.equal(panel.starts().length, before, 'nothing is read again')
 })
 

@@ -77,13 +77,13 @@ async function loadBoard(): Promise<void> {
     store.dispatch({ type: 'board-failed', problem: loaded.outcome })
     return
   }
-  const { rows, more, truncated } = loaded.value
+  const { rows, more, truncated, partial } = loaded.value
   const before = store.getState()
   // Counts that came first go in with the rows, so the board is not drawn twice. Until this read's counts come, a
   // refresh keeps the counts the board showed: its rows alone undercount (they leave the archived members out).
   const carried = counted === undefined ? before.board.value?.tallies : undefined
   const counts = counted?.ok ? counted.value : carried
-  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(counts ? { tallies: counts } : {}) }
+  const data: BoardData = { rows, more, truncated, partial, loadedAt: Date.now(), ...(counts ? { tallies: counts } : {}) }
   const shownBefore = before.shown.value
   // The detail on screen was read before this list and stands beside it: when its row has left the list
   // (finished, moved away) the pane goes with it, as choose() does for a read still running. A detail the list
@@ -108,7 +108,7 @@ async function loadBoard(): Promise<void> {
 
 // The archive is read when archived rows are shown (`SPC v o`), each time they are turned on, once the active
 // rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked;
-// a cut list judges by column instead, source.ts activeIds).
+// a partial list — prime's rows — judges by column instead, source.ts activeIds).
 let archiving = 0
 /** The `archiving` number of the archive read still paging, or null when none is. */
 let archiveRunning: number | null = null
@@ -118,7 +118,7 @@ async function loadArchive(): Promise<void> {
   archiveRunning = mine
   try {
     // Read without `active`, as moai printed it (moai 0.17 marks its archive rows itself): withArchive tags the
-    // archive-only rows left unmarked against the rows held when it draws, and a cut list needs the archive's own
+    // archive-only rows left unmarked against the rows held when it draws, and a partial list needs the archive's own
     // rows to judge by (source.ts activeIds).
     const loaded = await loadArchived(client, { probe, cancelled: () => mine !== archiving })
     if (mine !== archiving) return
