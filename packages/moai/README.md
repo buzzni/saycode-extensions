@@ -11,10 +11,11 @@ The extension and `moai` keep independent version numbers. Extension 2.0.0 needs
 | Needs | Version | Notes |
 |---|---|---|
 | Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
-| `moai` CLI | 0.17.0 or later (**assumed**) | with the upstream read and JSON improvements: `unread` in `show --json`, the configured status order, `show --archived` paging. The number is a placeholder until the upstream release is fixed (se-0g4a) |
+| `moai` CLI | 0.17.0 or later | with the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone`, `shelved_by` and `archived` in `show --json`, the configured status order (`statuses[]`) and the milestone and epic tallies in `status --json`, `show --archived` paging (se-0g4a). An older moai still loads, with the fallbacks the compatibility banner names |
 | Happy daemon catalog | all 13 profiles | `status`, `prime`, `show`, `add`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
 
-Release order: the `moai` upstream release and the daemon catalog update ship before extension 2.0.0.
+Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update still ships before extension
+2.0.0.
 
 ## Profiles
 

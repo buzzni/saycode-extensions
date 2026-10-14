@@ -100,13 +100,14 @@
 
 ### 2.0.6 읽음, 아카이브, 보드 셈
 
-- **안 읽음 판정은 패널이 계산하지 않는다.** CLI가 `show --json` 행과 `show <id> --json`에 `"unread": true`를 찍어 준다. 안 읽음이 아니면 키 자체가 없고 `false`는 나오지 않는다. 패널은 `row.unread === true`만 본다. 사람을 모르거나 읽음 표를 못 읽으면 어느 행에도 키가 없고 NEW는 꺼진다. 이는 상류 `moai-cqwy`가 구현된 것으로 **가정**한 동작이다.
-- **아카이브 행은 NEW가 되지 않는다.** `isUnread`는 `archived: true`가 붙은 행을 건너뛴다. `moai read`가 활성 행만 풀기 때문에, 아카이브에서만 온 행의 NEW는 지울 방법이 없기 때문이다(`se-fvou`). `loadArchived({ active })`는 활성 행에 없는 id만 `archived: true`로 표시한다. 그래서 상류에는 "아카이브 읽음" 요청을 하지 않았다.
+- **안 읽음 판정은 패널이 계산하지 않는다.** CLI가 `show --json` 행과 `show <id> --json`에 `"unread": true`를 찍어 준다. 안 읽음이 아니면 키 자체가 없고 `false`는 나오지 않는다. 패널은 `row.unread === true`만 본다. 사람을 모르거나 읽음 표를 못 읽으면 어느 행에도 키가 없고 NEW는 꺼진다. 상류 `moai-cqwy`의 동작이고 moai 0.17.0에서 **확인됐다**.
+- **아카이브 행은 NEW가 되지 않는다.** `isUnread`는 `archived: true`가 붙은 행을 건너뛴다. `moai read`가 활성 행만 풀기 때문에, 아카이브에서만 온 행의 NEW는 지울 방법이 없기 때문이다(`se-fvou`). `loadArchived({ active })`는 활성 행에 없는 id만 `archived: true`로 표시한다. moai 0.17.0은 `show --archived` 행에 같은 뜻의 `archived: true`를 스스로 찍는다(`show --all`이 아카이브로 숨기는 행). 패널은 moai가 찍은 행은 그대로 두고, 안 찍힌 행은 예전처럼 활성 행에 없으면 붙인다 — 활성 목록을 읽은 뒤 시계가 아카이브한 행과 옛 moai 때문이다(`se-ydco`). 그래서 상류에는 "아카이브 읽음" 요청을 하지 않았다.
 - **읽음 키.** `r`(커서의 행), `SPC m a`(모두), `SPC m g`(커서 그룹)가 각각 `read`, `read-all`, `read-group`을 부르고, 쓰고 나면 다시 읽는다. 그룹이 없는 자리("마일스톤 없음")에서는 `SPC m g`가 안내 문구만 보인다. NEW 칩과 탭 뱃지는 아직 없다(`se-ehdi.zcx`).
 - **읽음 쓰기**는 `read <id>`, `read --all`, `read -e <group>`이다. 결과 JSON은 `{read, missing, held, problems, at}`이고, 없는 id나 그룹이 있어도 나머지를 쓰고 0이 아닌 코드로 끝나지만 그 답은 그대로 넘긴다. 쓰기 후에는 늘 다시 읽는다.
-- **설계와 다른 점.** 설계 4.9절은 "화면에 그린 행의 `updated_at`을 적는다"고 했지만, CLI는 값을 받지 않고 행의 **현재** `updated_at`을 적는다. 그린 뒤 바뀐 행도 새 버전으로 읽음 처리된다. 결과에 id별 `updated_at`이 없어 낡은 그림을 쓰기 결과로는 알 수 없다. 패널은 쓰기 뒤 다시 읽은 행과 그린 행을 비교(`staleAgainst`)할 수 있을 뿐이다. 상류에 값 지정을 요청하는 일은 backlog(`se-a5wl`)에 있다.
+- **설계와 다른 점.** 설계 4.9절은 "화면에 그린 행의 `updated_at`을 적는다"고 했지만, CLI는 값을 받지 않고 행의 **현재** `updated_at`을 적는다. 그린 뒤 바뀐 행도 새 버전으로 읽음 처리된다. 결과에 id별 `updated_at`이 없어 낡은 그림을 쓰기 결과로는 알 수 없다. 패널은 쓰기 뒤 다시 읽은 행과 그린 행을 비교(`staleAgainst`)할 수 있을 뿐이다. 상류에 값 지정(`read --seen`)을 요청하는 일은 moai 0.17.0에도 들어오지 않았고 backlog(`se-a5wl`)에 그대로 있다.
+- **미룸·마일스톤·아카이브 파생값.** moai 0.17.0은 행에 `derived_milestone`, `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`를 해당할 때만 찍는다. 인덱스(`index.ts` 선반·`archiveCandidate`)와 질의 렌즈(`query.ts`)는 키가 있으면 그 값을 쓰고, 없으면 `nav.rs` 규칙대로 직접 계산한다. 키가 없는 것은 "아님"이 아니라 "모름"으로 읽는다(옛 moai에는 키가 아예 없다). 실제 0.17 출력에서 두 길의 답이 같은지는 `tests/fixtures/moai/*-v017.json`으로 시험한다(`se-ydco`).
 - **보드 셈(n/n)은 `status --json`의 `milestones[]`·`epics[]`의 `done`·`total`을 쓴다.** 시간으로 아카이브된 행은 `show --all`에 없으므로, 행에서 세면 완료된 그룹이 줄어 보인다. `IssueIndex(rows, tallies)`가 셈을 받으면 `moai status`와 같은 값을 보여 준다(`se-tcd4`). 셈을 못 읽으면 행에서 센다. 같은 `status` 요청은 `loadStatuses`와 공유한다.
-- **칸 이름과 순서.** `status --json`에 `statuses` 배열이 있다고 **가정**하고 읽는다. 없으면 `counts`의 키(빈 칸 포함)를 쓰되 알파벳순이라 설정 순서를 잃으므로, 기본 순서 `todo, in_progress, review, done` 뒤에 모르는 칸을 붙인다.
+- **칸 이름과 순서.** `status --json`의 `statuses` 배열(moai 0.17.0에서 확인됨)을 읽는다. 옛 moai처럼 없으면 `counts`의 키(빈 칸 포함)를 쓰되 알파벳순이라 설정 순서를 잃으므로, 기본 순서 `todo, in_progress, review, done` 뒤에 모르는 칸을 붙인다.
 
 ### 2.0.7 위키 탭
 
