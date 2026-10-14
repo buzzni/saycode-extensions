@@ -112,14 +112,15 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
 }
 
 // Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints. `degraded`
-// holds only the features the panel uses (data/compat.ts ORDER), so `unread` and `status-order` stand here unused.
+// holds only the features the panel uses (data/compat.ts ORDER), so `status-order` stands here unused.
 const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
 const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
 
 /**
  * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
  * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named, and an old moai
- * none of whose fallbacks the panel uses (0.16 lacks only what is not drawn yet) is not asked to upgrade.
+ * none of whose fallbacks the panel uses (a 0.16 that prints `unread` lacks only what is not drawn yet) is not asked
+ * to upgrade.
  */
 export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
   if (!report) return []

@@ -2,7 +2,7 @@
 // Which rows are unread is data/read.ts (the CLI's verdict); this file only draws and counts it.
 
 import type { Row } from "../data/index.ts"
-import { isUnread } from "../data/read.ts"
+import { unreadCount } from "../data/read.ts"
 import { chip } from "./components.ts"
 
 /** The NEW chip (look-and-feel: `--warn-soft` ground, `--warn` text). The label is the literal word the TUI uses. */
@@ -13,10 +13,12 @@ export const newChip = (doc: Document): HTMLSpanElement => {
 }
 
 /**
- * The unread count after the label of the two tabs that list rows (`tabs.setBadge`), from the rows the views are
- * given; null when there is none, and when the source does not say who is unread at all.
+ * The unread count after the label of the two tabs that list rows (`tabs.setBadge`): every unread row of the rows the
+ * views are given, which is what `SPC m a` writes. It is the project's total, not what the tab draws at the person's
+ * place (a row the view hides, another place, an epic the board has no card for count too). null when there is none,
+ * and when the source does not say who is unread at all.
  */
 export function unreadBadges(rows: readonly Row[]): Record<"board" | "list", number | null> {
-  const count = rows.filter(isUnread).length || null
+  const count = unreadCount(rows) || null
   return { board: count, list: count }
 }

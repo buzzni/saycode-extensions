@@ -33,6 +33,3 @@
 .moai-head-sort { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .moai-head-sort:hover { color: var(--text); }
 .moai-list-head [aria-sort] { color: var(--text); }
-
-/* NEW before the name: a compact chip so the 28px row and the one-line title keep their height. */
-.moai-line .moai-new { min-height: 18px; padding: 0 5px; vertical-align: middle; }

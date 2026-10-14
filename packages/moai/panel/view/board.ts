@@ -121,15 +121,22 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
   root.replaceChildren(pane)
   let cursor: string | null = null
   let drawn: { state: State; index: IssueIndex; model: BoardModel; key: string } | null = null
-  let narrowed: { index: IssueIndex; key: string; value: ReturnType<typeof narrow> } | null = null
 
   /**
-   * Only the cursor moved (the cards, their order and the columns are what they were): move the selection mark and
-   * the tab stop between cards instead of drawing the board again. False when that cannot be told from the DOM:
-   * a new cursor with no card drawn (it may add a column), or a card drawn only because the cursor was on it.
+   * Nothing but the cursor moved (the cards, their order and the columns are what they were): move the selection mark
+   * and the tab stop between cards instead of drawing the board again. A change that is not the board's at all (the
+   * detail loading, the focus, a report) leaves the DOM as it is, whatever the cursor stands on. False when that cannot
+   * be told from the DOM: a new cursor with no card drawn (it may add a column), or a card or a hidden column drawn
+   * only because the cursor was there (BoardModel.pinned). The archive age is judged at the last full draw, as
+   * narrow() memoizes it, until the next read.
    */
   function inPlace(state: State, index: IssueIndex, drawKey: string): boolean {
-    if (!drawn || drawn.index !== index || drawn.key !== drawKey || drawn.model.pinned || !drawn.model.total) return false
+    if (!drawn || drawn.index !== index || drawn.key !== drawKey) return false
+    if (drawn.state.cursor === state.cursor) {
+      drawn.state = state
+      return true
+    }
+    if (drawn.model.pinned || !drawn.model.total) return false
     const cards = [...pane.querySelectorAll<HTMLElement>('.m-card')]
     const target = state.cursor === null ? undefined : cards.find((node) => node.dataset.id === state.cursor)
     if (state.cursor !== null && !target) return false
@@ -229,15 +236,13 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
         const drawKey = JSON.stringify([state.path, state.view, state.sort, state.search.text, state.search.scope, state.filter.applied, state.columns])
         if (!inPlace(state, index, drawKey)) {
           // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
-          if (!narrowed || narrowed.index !== index || narrowed.key !== drawKey) narrowed = { index, key: drawKey, value: narrow(state, index) }
-          const found = narrowed.value
+          const found = narrow(state, index)
           const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: found.match, reveal: found.searching })
           drawn = { state, index, model, key: drawKey }
           pane.replaceChildren(...draw(ctx, state, index, model))
         }
       } else {
         drawn = null
-        narrowed = null
         pane.replaceChildren()
       }
       if (key !== undefined) {

@@ -486,3 +486,13 @@ test('list view: NEW before the name on unread rows only; archived rows and a so
   const none = mount(ROWS, { state: { path: EPIC } })
   assert.equal(none.root.querySelector('.m-chip-new'), null, 'no row carries unread: NEW is off')
 })
+
+test('list view: NEW stands after the branch and before the name (design 4.1)', () => {
+  const rows = ROWS.map((row) => (row.id === 'se-e1.a.x' ? { ...row, unread: true } : row))
+  const { lines } = mount(rows, { state: { path: EPIC, expanded: [pathKey([...EPIC, 'i:se-e1.a'])] } })
+  const title = lines().find((line) => line.dataset.key === 'se-e1.a.x').querySelector('.m-row-title')
+  const [twig, chip] = title.children
+  assert.ok(twig.classList.contains('moai-twig'), 'the row hangs under its folder: it has a branch')
+  assert.ok(chip.classList.contains('m-chip-new'))
+  assert.equal(title.textContent, '└─NEW Rows')
+})

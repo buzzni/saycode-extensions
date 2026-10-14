@@ -150,7 +150,7 @@ test('shell: the main pane is narrower only by a detail standing on the left', (
 })
 
 /** Mounts the shell as main.ts does, in a fresh document, on `storage`. */
-function boot(storage, { rows = ROWS } = {}) {
+function boot(storage, { rows = ROWS, indexOf = null } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><head></head><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -163,7 +163,7 @@ function boot(storage, { rows = ROWS } = {}) {
     copy: en,
     language: 'en',
     panes: PANES,
-    index: (state) => (state.board.value ? rowIndex : null),
+    index: indexOf ?? ((state) => (state.board.value ? rowIndex : null)),
     activity: () => ({ phase: 'idle', cancellable: false }),
     intents: {
       refresh: () => calls.push(['refresh']),
@@ -470,6 +470,43 @@ test('unread: unreadBadges counts the rows the CLI marked unread, archive rows n
   assert.equal(tabs.el.querySelector('#m-tab-list .m-chip-new').textContent, '2')
   tabs.setBadge('list', unreadBadges([]).list)
   assert.equal(tabs.el.querySelector('.m-chip-new'), null)
+})
+
+test('unread: the shell puts the unread count on the board and list tabs, and takes it off when the rows are read (se-ehdi.zcx)', () => {
+  const unreadAmong = (...ids) => ROWS.map((row) => (ids.includes(row.id) ? { ...row, unread: true } : row))
+  // main.ts builds one IssueIndex per read; the shell is handed the index of the rows the store holds.
+  const indexes = new WeakMap()
+  const indexOf = (state) => {
+    const held = state.board.value?.rows
+    if (!held) return null
+    if (!indexes.has(held)) indexes.set(held, new IssueIndex(held))
+    return indexes.get(held)
+  }
+  const panel = boot(fakeStorage(), { rows: unreadAmong('se-e1.a', 'se-e1.b'), indexOf })
+  const badge = (id) => panel.tab(id).querySelector('.m-chip-new')?.textContent ?? null
+  // What the re-read after `moai read` brings back: the same rows, the key gone from the ones that were marked.
+  const reload = (rows) => panel.store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
+
+  // Two rows are unread: both tabs that list rows say so, and are named with the count; the wiki tab says nothing.
+  assert.equal(badge('list'), '2')
+  assert.equal(badge('board'), '2')
+  assert.equal(badge('wiki'), null)
+  assert.equal(panel.tab('list').getAttribute('aria-label'), 'List 2')
+  // It stays on the bar as the tab changes.
+  panel.tab('board').click()
+  assert.equal(badge('list'), '2')
+  assert.equal(badge('board'), '2')
+  panel.tab('list').click()
+
+  // One row read: the count follows. Every row read: the badges are gone, and the tabs are named by their title again.
+  reload(unreadAmong('se-e1.b'))
+  assert.equal(badge('list'), '1')
+  assert.equal(badge('board'), '1')
+  reload(unreadAmong())
+  assert.equal(badge('list'), null)
+  assert.equal(badge('board'), null)
+  assert.equal(panel.doc.querySelector('[role="tablist"] .m-chip-new'), null)
+  assert.equal(panel.tab('list').getAttribute('aria-label'), null)
 })
 
 test('shell: the activity line asks to approve a waiting run beside one that runs, and an unchanged line is not rewritten', async () => {

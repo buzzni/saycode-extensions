@@ -135,11 +135,20 @@ test('tabs: roving tabindex, arrows wrap, Home/End, onSelect fires once per chan
   tabs.setSelected('list')
   assert.deepEqual(state(), ['false/-1', 'true/0', 'false/-1'])
   assert.equal(chosen.length, 6, 'setSelected is silent')
+  assert.equal(tabs.el.hasAttribute('data-badged'), false)
   tabs.setBadge('list', 3)
+  // The label is hidden on a narrow bar and the badge would be the whole name: the tab is named with its count.
+  assert.equal(buttons[1].getAttribute('aria-label'), '목록 3')
+  // The strip is wider with a count: the style sheet gives the labels way sooner while one shows (components.css).
+  assert.equal(tabs.el.hasAttribute('data-badged'), true)
   tabs.setBadge('list', 120)
   assert.equal(buttons[1].querySelector('.m-chip').textContent, '99+')
+  assert.equal(buttons[1].getAttribute('aria-label'), '목록 99+')
+  assert.equal(buttons[0].getAttribute('aria-label'), null, 'a tab with no badge keeps `title` for its name')
   tabs.setBadge('list', 0)
   assert.equal(buttons[1].querySelector('.m-chip'), null)
+  assert.equal(buttons[1].getAttribute('aria-label'), null)
+  assert.equal(tabs.el.hasAttribute('data-badged'), false)
   tabs.el.remove()
 })
 

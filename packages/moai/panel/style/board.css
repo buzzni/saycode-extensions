@@ -6,4 +6,3 @@
 .m-card-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
 .m-card-line .m-id, .m-card-line .m-count { font: 12px var(--mono); color: var(--muted); }
 .m-card-title { margin-top: 2px; overflow-wrap: anywhere; }
-.m-card-title .moai-new { min-height: 18px; padding: 0 5px; vertical-align: middle; }

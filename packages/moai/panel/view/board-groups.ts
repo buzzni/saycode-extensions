@@ -39,7 +39,8 @@ export interface BoardModel {
   total: number
   /**
    * The cursor's card is drawn only because it has the cursor (its column hidden, the filter or the archive age
-   * would drop it): once the cursor leaves it, the card goes, so a cursor move cannot be drawn in place.
+   * would drop it), or the cursor stands on a group in a hidden column that only it keeps: once the cursor leaves,
+   * the card or the column goes, so a cursor move cannot be drawn in place.
    */
   pinned: boolean
 }
