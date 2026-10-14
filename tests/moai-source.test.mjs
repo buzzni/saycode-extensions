@@ -247,6 +247,25 @@ test('a read the catalog lacks degrades the load instead of failing it: prime st
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: declined })), { ok: false, outcome: declined })
 })
 
+test('beside prime a backlog read that gave nothing does not fail the load, and says why in backlogProblem', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const declined = { kind: 'refused', code: 'declined' }
+  const primeIds = [...new Set([...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id))]
+  for (const showAll of [lacked, { kind: 'unreadable', truncated: true }]) {
+    for (const problem of [declined, { kind: 'failed' }]) {
+      const loaded = await loadAllRows(fakeClient({ [PROFILE.showAll]: showAll, [PROFILE.backlog]: problem, [PROFILE.prime]: passed(PRIME) }))
+      assert.equal(loaded.ok, true)
+      assert.deepEqual(loaded.value.rows.map((row) => row.id), primeIds)
+      assert.deepEqual(loaded.value.backlogProblem, problem)
+    }
+    // The catalog lacking it is the compat banner's to tell; an answer is no problem.
+    const none = await loadAllRows(fakeClient({ [PROFILE.showAll]: showAll, [PROFILE.backlog]: lacked, [PROFILE.prime]: passed(PRIME) }))
+    assert.equal(none.value.backlogProblem, undefined)
+    const read = await loadAllRows(fakeClient({ [PROFILE.showAll]: showAll, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) }))
+    assert.equal(read.value.backlogProblem, undefined)
+  }
+})
+
 test('in the fallback prime starts while the backlog read still runs, and a prime that fails calls that read off at once', async () => {
   const lacked = { kind: 'refused', code: 'unsupported-daemon' }
   const tick = () => new Promise((resolve) => setImmediate(resolve))

@@ -58,6 +58,11 @@ export interface Rows {
   truncated: boolean
   /** These are prime's rows (and the backlog), not every active row: loadRows, or loadAllRows' fallback ({@link primeRows}). */
   partial: boolean
+  /**
+   * Why the backlog read beside prime's rows gave nothing (declined, failed): loadAllRows' fallback stands without
+   * the backlog then. Absent when it answered, or when the catalog lacks it (the compat banner tells that).
+   */
+  backlogProblem?: Outcome
 }
 
 /** Hands a request's outcome to the compatibility probe, when the caller keeps one (compat.ts). */
@@ -137,7 +142,8 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list,
  * (`show --all` first), except a read the catalog lacks ({@link lacked}), which the load does without. When
  * `show --all` was cut at the output limit (`truncated`) or the catalog lacks it, prime's rows stand in with
  * `partial: true` (prime's failure is then the load's), plus the backlog when that read — a backlog read that failed
- * is left out there, as it always was beside prime — without its references to the groups prime leaves out.
+ * does not fail the load there, as it always did not beside prime, and stands in `backlogProblem` — without its
+ * references to the groups prime leaves out.
  */
 export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
   const listing = client.request(PROFILE.showAll, undefined, { priority })
@@ -161,7 +167,10 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
       return loaded
     }
     const backlog = await read
-    return { ok: true, value: { rows: withBacklog(loaded.value.rows, answerOf(backlog), ungrouped), more: loaded.value.more, truncated: cut, partial: true } }
+    const thoughts = answerOf(backlog)
+    const value: Rows = { rows: withBacklog(loaded.value.rows, thoughts, ungrouped), more: loaded.value.more, truncated: cut, partial: true }
+    if (thoughts === undefined && !lacked(backlog)) value.backlogProblem = backlog
+    return { ok: true, value }
   }
   if (listed === undefined) {
     // show --all alone decides this load (declined, no tracker).
