@@ -377,6 +377,19 @@ test('shell: a failed detail read is told once, in the pane, and does not hide t
   assert.match(panel.$('.moai-notice').textContent, /confirmation was declined/)
 })
 
+test('shell: a list refusal the compatibility banner tells leaves the error line to the hidden detail\'s own problem', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
+  panel.store.dispatch({ type: 'board-failed', problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.equal(panel.$('.moai-error').textContent, '', 'the catalog line tells it')
+  panel.store.dispatch({ type: 'detail-visible', visible: false })
+  panel.store.dispatch({ type: 'detail-failed', id: 'se-e1.a', problem: { kind: 'moai-error', message: 'issue se-e1.a not found' } })
+  assert.match(panel.$('.moai-error').textContent, /not found/, 'a read the user asked for is never silent')
+  // The detail's `show` is not a read the probe hears: a catalog line about other profiles does not stand for it.
+  panel.store.dispatch({ type: 'detail-failed', id: 'se-e1.a', problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.equal(panel.$('.moai-error').textContent, en.refused['unsupported-daemon'])
+})
+
 test('shell: the missing-board guidance is one sentence in its banner, and a banner is written only when it says something new', () => {
   const panel = boot(fakeStorage())
   panel.store.dispatch({ type: 'board-failed', problem: { kind: 'not-initialized' } })
@@ -457,4 +470,25 @@ test('unread: unreadBadges counts the rows the CLI marked unread, archive rows n
   assert.equal(tabs.el.querySelector('#m-tab-list .m-chip-new').textContent, '2')
   tabs.setBadge('list', unreadBadges([]).list)
   assert.equal(tabs.el.querySelector('.m-chip-new'), null)
+})
+
+test('shell: the activity line asks to approve a waiting run beside one that runs, and an unchanged line is not rewritten', async () => {
+  const panel = boot(fakeStorage())
+  const line = panel.$('.moai-activity')
+  const writes = []
+  new panel.dom.window.MutationObserver((records) => writes.push(...records)).observe(line, { childList: true, characterData: true, subtree: true })
+  panel.shell.activity({ phase: 'running', waiting: true, cancellable: true })
+  assert.equal(line.textContent, `${en.running} ${en.starting}`)
+  assert.equal(panel.$('.moai-cancel').hidden, false)
+  await Promise.resolve()
+  const after = writes.length
+  panel.shell.activity({ phase: 'running', waiting: true, cancellable: true })
+  await Promise.resolve()
+  assert.equal(writes.length, after, 'the live region is left alone')
+  panel.shell.activity({ phase: 'running', waiting: false, cancellable: true })
+  assert.equal(line.textContent, en.running)
+  // Waiting alone: nothing to cancel yet.
+  panel.shell.activity({ phase: 'starting', waiting: true, cancellable: false })
+  assert.equal(line.textContent, en.starting)
+  assert.equal(panel.$('.moai-cancel').hidden, true)
 })

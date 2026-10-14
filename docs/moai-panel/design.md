@@ -13,14 +13,14 @@
 | 2절 `view/` 목록 | 목록·칸반이 `list-model.ts`, `board-groups.ts`, `detail-format.ts`, `responsive.ts`, `components.ts`, `icons.ts`로 더 쪼개졌다 | 머지됨 |
 | 3.1 `backlog` 프로필 | `backlog-all`(`backlog show --all`). 데몬의 기존 `buzzni.moai.backlog`가 `backlog add`라서 id를 따로 잡았다 | 선언만, 데몬 확인 대기 |
 | 3.1 `show-archived` 한 개 | `show-archived`(첫 쪽)와 `show-archived-after`(다음 쪽) 두 개, 쪽당 200 고정 | 선언만, 데몬 확인 대기 |
-| 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 **가정**하고, 없으면 `counts` 키를 기본 순서에 맞춘다 | 가정(상류 요청) |
+| 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 읽고, 없으면(옛 moai) `counts` 키를 기본 순서에 맞춘다 | 머지됨. 상류 moai 0.17.0에서 확인 |
 | 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 머지됨(`main.ts`가 `PANEL_CLIENT_OPTIONS` 사용), 라이브 확인 대기 |
 | 3.2 폴링 500ms | 그대로 | 머지됨 |
 | 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 머지됨(`se-bco3`). `main.ts`가 `loadAllRows`를 쓰고 잘림 배너를 단다 |
 | 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`, 연결 `se-poaz`) |
-| 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류가 행에 `derived_milestone`, `derived_deferred`, `archive_candidate`를 주는 것으로 **가정**하고, 있으면 그것을 우선한다. 없을 때만 `nav.rs` 규칙으로 계산한다 | 가정(상류 요청) |
-| 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 없고, `note` 범위는 조용히 아무것도 못 찾는다 | 매처만 머지됨. backlog `se-thyl` |
-| 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 가정(상류 `moai-cqwy`) |
+| 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류 moai 0.17.0이 행에 `derived_milestone`, `shelved_by`, `archived`를 해당할 때만 준다(요청 때 이름은 `derived_deferred`·`archive_candidate`). 있으면 그것을 우선하고, 없을 때만 `nav.rs` 규칙으로 계산한다 | 머지됨(`se-ydco`). 상류 0.17.0에서 확인 |
+| 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 없고, `note` 범위는 조용히 아무것도 못 찾는다 | 매처만 머지됨. 2.0 툴바에서는 `note`를 범위 순환에서 뺐다(`se-thyl`, `31ad3a2`). 되살리기는 `se-qxeh`(`show -g` 연결) |
+| 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 머지됨. 상류 `moai-cqwy`, 0.17.0에서 확인 |
 | 4.9 쓰는 값은 그린 행의 `updated_at` | CLI는 값을 받지 않고 **현재** `updated_at`을 쓴다. 쓰기 뒤 다시 읽어 `staleAgainst`로만 비교한다 | 달라짐. 상류 요청은 backlog `se-a5wl` |
 | 4.9 NEW 모든 행 | **아카이브에서만 온 행은 NEW를 그리지 않는다.** `moai read`가 활성 행만 풀기 때문이다 | 머지됨(`se-fvou`) |
 | 4.9 탭 뱃지·NEW 칩 | 판정·쓰기와 읽음 키(`r`, `SPC m a`, `SPC m g`)는 이어졌고 칩과 뱃지는 아직 없다 | 열림(`se-ehdi.zcx`) |
@@ -38,12 +38,12 @@
 | `se-pbqz.k84` | 한글 입력 소스는 `event.code`로 읽는다. **실기 확인 남음** |
 | `se-cv7w.0qk` | 툴바(검색·필터·정렬)를 스토어·목록·칸반에 이었다. 툴바는 한 번만 만들고 갱신해 IME 조합이 끊기지 않는다 |
 | `se-jj42` | 위키 탭을 셸에 이었다. 탭을 바꿔도 상태가 복원되고, 라우터가 `wiki.handleKey`를 부른다 |
-| `se-bco3`, `se-poaz` | `main.ts`가 `PANEL_CLIENT_OPTIONS`·`loadAllRows`·잘림 배너·`loadTallies`·`loadArchived({active})`를 쓴다 |
+| `se-bco3`, `se-poaz` | `main.ts`가 `PANEL_CLIENT_OPTIONS`·`loadAllRows`·잘림 배너·`loadTallies`·`loadArchived`를 쓴다 |
 | 스토어 어휘 | 칸 이름 `status`, 사람 이름 `names`, 아카이브 표시 `showArchived`(참이면 보임) |
 
 ### 아직 열려 있는 것
 
-`se-h5c7`(키 소유 잔여), `se-gq4i`(포커스 힌트가 탭 바를 가림), `se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-lv9n`(보드 읽기 잔여), `se-mht7`(활동 줄 안내), `se-ehdi.zcx`(NEW 뱃지), 호환 안내 배너, i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
+`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-ehdi.zcx`(NEW 뱃지), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 
@@ -234,7 +234,7 @@ TUI와의 차이:
 
 - 검색창은 툴바 왼쪽에 있다. 돋보기 아이콘(14px)과 범위 셀렉트가 붙는다.
 - 범위는 `all → id → title → tag → body → note` 순서이고 `Tab`으로 순환한다.
-  - `note` 범위는 노트가 필요하다. 처음 쓸 때만 행마다 `show <id>`를 부르는 것은 비싸다. 2.0에서는 `all`과 `note` 범위가 노트를 보지 않는다고 표시한다. 상류에 노트 포함 검색 출력(예: `show -g` id 목록)을 제안하고 그 결과로 대체한다.
+  - `note` 범위는 노트가 필요하다. 처음 쓸 때만 행마다 `show <id>`를 부르는 것은 비싸다. 2.0에서는 `note`를 툴바 범위에서 뺐다(`se-thyl`). 노트 포함 검색 출력(예: `show -g` id 목록)으로 되살리는 것은 `se-qxeh`다.
 - 매칭은 대소문자를 무시하는 부분 일치다. 태그는 태그마다 따로 비교한다.
 - 치는 대로 적용한다. `Enter`는 확정이고, `Esc`는 취소하면서 커서를 열기 전 행으로 되돌린다.
 - **검색은 view 숨김을 걷는다.** 숨겨 둔 done, 미룸, backlog 행도 찾는다. 그렇게 드러난 행은 흐리게 그리고 "숨김" 표시를 붙이며, 검색창에 "N건 숨김"을 보여 준다.

@@ -175,14 +175,44 @@ test('router: IME composition handles nothing and leaves the buffer alone', () =
   assert.deepEqual(ids(), [])
 })
 
-test('router: Tab, Space, Backspace and / get preventDefault in browse even when they do nothing', () => {
+test('router: Space, Backspace and / get preventDefault in browse even when they do nothing; Tab only when used', () => {
   const { key } = setup({ ctx: browse({ tab: 'board', focus: 'detail' }) })
-  for (const [k, init] of [['Tab', {}], ['Tab', { shiftKey: true }], ['Backspace', {}], ['/', {}], [' ', {}]]) {
+  for (const [k, init] of [['Backspace', {}], ['/', {}], [' ', {}]]) {
     assert.equal(key(k, init).preventDefault, true, `${k} ${JSON.stringify(init)}`)
   }
   key('Escape')
-  assert.equal(key('Tab').handled, false, 'expandAll is unavailable on the board')
+  // se-h5c7: Tab that runs nothing moves the focus as in any page (it was swallowed everywhere in browse).
+  assert.deepEqual(key('Tab'), { handled: false, preventDefault: false }, 'expandAll is unavailable on the board')
+  assert.deepEqual(key('Tab', { shiftKey: true }), { handled: false, preventDefault: false })
   assert.deepEqual(key('x'), { handled: false, preventDefault: false }, 'other unbound keys pass through')
+})
+
+test('router: an action whose handler says it did not use the key (false) leaves the key to the browser', () => {
+  const sent = []
+  const router = createKeyRouter({ platform: 'other', getContext: () => ({ mode: 'prompt' }), dispatch: (a) => (sent.push(a.id), false) })
+  const tab = router.handle({ key: 'Tab', editable: true })
+  assert.deepEqual([tab.handled, tab.preventDefault, tab.action?.id], [false, false, 'prompt.next'])
+  assert.equal(router.handle({ key: 'ArrowUp', editable: true }).preventDefault, false)
+  assert.deepEqual(sent, ['prompt.next', 'prompt.up'], 'the action still ran')
+  // A handler that returns anything else used it.
+  const used = createKeyRouter({ platform: 'other', getContext: () => ({ mode: 'prompt' }), dispatch: () => 3 })
+  assert.equal(used.handle({ key: 'Tab', editable: true }).preventDefault, true)
+})
+
+test('router: settle() drops a menu or sequence held in a mode the panel has left', () => {
+  const { router, key, state } = setup()
+  key(' ')
+  assert.deepEqual(router.state().menu, ['SPC'])
+  router.settle()
+  assert.deepEqual(router.state().menu, ['SPC'], 'same mode: kept')
+  state.ctx = { ...state.ctx, mode: 'prompt' }
+  router.settle()
+  assert.equal(router.state().menu, null, 'focus went into an input: the menu closes')
+  state.ctx = browse()
+  key('g')
+  state.ctx = browse({ mode: 'wiki', tab: 'wiki' })
+  router.settle()
+  assert.deepEqual(router.state().pending, [])
 })
 
 test('router: motion and the other direct keys dispatch their action ids', () => {
@@ -654,6 +684,68 @@ test('help: keys pressed inside the open overlay do not reach the router; closin
   detach()
 })
 
+test('help: while open, a key on a control behind it neither clicks nor types; Tab stays inside (se-h5c7)', () => {
+  const dom = new JSDOM('<!doctype html><body><button id="b">b</button><input id="i"></body>')
+  const doc = dom.window.document
+  const help = createHelp(doc, { platform: 'other' })
+  doc.body.append(help.el)
+  const button = doc.getElementById('b')
+  const input = doc.getElementById('i')
+  const reached = []
+  button.addEventListener('keydown', (e) => reached.push(`button ${e.key}`))
+  input.addEventListener('keydown', (e) => reached.push(`input ${e.key}`))
+  const press = (node, key, init = {}) => {
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    node.dispatchEvent(event)
+    return event
+  }
+  help.open('browse', browse())
+  button.focus()
+  assert.equal(press(button, 'Enter').defaultPrevented, true, 'Enter does not click the button behind')
+  assert.equal(press(button, ' ').defaultPrevented, true)
+  assert.equal(doc.activeElement, help.el, 'the focus comes back to the overlay')
+  input.focus()
+  assert.equal(press(input, 'a').defaultPrevented, true, 'a letter is not typed into the input behind')
+  assert.deepEqual(reached, [], "the controls' own listeners never see the keys")
+  assert.equal(press(input, 'c', { metaKey: true }).defaultPrevented, false, "Cmd combinations are the host's")
+  // Tab inside cycles the overlay and its close button.
+  help.el.focus()
+  assert.equal(press(help.el, 'Tab').defaultPrevented, true)
+  assert.equal(doc.activeElement, help.el.querySelector('button'))
+  press(doc.activeElement, 'Tab')
+  assert.equal(doc.activeElement, help.el)
+  // Esc from behind closes; then keys reach the controls again.
+  input.focus()
+  press(input, 'Escape')
+  assert.equal(help.isOpen(), false)
+  assert.equal(press(button, 'Enter').defaultPrevented, false)
+  assert.deepEqual(reached, ['input c', 'button Enter'])
+})
+
+test('attachKeyRouter: Tab on a focused control moves the focus; Space on a tab of the tab strip opens the menu (se-h5c7)', () => {
+  const dom = new JSDOM('<!doctype html><body><button id="b">b</button><div role="tablist"><button id="t" role="tab" aria-selected="true">t</button></div></body>')
+  const doc = dom.window.document
+  const sent = []
+  const router = createKeyRouter({ platform: 'other', getContext: () => browse(), dispatch: (a) => sent.push(a.id) })
+  attachKeyRouter(doc, router)
+  const press = (node, key, init = {}) => {
+    const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    node.dispatchEvent(event)
+    return event
+  }
+  const button = doc.getElementById('b')
+  const tab = doc.getElementById('t')
+  assert.equal(press(button, 'Tab').defaultPrevented, false, 'Tab on a button is not expandAll')
+  assert.equal(press(button, 'Tab', { shiftKey: true }).defaultPrevented, false)
+  assert.deepEqual(sent, [])
+  assert.equal(press(button, ' ').defaultPrevented, false, 'Space still clicks a plain button')
+  assert.equal(router.state().menu, null)
+  assert.equal(press(tab, 'Enter').defaultPrevented, false, "Enter on a tab is the tab's")
+  const space = press(tab, ' ')
+  assert.equal(space.defaultPrevented, true, 'Space on a tab does not click it again')
+  assert.deepEqual(router.state().menu, ['SPC'], 'it opens the SPC menu')
+})
+
 test('help: the router dispatches help for ?', () => {
   const s = setup()
   s.router.handle({ key: '?' })
@@ -665,6 +757,15 @@ test('kbdHint: kbd chips with key labels; focus hint text', () => {
   assert.equal(kbdHint(document, '/').querySelector('kbd').textContent, '/')
   assert.deepEqual([...kbdHint(document, ['C-d', 'g g']).querySelectorAll('kbd')].map((k) => k.textContent), ['Ctrl-d', 'gg'])
   assert.equal(focusHint(document).textContent, '클릭하면 키보드를 쓸 수 있습니다')
+})
+
+test('focus hint: anchored to the bottom so it never covers the tab bar at the top', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const css = await readFile(new URL('style/components.css', panel), 'utf8')
+  const rule = css.split('\n').find((l) => l.startsWith('.m-focus-hint {'))
+  assert.match(rule, /position: fixed/)
+  assert.match(rule, /bottom: \d+px/)
+  assert.doesNotMatch(rule, /\btop:/)
 })
 
 test('keyToken: a Korean input source falls back to event.code (jamo, Process), ASCII keys stay', () => {

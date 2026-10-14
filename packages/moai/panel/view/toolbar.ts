@@ -339,6 +339,13 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
   })
   // A click moves the caret too; without this the hints stay on the item the keyboard last left.
   filterInput.addEventListener("click", () => dispatch({ type: "filter-cursor", cursor: filterInput.selectionStart ?? 0 }))
+  // The suggestions belong to the caret: once the filter loses the focus they close. A click on one does not blur
+  // the input (their mousedown is prevented below), so it is still taken. When the whole window loses the focus the
+  // input stays the document's active element and has it back on return, so the suggestions stay open with it.
+  filterInput.addEventListener("blur", () => {
+    if (filterInput.ownerDocument.activeElement === filterInput) return
+    if (state.hintsOpen) dispatch({ type: "hints-close" })
+  })
   filterInput.addEventListener("keydown", (event) => {
     if (event.isComposing) return
     const open = state.hintsOpen && hints.length > 0

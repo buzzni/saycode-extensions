@@ -39,7 +39,7 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki, read, rows = ROWS } = {}) {
+function boot({ wiki, read, rows = ROWS, platform = 'other' } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -65,7 +65,7 @@ function boot({ wiki, read, rows = ROWS } = {}) {
     wiki,
   })
   store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
-  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other', read })
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform, read })
   const $ = (selector) => doc.querySelector(selector)
   /** A keydown on `target` (the focused element when left out), as the browser sends it. */
   const press = (key, init = {}, target = doc.activeElement ?? doc.body) => {
@@ -487,6 +487,40 @@ test('keys: a click on a filter suggestion keeps the caret in the filter; Tab op
   assert.equal(panel.state().filter.text, 'status=', 'S-Tab took no suggestion')
 })
 
+test('keys: the filter suggestions outlive the window losing the focus, not the filter losing it (se-4fci)', () => {
+  const panel = inEpic()
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  assert.equal(panel.state().toolbar.hintsOpen, true)
+  // The window going away blurs the input but leaves it the active element.
+  filter.dispatchEvent(new panel.dom.window.FocusEvent('blur'))
+  assert.equal(panel.doc.activeElement, filter)
+  assert.equal(panel.state().toolbar.hintsOpen, true, 'a window blur keeps the suggestions')
+  filter.blur()
+  assert.notEqual(panel.doc.activeElement, filter)
+  assert.equal(panel.state().toolbar.hintsOpen, false, 'leaving the filter closes them')
+})
+
+test('keys: outside the wiki ↑/↓ in the search are the input\'s, and ↓ in the filter still moves the suggestions (se-4fci)', () => {
+  const panel = inEpic()
+  panel.press('/')
+  assert.equal(panel.doc.activeElement, panel.shell.toolbar.searchInput)
+  assert.equal(panel.press('ArrowUp').defaultPrevented, false, '↑ moves the caret')
+  assert.equal(panel.press('ArrowDown').defaultPrevented, false, '↓ moves the caret')
+  panel.press('Escape')
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  const at = panel.state().toolbar.hintIndex
+  assert.equal(panel.press('ArrowDown').defaultPrevented, true, 'the filter takes ↓ itself')
+  assert.equal(panel.state().toolbar.hintIndex, at + 1)
+})
+
 test('keys: SPC m g in the "(no milestone)" bucket says where to go and writes nothing', () => {
   const calls = []
   const read = { one: async () => null, all: async () => null, group: async (id) => (calls.push(id), null) }
@@ -560,4 +594,235 @@ test('keys: on the board at the root, j/k walk a column across the milestone lan
   assert.equal(panel.state().cursor, 'a', 'the column\'s top card, in the first lane')
   panel.press('G')
   assert.equal(panel.state().cursor, 'c')
+})
+
+// ── se-h5c7: one key owner, the leftovers of review se-pbqz.y8z ──
+
+test('keys: the help open — Enter on a button behind it and a letter in the search do nothing there (se-h5c7)', () => {
+  const panel = inEpic()
+  panel.press('?')
+  const sort = panel.$('.m-toolbar-slot .m-sort button')
+  sort.focus()
+  assert.equal(panel.press('Enter').defaultPrevented, true, 'the button behind is not clicked')
+  assert.equal(panel.doc.activeElement, panel.keys.help.el, 'the focus is back on the overlay')
+  panel.shell.toolbar.searchInput.focus()
+  assert.equal(panel.press('q').defaultPrevented, true, 'nothing is typed into the search behind')
+  assert.equal(panel.state().toolbar.sortOpen, false)
+  panel.press('Escape')
+  assert.equal(panel.keys.help.isOpen(), false)
+})
+
+test('keys: the help open — Ctrl+C and Ctrl+D go to the browser: not prevented, the focus stays, the panel stays quiet (se-1fy7)', () => {
+  const panel = inEpic()
+  panel.press('?')
+  const behind = panel.$('.m-toolbar-slot .m-sort button')
+  behind.focus()
+  const copy = panel.press('c', { ctrlKey: true }, behind)
+  assert.equal(copy.defaultPrevented, false, 'the browser copies')
+  assert.equal(panel.doc.activeElement, behind, 'the focus is not taken back')
+  const down = panel.press('d', { ctrlKey: true }, behind)
+  assert.equal(down.defaultPrevented, false)
+  assert.equal(panel.state().cursor, 'e1.a', 'no panel shortcut ran behind the overlay')
+  assert.equal(panel.keys.help.isOpen(), true)
+  // A plain key is still stopped and the focus comes back.
+  assert.equal(panel.press('j', {}, behind).defaultPrevented, true)
+  assert.equal(panel.doc.activeElement, panel.keys.help.el)
+})
+
+test('keys: the help open — a Ctrl key a control behind it acts on, and AltGr, are stopped there (se-1fy7)', () => {
+  const panel = inEpic()
+  panel.press('?')
+  const behind = panel.$('.m-toolbar-slot .m-sort button')
+  for (const key of ['Enter', ' ']) {
+    behind.focus()
+    assert.equal(panel.press(key, { ctrlKey: true }, behind).defaultPrevented, true, `Ctrl+${key} can press the button`)
+    assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  }
+  assert.equal(panel.state().toolbar.sortOpen, false)
+  // The tab strip and the resizer take arrows whatever the modifier.
+  const tab = panel.doc.getElementById('m-tab-list')
+  tab.focus()
+  assert.equal(panel.press('ArrowRight', { ctrlKey: true }, tab).defaultPrevented, true)
+  assert.equal(panel.state().tab, 'list', 'no tab switch behind the overlay')
+  // Ctrl+Backspace deletes a word, and AltGr (Ctrl+Alt on Windows) types a character: @ on a German layout.
+  const search = panel.shell.toolbar.searchInput
+  for (const [key, init] of [['Backspace', { ctrlKey: true }], ['@', { ctrlKey: true, altKey: true }]]) {
+    search.focus()
+    assert.equal(panel.press(key, init, search).defaultPrevented, true, `nothing is edited in the search behind: ${key}`)
+    assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  }
+  // Ctrl+Esc closes the help, as Esc does, rather than the search behind it.
+  search.focus()
+  panel.press('Escape', { ctrlKey: true }, search)
+  assert.equal(panel.keys.help.isOpen(), false)
+})
+
+test('keys: the help open on macOS — Ctrl edits text there (Ctrl+K) and is stopped; Cmd goes on (se-1fy7)', () => {
+  const panel = inEpic({ platform: 'mac' })
+  panel.press('?')
+  const search = panel.shell.toolbar.searchInput
+  search.focus()
+  assert.equal(panel.press('k', { ctrlKey: true }, search).defaultPrevented, true)
+  assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  search.focus()
+  const copy = panel.press('c', { metaKey: true }, search)
+  assert.equal(copy.defaultPrevented, false, 'Cmd+C copies')
+  assert.equal(panel.doc.activeElement, search)
+  assert.equal(panel.keys.help.isOpen(), true)
+})
+
+test('keys: r and SPC m g see an active row only the archive answer holds in a cut list; an archived row takes no mark (se-4f4s)', async () => {
+  const calls = []
+  const read = {
+    one: async (id) => (calls.push(['one', id]), null),
+    all: async () => null,
+    group: async (id) => (calls.push(['group', id]), null),
+  }
+  const panel = inEpic({ read })
+  // A cut list (prime's rows): the archive answers rows it does not hold, and those that do not stand done are
+  // active (source.ts activeIds). A done one is archived, as is every archive-only row beside a whole list.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, truncated: true, loadedAt: Date.now() } })
+  const extra = [
+    { id: 'e2', kind: 'epic', title: 'Other epic', status: 'todo' },
+    { id: 'e1.y', kind: 'issue', title: 'Ypsilon', epic: 'e1', status: 'todo' },
+    { id: 'e1.z', kind: 'issue', title: 'Zeta', epic: 'e1', status: 'done' },
+  ]
+  panel.store.dispatch({ type: 'view', view: { showArchived: true } })
+  panel.store.dispatch({ type: 'archive', rows: [...ROWS, ...extra] })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
+  panel.shell.focusPane('list')
+  panel.press('r')
+  panel.store.dispatch({ type: 'cursor', id: 'e2' })
+  panel.seq(' ', 'm', 'g')
+  await ticks()
+  assert.deepEqual(calls, [['one', 'e1.y'], ['group', 'e2']])
+  // An archived row: `moai read` resolves active rows only, so nothing is asked of it.
+  panel.store.dispatch({ type: 'cursor', id: 'e1.z' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2, 'a done archive-only row is archived')
+  // Beside a whole list every archive-only row is archived.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now() } })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2, 'whole list')
+  // Archived rows hidden again: the archive answer is not the list's.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, truncated: true, loadedAt: Date.now() } })
+  panel.store.dispatch({ type: 'view', view: { showArchived: false } })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2, 'archived rows hidden')
+})
+
+test('keys: Tab in browse moves the focus unless it runs expandAll on the list (se-h5c7)', () => {
+  const panel = inEpic()
+  assert.equal(panel.press('Tab').defaultPrevented, true, 'on the list Tab is expandAll')
+  panel.store.dispatch({ type: 'detail-loaded', data: { id: 'e1.a', row: ROWS[2] } })
+  panel.seq(' ', 'w', 'w')
+  assert.equal(panel.state().focus, 'detail')
+  assert.equal(panel.press('Tab').defaultPrevented, false, 'in the detail Tab moves the focus')
+  assert.equal(panel.press('Tab', { shiftKey: true }).defaultPrevented, false)
+  panel.seq(' ', 'g', 'b')
+  panel.shell.focusPane('list')
+  assert.equal(panel.state().tab, 'board')
+  assert.equal(panel.press('Tab').defaultPrevented, false, 'on the board Tab moves the focus')
+  // A focused toolbar button: Tab goes on to the next control, it does not unfold the list.
+  panel.seq(' ', 'g', 'l')
+  const expanded = panel.state().expanded
+  panel.$('.m-toolbar-slot .m-sort button').focus()
+  assert.equal(panel.press('Tab').defaultPrevented, false)
+  assert.deepEqual(panel.state().expanded, expanded)
+})
+
+test('keys: the wiki search leaves Tab, S-Tab and ↑ to the input; ↓ still goes to the list (se-h5c7)', async () => {
+  const panel = boot({ wiki: wikiSource() })
+  panel.seq(' ', 'g', 'w')
+  await ticks()
+  panel.press('/')
+  const search = panel.$('#m-panel-wiki .m-wiki-search input')
+  assert.equal(panel.doc.activeElement, search)
+  assert.equal(panel.press('Tab').defaultPrevented, false, 'Tab moves the focus')
+  assert.equal(panel.press('Tab', { shiftKey: true }).defaultPrevented, false, 'S-Tab moves the focus back')
+  assert.equal(panel.press('ArrowUp').defaultPrevented, false, '↑ moves the caret')
+  assert.equal(panel.doc.activeElement, search)
+  assert.equal(panel.press('ArrowDown').defaultPrevented, true)
+  assert.notEqual(panel.doc.activeElement, search, '↓ goes down to the list')
+})
+
+test('keys: after Esc out of the wiki onto its tab, SPC opens the menu instead of clicking the tab (se-h5c7)', async () => {
+  const panel = boot({ wiki: wikiSource() })
+  panel.seq(' ', 'g', 'w')
+  await ticks()
+  panel.press('Escape')
+  const tab = panel.$('[role="tab"][data-tab="wiki"]')
+  assert.equal(panel.doc.activeElement, tab)
+  const space = panel.press(' ')
+  assert.equal(space.defaultPrevented, true, 'the tab is not clicked again')
+  assert.deepEqual(panel.keys.router.state().menu, ['SPC'])
+  assert.equal(panel.keys.menu.el.hidden, false)
+  panel.seq('g', 'l')
+  assert.equal(panel.state().tab, 'list', 'the menu works there')
+})
+
+test('keys: PageDown, C-d, C-u and PageUp in the wiki page list move its cursor, not the page (se-h5c7)', async () => {
+  const panel = boot({ wiki: wikiSource() })
+  panel.seq(' ', 'g', 'w')
+  await ticks()
+  const selected = () => panel.$('#m-panel-wiki .m-wiki-list [aria-selected="true"]')?.dataset.slug
+  const scroller = panel.$('#m-panel-wiki .m-wiki-scroll')
+  assert.equal(panel.keys.context().focus, 'list')
+  assert.equal(selected(), 'README')
+  panel.press('PageDown')
+  assert.equal(selected(), 'notes', 'a page of rows (all three here)')
+  panel.press('u', { ctrlKey: true })
+  assert.equal(selected(), 'README')
+  panel.press('d', { ctrlKey: true })
+  assert.equal(selected(), 'notes')
+  panel.press('PageUp')
+  assert.equal(selected(), 'README')
+  assert.equal(scroller.scrollTop, 0, 'the page did not scroll')
+  assert.equal(panel.doc.activeElement, panel.$('#m-panel-wiki .m-wiki-list [aria-selected="true"]'))
+})
+
+test('keys: the SPC menu closes when the mode changes under it — a click into an input, onto another tab (se-h5c7)', () => {
+  const panel = inEpic()
+  const menu = panel.keys.menu.el
+  panel.press(' ')
+  assert.equal(menu.hidden, false)
+  panel.shell.toolbar.searchInput.focus()
+  assert.equal(panel.keys.context().mode, 'prompt')
+  assert.equal(panel.keys.router.state().menu, null)
+  assert.equal(menu.hidden, true, 'not left drawn with items that would not run')
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'v')
+  assert.equal(menu.hidden, false)
+  panel.$('[role="tab"][data-tab="wiki"]').click()
+  assert.equal(panel.keys.context().mode, 'wiki')
+  assert.equal(panel.keys.router.state().menu, null)
+  assert.equal(menu.hidden, true)
+  // List → board is no change of mode: the menu stays, redrawn for the board, and its items run.
+  panel.$('[role="tab"][data-tab="list"]').click()
+  panel.shell.focusPane('list')
+  panel.seq(' ', 'v')
+  panel.$('[role="tab"][data-tab="board"]').click()
+  assert.equal(menu.hidden, false)
+  menu.querySelector('[data-key="l"]').click()
+  assert.equal(panel.state().view.hideDeferred, false)
+})
+
+test('keys: the filter suggestions close when the filter loses the focus (se-h5c7)', () => {
+  const panel = inEpic()
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  assert.equal(panel.state().toolbar.hintsOpen, true)
+  assert.ok(panel.$('.m-hints .m-menu-item'))
+  panel.shell.focusPane('list')
+  assert.equal(panel.state().toolbar.hintsOpen, false)
+  assert.equal(panel.$('.m-hints .m-menu-item'), null, 'the list is no longer drawn')
+  assert.equal(panel.state().filter.text, 'sta', 'the text stays')
 })

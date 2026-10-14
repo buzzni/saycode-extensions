@@ -160,3 +160,65 @@ test('the store notifies subscribers with the new and the previous state', () =>
   assert.deepEqual(seen, [['list', 'board']])
   assert.equal(store.getState().tab, 'wiki')
 })
+
+test('counts that come after the rows go on the board they belong to, and a later board keeps its own', () => {
+  const rows = [{ id: 'a' }, { id: 'b' }]
+  const first = { rows, more: 0, loadedAt: 1 }
+  let state = reduce({ ...initialState(), cursor: 'b' }, { type: 'board-loaded', data: first })
+  const tallies = new Map([['m', [1, 2]]])
+  const counted = reduce(state, { type: 'tallies', data: first, tallies })
+  assert.equal(counted.board.value.tallies, tallies)
+  assert.equal(counted.board.value.rows, rows, 'the rows stay')
+  assert.equal(counted.cursor, 'b')
+  // A later read's board: the first read's late counts are dropped.
+  const second = { rows, more: 0, loadedAt: 2 }
+  state = reduce(counted, { type: 'board-loaded', data: second })
+  assert.equal(reduce(state, { type: 'tallies', data: first, tallies: new Map() }), state)
+})
+
+test('an archive read that failed is its own problem, gone with the next archive read or when archived rows go', () => {
+  const problem = { kind: 'refused', code: 'declined' }
+  const state = reduce({ ...initialState(), board: { value: { rows: [], more: 0, loadedAt: 1 }, loading: false, problem: null } }, { type: 'archive-failed', problem })
+  assert.equal(state.archiveProblem, problem)
+  assert.equal(state.board.problem, null, 'not the board\'s')
+  assert.equal(reduce(state, { type: 'archive', rows: [] }).archiveProblem, null)
+  assert.equal(reduce(state, { type: 'archive', rows: null }).archiveProblem, null)
+  const clean = reduce(state, { type: 'archive', rows: null })
+  assert.equal(reduce(clean, { type: 'archive', rows: null }), clean)
+})
+
+test('late counts that could not be read take the counts the board carried off it', () => {
+  const carried = new Map([['m', [1, 2]]])
+  const data = { rows: [{ id: 'a' }], more: 0, loadedAt: 1, tallies: carried }
+  const state = reduce(initialState(), { type: 'board-loaded', data })
+  const dropped = reduce(state, { type: 'tallies', data, tallies: null })
+  assert.equal('tallies' in dropped.board.value, false)
+  assert.equal(dropped.board.value.rows, data.rows)
+})
+
+test('store: a refusal the compatibility banner told goes once a report says it was fixed, not before', () => {
+  const report = (change = {}) => ({ moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [], ...change })
+  const missingTool = { kind: 'refused', code: 'tool-missing' }
+  const lacking = { kind: 'refused', code: 'unsupported-daemon' }
+  let state = reduce(initialState(), { type: 'compat', report: report({ toolMissing: true, catalog: { state: 'missing', missing: ['buzzni.moai.show-archived'] } }) })
+  state = reduce(state, { type: 'board-failed', problem: missingTool })
+  state = reduce(state, { type: 'archive-failed', problem: lacking })
+  state = reduce(state, { type: 'detail-failed', id: 'a', problem: lacking })
+  // A reload starts: the problems told by the banner stand (hidden) until a report says otherwise.
+  state = reduce(state, { type: 'board-loading' })
+  assert.equal(state.board.problem, missingTool)
+  // moai found (a run started there), the archive profile still lacking: only moai missing goes.
+  state = reduce(state, { type: 'compat', report: report({ catalog: { state: 'missing', missing: ['buzzni.moai.show-archived'] } }) })
+  assert.equal(state.board.problem, null)
+  assert.equal(state.archiveProblem, lacking)
+  // The catalog complete: the archive's refusal goes. The detail's `show` is not a read the probe hears, so its
+  // refusal was never the banner's and stays.
+  state = reduce(state, { type: 'compat', report: report() })
+  assert.equal(state.archiveProblem, null)
+  assert.equal(state.shown.problem, lacking)
+  // A verdict gone back to unknown (the daemon as a whole) fixes nothing: the refusal is the board's to tell again.
+  state = reduce(state, { type: 'archive-failed', problem: lacking })
+  state = reduce(state, { type: 'compat', report: report({ catalog: { state: 'missing', missing: ['buzzni.moai.show-archived'] } }) })
+  state = reduce(state, { type: 'compat', report: report({ catalog: { state: 'unknown', missing: [] } }) })
+  assert.equal(state.archiveProblem, lacking)
+})

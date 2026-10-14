@@ -9,7 +9,7 @@
 | [세이코드 룩앤필 가이드](look-and-feel.md) | 디자인 토큰, 컴포넌트 규격, 테마 전달 방식 |
 | [moai TUI 분석](tui-analysis.md) | 원본 TUI의 화면·키·검색·필터·정렬·열·읽음·위키 명세 |
 | [Moai 확장과 SDK 현황](current-state.md) | 지금 패널의 구조, SDK가 허용하는 것과 막는 것 |
-| [상류 요청서](upstream-requests.md) | Happy 데몬 카탈로그에 더할 프로필 7개, moai CLI 상류 개선 가정, 릴리스 순서 |
+| [상류 요청서](upstream-requests.md) | Happy 데몬 카탈로그에 더할 프로필 7개, moai CLI 상류 개선(0.17.0에서 확인, `read --seen` 제외), 릴리스 순서 |
 
 - 작성일: 2026-10-14
 - 분석 근거: `/home/coder/workspace/moa-issue`(moai Rust 소스), `/home/coder/workspace/aplus-dev-studio-desktop`(세이코드 데스크톱), 이 저장소의 `packages/moai`, `packages/sdk`
@@ -63,21 +63,23 @@ TUI에서 뺄 것:
 
 ### 3.1 구현 시점의 가정과 남은 실기 확인 (2026-10-14)
 
-구현은 아래 상류 개선이 **이미 들어간 것으로 가정하고** 진행했다(`se-0g4a`의 노트, 사람 결정). 가정이 틀리면 해당 기능이 꺼지거나 대체 경로로 떨어진다. 위 3절의 항목 중 어느 것도 실제 환경에서 확인되지 않았다.
+구현은 아래 상류 개선이 **이미 들어간 것으로 가정하고** 진행했다(`se-0g4a`의 노트, 사람 결정). 같은 날 moai **0.17.0**이 설치되어 감독이 실측했고(`se-0g4a` 노트), moai 쪽 가정은 데몬 카탈로그를 빼고 모두 **확인됨**이다. 두 파생값은 이름이 달라서 패널이 실제 이름을 읽도록 고쳤다(`se-ydco`). 픽스처는 임시 트래커에서 뜬 0.17 실제 출력이다(`tests/fixtures/moai/*-v017.json`).
 
-| 가정한 상류 개선 | 패널이 기대하는 모양 | 틀렸을 때 |
-|---|---|---|
-| `show --json`에 `unread` (moa-issue `moai-cqwy`, 브랜치 `worktree-moai-cqwy`, 미병합) | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없다. 사람을 모르면 어디에도 없다 | NEW가 꺼진다 (오류는 아님) |
-| `status --json`에 `statuses` 배열(설정 순서) | `statuses: string[]` | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서는 잃는다 |
-| 설정 읽기 JSON | 설정 값(칸·`archive_days` 등)을 JSON으로 | 코드의 기본값 |
-| 파생값 | 행에 `derived_milestone`, `derived_deferred`, `archive_candidate` | `nav.rs` 규칙을 이식한 인덱스가 직접 계산한다 |
-| `--fields` | 목록에서 본문 뺀 출력 | 아카이브 쪽 나누기와 잘림 배너로 버틴다. 실측상 필수는 아니다 |
-| 안정 페이징 | `show --archived -n --sort id --after` | 쪽 나누기 불가. 아카이브는 큰 저장소에서 읽을 수 없다 |
-| 데몬 카탈로그에 새 프로필 7개 | `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`, `read-all`, `read-group`. `backlog-all`은 데몬의 `backlog`(= `backlog add`)와 id가 다르다 | 선언 해시가 달라 데몬이 실행하지 않는다(거부 코드로 돌아온다). 전체 행 읽기가 실패해도 목록이 비는 대신 읽을 수 있는 것으로 물러나는 처리는 잘림에 대해서만 구현돼 있다 |
+| 상류 개선 | 0.17.0 실측 | 패널이 읽는 모양 | 없을 때(옛 moai) |
+|---|---|---|---|
+| `show --json`에 `unread` (moa-issue `moai-cqwy`) | **확인됨** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없다. 사람을 모르면 어디에도 없다 | NEW가 꺼진다 (오류는 아님) |
+| `status --json`에 `statuses` 배열(설정 순서)과 `milestones[]`·`epics[]` 집계 | **확인됨** | `statuses: string[]`, `{id, done, total}` 목록 | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서는 잃는다 |
+| 설정 읽기 JSON | **확인됨** (`config --json`) | 패널은 아직 읽지 않는다(선언한 프로필에 없음) | 코드의 기본값 |
+| 파생값 | **확인됨, 이름이 다름** | 행에 `derived_milestone`(문자열), `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`(`show --all`이 아카이브로 숨기는 행에 `true`). 셋 다 해당할 때만 키가 있다. 가정했던 이름 `derived_deferred`·`archive_candidate`는 쓰이지 않는다 | `nav.rs` 규칙을 이식한 인덱스가 직접 계산한다. 키가 없는 것은 "아님"이 아니라 "모름"으로 읽어 이 계산에 맡긴다 |
+| `--fields` | **확인됨** (`show --fields`) | 목록에서 본문 뺀 출력 | 아카이브 쪽 나누기와 잘림 배너로 버틴다. 실측상 필수는 아니다 |
+| 안정 페이징 | **확인됨** | `show --archived -n --sort id --after` | 쪽 나누기 불가. 아카이브는 큰 저장소에서 읽을 수 없다 |
+| 데몬 카탈로그에 새 프로필 7개 | **대기** — happy-cli 쪽(`se-0g4a.anz`). moai 쪽에서는 선언한 읽기 프로필이 모두 rc=0으로 돈다(`read*`는 개인 설정에 써서 실행하지 않음) | `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`, `read-all`, `read-group`. `backlog-all`은 데몬의 `backlog`(= `backlog add`)와 id가 다르다 | 선언 해시가 달라 데몬이 실행하지 않는다(거부 코드로 돌아온다). 전체 행 읽기가 실패해도 목록이 비는 대신 읽을 수 있는 것으로 물러나는 처리는 잘림에 대해서만 구현돼 있다 |
 
-또 하나, `moai read`가 **값 없이** 행의 현재 `updated_at`을 쓰는 것은 설계(그린 행의 값)와 다르다. 상류에 값 지정을 요청하는 일은 backlog(`se-a5wl`)에 있다.
+`archived: true`는 패널이 아카이브에만 있는 행에 붙이던 표시(`source.ts` `markArchived`)와 뜻이 같다. moai가 붙인 행은 그대로 두고, moai가 안 붙인 행은 예전처럼 활성 행에 없으면 붙인다(아카이브를 읽은 뒤 시계가 아카이브해 다시 읽은 활성 목록에서 빠진 행, 옛 moai).
 
-**남은 실기 확인** — 모두 아직 하지 않았다.
+또 하나, `moai read`가 **값 없이** 행의 현재 `updated_at`을 쓰는 것은 설계(그린 행의 값)와 다르다. 상류에 값 지정(`read --seen`)을 요청하는 일은 0.17.0에도 **없고** backlog(`se-a5wl`)에 그대로 있다.
+
+**남은 실기 확인** — moai CLI 쪽은 위와 같이 끝났고, 아래는 아직 하지 않았다.
 
 | 이슈 | 확인할 것 | 막고 있는 것 |
 |---|---|---|

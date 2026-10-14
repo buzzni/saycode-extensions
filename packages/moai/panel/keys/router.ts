@@ -9,7 +9,10 @@
 //   - prompt mode: only the prompt table (Enter, Esc, Tab, …); other keys type into the input.
 //   - an editable target (input, textarea, select, contenteditable) outside prompt mode: nothing, and any pending
 //     sequence or open menu is dropped.
-//   - browse/wiki: Tab, Space, Backspace and '/' always get preventDefault (focus moves, page scroll).
+//   - browse/wiki: Space, Backspace and '/' always get preventDefault (page scroll, back). Tab is prevented only
+//     when an action used it (expandAll, a wiki link); otherwise it moves the focus as the browser does.
+//   - an action whose handler did not use the key (dispatch returned false: the wiki search's Tab and ↑) is not
+//     handled and its default is not prevented.
 //   - sequences ('g g', 'C-w w'): a key that continues no sequence drops the buffer and is swallowed too (keys.rs
 //     Chord::feed — "g j" does not move down).
 //   - SPC menu (buffer starting with SPC): Esc or SPC closes, Backspace goes up one layer (closing at the root), an
@@ -17,7 +20,9 @@
 //     the layer does not carry closes the menu and moves. Auto-repeats of SPC or of a key inside the menu are ignored.
 //   - a key pressed inside an open modal dialog (the shortcut help) is the dialog's (attachKeyRouter).
 //   - Enter or Space on a focused button, link, checkbox, radio or summary is the control's own (its click), unless
-//     a sequence or the SPC menu is held (attachKeyRouter).
+//     a sequence or the SPC menu is held (attachKeyRouter). Tab and Shift-Tab there move the focus on. Space on a
+//     tab of the tab strip (which selects as the focus moves) is the router's: SPC opens the menu there.
+//   - a change of mode with a sequence or menu held (a click into an input, onto another tab) drops it: settle().
 
 import {
   KEY_TABLE,
@@ -80,7 +85,8 @@ export interface RouterState {
 export interface KeyRouterOptions {
   platform: Platform
   getContext: () => KeyContext
-  dispatch: (action: DispatchedAction) => void
+  /** Runs the action. `false` says the handler did not use the key: the router then leaves it to the browser. */
+  dispatch: (action: DispatchedAction) => boolean | void
   table?: KeyTable
   /** Called when the pending sequence or the open menu layer changes. */
   onChange?: (state: RouterState) => void
@@ -93,6 +99,11 @@ export interface KeyRouter {
   state(): RouterState
   /** Drop the pending sequence and close the menu. */
   reset(): void
+  /**
+   * Drop a sequence or menu held in a mode the panel has left (focus moved into an input, the tab changed). Call
+   * it whenever the mode may have changed, so a menu is not left drawn with items that no longer run.
+   */
+  settle(): void
 }
 
 const NAMED: Readonly<Record<string, string>> = {
@@ -158,7 +169,7 @@ export function keyToken(event: KeyEventLike): string | null {
 }
 
 /** Keys whose browser default (focus move, page scroll, back) must not run in browse and wiki (§2). */
-const ALWAYS_PREVENT = new Set(["Tab", "SPC", "Backspace", "/"])
+const ALWAYS_PREVENT = new Set(["SPC", "Backspace", "/"])
 const baseKey = (token: string): string => token.replace(/^(?:[CAS]-)+(?=.)/, "")
 
 const LEADER = "SPC"
@@ -179,11 +190,12 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
     if (changed) options.onChange?.(snapshot())
   }
 
-  const run = (binding: Binding, keys: string[], ctx: KeyContext, fromMenu: boolean): DispatchedAction => {
+  /** Dispatch the binding's action; `used` is false when the handler said the key was not its. */
+  const run = (binding: Binding, keys: string[], ctx: KeyContext, fromMenu: boolean): { action: DispatchedAction; used: boolean } => {
     const action: DispatchedAction = { id: binding.action, keys, mode: ctx.mode, fromMenu }
     if (binding.args) action.args = binding.args
-    options.dispatch(action)
-    return action
+    const used = options.dispatch(action) !== false
+    return { action, used }
   }
 
   /** A key that, inside the menu, closes it and moves (menu.rs `moves`): a motion binding, or a prefix of motions only. */
@@ -213,7 +225,7 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
       // An item the layer carries but cannot run now is ignored — it does not leak into a motion (menu.rs review note).
       if (!isAvailable(found.binding, ctx)) return swallowed
       if (found.binding.kind !== "toggle") setBuffer([])
-      return { ...swallowed, action: run(found.binding, seq, ctx, true) }
+      return { ...swallowed, action: run(found.binding, seq, ctx, true).action }
     }
     if (found.kind === "pending") {
       if (live(menu, seq, ctx, platform)) setBuffer(seq)
@@ -244,7 +256,10 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
     }
     setBuffer([])
     if (found.kind === "run" && isAvailable(found.binding, ctx)) {
-      return { handled: true, preventDefault: true, action: run(found.binding, seq, ctx, false) }
+      const { action, used } = run(found.binding, seq, ctx, false)
+      // A handler that did not use the key (the wiki search's Tab, ↑): the browser's default runs (focus, caret).
+      if (!used && !held) return { handled: false, preventDefault: guard, action }
+      return { handled: true, preventDefault: true, action }
     }
     // A key that ends a held sequence without meaning is swallowed with it (keys.rs Chord::feed).
     return { handled: held, preventDefault: held || guard }
@@ -298,6 +313,9 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
     state: snapshot,
     reset() {
       setBuffer([])
+    },
+    settle() {
+      if (buffer.length > 0 && heldIn !== options.getContext().mode) setBuffer([])
     },
   }
 }
@@ -355,6 +373,16 @@ export function isActivatable(target: unknown): boolean {
   return role === "button" || role === "checkbox" || role === "radio" || role === "link" || role === "menuitem" || role === "menuitemcheckbox" || role === "tab"
 }
 
+/**
+ * Space on a tab of the tab strip: the strip selects a tab as the focus moves onto it (tabs.ts), so Space has
+ * nothing to click there. It is the leader: Esc out of the wiki lands on the tab, and SPC then opens the menu.
+ */
+function leaderOnTab(event: KeyEventLike): boolean {
+  if (event.key !== " " || event.ctrlKey || event.altKey || event.metaKey) return false
+  const el = event.target as { getAttribute?: (name: string) => string | null } | null
+  return el?.getAttribute?.("role") === "tab"
+}
+
 export interface AttachOptions {
   /**
    * Sees every keydown first; true takes it from the router (an overlay that keeps the panel quiet while it is
@@ -366,13 +394,14 @@ export interface AttachOptions {
 /**
  * Wire the router to a document's keydown. A key a component already handled (defaultPrevented: the tab strip's
  * arrows, the split resizer), pressed inside a modal dialog, or an Enter / Space on a focused control that clicks
- * on it (isActivatable) is left alone. Returns the function that unwires it.
+ * on it (isActivatable) is left alone, and so is Tab there (the focus moves on) — but Space on a tab-strip tab is
+ * the leader (leaderOnTab). Returns the function that unwires it.
  */
 export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter, options: AttachOptions = {}): () => void {
   const onKeyDown = (event: KeyboardEventLike): void => {
     if (event.defaultPrevented || inModal(event.target)) return
     if (options.intercept?.(event)) return
-    if ((event.key === "Enter" || event.key === " ") && isActivatable(event.target)) {
+    if ((event.key === "Enter" || event.key === " " || event.key === "Tab") && isActivatable(event.target) && !leaderOnTab(event)) {
       const held = router.state()
       if (held.menu === null && held.pending.length === 0) return
     }

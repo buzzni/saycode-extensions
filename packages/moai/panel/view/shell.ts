@@ -8,6 +8,7 @@
 // (main.ts) and arrive as ShellIntents.
 
 import { isInformation, type Outcome } from "../data/client.ts"
+import { compatTells, type CompatReport, type Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -24,6 +25,11 @@ import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource 
 export interface Activity {
   /** 'starting' while Desktop may show its confirmation, 'running' once the machine runs it. */
   phase: "idle" | "starting" | "running"
+  /**
+   * A request still waits on its confirmation. Up to three run at once, so one may wait while another already
+   * runs (phase 'running'): the line still asks the person to approve it.
+   */
+  waiting: boolean
   cancellable: boolean
 }
 
@@ -104,6 +110,27 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
   }
 }
 
+// Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints. `degraded`
+// holds only the features the panel uses (data/compat.ts ORDER), so `unread` and `status-order` stand here unused.
+const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
+const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
+
+/**
+ * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
+ * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named, and an old moai
+ * none of whose fallbacks the panel uses (0.16 lacks only what is not drawn yet) is not asked to upgrade.
+ */
+export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
+  if (!report) return []
+  const named = (among: readonly Feature[]) => report.degraded.filter((feature) => among.includes(feature)).map((feature) => copy.features[feature])
+  const lines: string[] = []
+  if (report.toolMissing) lines.push(copy.toolMissing)
+  const older = report.moai === "old" ? named(MOAI_FEATURES) : []
+  if (older.length > 0) lines.push(copy.oldMoai(older))
+  if (report.catalog.state === "missing") lines.push(copy.catalog(report.catalog.missing.length, named(CATALOG_FEATURES)))
+  return lines
+}
+
 /** The main pane's width: all of it, less the detail's share when the detail stands on the left. */
 export function mainWidth(width: number, position: PaneLayout["position"], detailVisible: boolean, leftRatio: number): number {
   return position === "left" && detailVisible ? width * (1 - leftRatio) : width
@@ -180,6 +207,12 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const more = el(doc, "p", { class: "moai-more" })
   // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
+  // What to upgrade, update or install on that machine (data/compat.ts): the reads that work keep showing.
+  const compat = el(doc, "div", { class: "m-banner m-banner-warn moai-compat", role: "status" })
+  // Why the archive could not be read (`SPC v o`): its own line, as the board's rows and their banners stand. As for the
+  // board's, an error is an alert and information is polite status text (components.ts banner).
+  const archiveNotice = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
+  const archiveError = el(doc, "div", { class: "m-banner m-banner-danger moai-archive-problem", role: "alert" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
   const submit = () => intents.add(input.value)
   const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
@@ -200,7 +233,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, archiveNotice, archiveError, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -302,7 +335,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
   // ── drawing ──
   function showActivity(current: Activity) {
-    const line = current.phase === "starting" ? copy.starting : current.phase === "running" ? copy.running : ""
+    const line = current.phase === "starting" ? copy.starting
+      : current.phase === "running" ? (current.waiting ? `${copy.running} ${copy.starting}` : copy.running)
+      : ""
     // A live region is read again when it is written, so an unchanged line is left alone.
     if (activityText.textContent !== line) activityText.textContent = line
     cancel.hidden = !current.cancellable
@@ -320,6 +355,31 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     error.replaceChildren()
     const said = outcome ? describe(outcome, copy, doc) : null
     if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
+  }
+
+  let compatSeen: CompatReport | null = null
+  let compatTold = ""
+  function explainCompat(report: CompatReport | null) {
+    // A live region: written only when its sentences change. A new report can leave them as they were (moai found
+    // up to date beside a catalog line, a fallback the sentences do not name), and writing them again reads them again.
+    if (report === compatSeen) return
+    compatSeen = report
+    const lines = compatLines(report, copy.shell.compat)
+    const told = lines.join("\n")
+    if (told === compatTold) return
+    compatTold = told
+    compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
+  }
+
+  let archiveTold: Outcome | null = null
+  function explainArchive(outcome: Outcome | null) {
+    // Live regions too: written once per outcome, as explain() does.
+    if (outcome === archiveTold) return
+    archiveTold = outcome
+    archiveNotice.replaceChildren()
+    archiveError.replaceChildren()
+    const said = outcome ? describe(outcome, copy, doc) : null
+    if (said) (said.info ? archiveNotice : archiveError).append(el(doc, "span", {}, copy.shell.archiveFailed, " ", ...said.parts))
   }
 
   function paintLayout(current: State) {
@@ -355,12 +415,17 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
     showActivity(options.activity())
     hint.hidden = state.board.value !== null
-    explain(state.board.problem ?? (state.detail.visible ? null : state.shown.problem))
+    // A refusal the compatibility banner tells (moai missing, a profile the catalog lacks) is told there alone, and the
+    // hidden detail's own problem takes the line it leaves. The detail's read is not one the probe hears (heard: false).
+    const untold = (outcome: Outcome | null, heard?: boolean) => (compatTells(state.compat, outcome, heard) ? null : outcome)
+    explain(untold(state.board.problem) ?? (state.detail.visible ? null : untold(state.shown.problem, false)))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
     // Written only when it changes: it is a live region.
     const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
     if (truncated.textContent !== partial) truncated.textContent = partial
+    explainArchive(untold(state.archiveProblem))
+    explainCompat(state.compat)
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

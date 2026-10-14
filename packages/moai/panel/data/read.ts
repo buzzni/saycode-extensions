@@ -4,7 +4,7 @@
  * Judgement (se-ehdi.bzp). The panel computes nothing. "Near me" (assigned to me, their `.children`, members
  * of my epics; milestones not counted) and `updated_at > seen` are decided by the CLI, which prints
  * `"unread": true` on `moai show --json` rows and on `moai show <id> --json` (upstream moai-cqwy, se-0g4a.l89;
- * ASSUMED to be released). The key is there only when true and absent otherwise; with the person unknown it is
+ * released in moai 0.17.0). The key is there only when true and absent otherwise; with the person unknown it is
  * absent everywhere. So when no row carries it, NEW is simply off.
  *
  * Writes (se-ehdi.o5u). `moai read <id>...`, `--all`, `-e <group>` write the per-project file under
@@ -30,8 +30,9 @@ import { PROFILE } from './source.js'
 // ── judgement ────────────────────────────────────────────────────────
 
 /**
- * The CLI's verdict: the key is `true` or absent. Archive-only rows (`archived: true`, tagged by loadArchived)
- * never count: `moai read` resolves active rows only, so their NEW could not be cleared (se-fvou).
+ * The CLI's verdict: the key is `true` or absent. Archive-only rows (`archived: true`, printed by moai 0.17 on
+ * the `show --archived` rows `show --all` hides, or tagged by source.ts withArchive as the index is built) never
+ * count: `moai read` resolves active rows only, so their NEW could not be cleared (se-fvou).
  */
 export const isUnread = (row: Row): boolean => row.unread === true && row.archived !== true
 

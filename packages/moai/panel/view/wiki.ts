@@ -544,6 +544,14 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     focusCursorRow()
   }
 
+  /** Rows the page list shows at once, less one kept for context; 10 when it has not been laid out (no height). */
+  function listPageRows(): number {
+    const rowHeight = (listBox.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0
+    const height = listPane.clientHeight
+    if (!rowHeight || !height) return 10
+    return Math.max(1, Math.floor(height / rowHeight) - 1)
+  }
+
   function focusCursorRow(): void {
     const row = listBox.querySelector<HTMLElement>('[aria-selected="true"]')
     row?.focus({ preventScroll: true })
@@ -927,9 +935,14 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       case "move.halfDown":
       case "move.halfUp":
       case "move.pageDown":
-      case "move.pageUp":
-        scrollBy((action.endsWith("Down") ? 1 : -1) * (action.startsWith("move.half") ? page / 2 : page))
+      case "move.pageUp": {
+        const sign = action.endsWith("Down") ? 1 : -1
+        const half = action.startsWith("move.half")
+        // In the page list the cursor moves by a page of rows (as the issue list does); in the page, the page scrolls.
+        if (pane === "list") moveCursor(sign * (half ? Math.max(1, Math.floor(listPageRows() / 2)) : listPageRows()))
+        else scrollBy(sign * (half ? page / 2 : page))
         return true
+      }
       case "wiki.enter":
         if (pane === "list") {
           if (cursor) void open(cursor)

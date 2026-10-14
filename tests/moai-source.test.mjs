@@ -18,7 +18,7 @@ const cli = join(root, 'packages/sdk/dist/cli.js')
 const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
 
-const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
+const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, activeIds, withArchive, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
   await panelModule('data/source.ts')
 const { IssueIndex, LOST } = await panelModule('data/index.ts')
 const { CompatProbe } = await panelModule('data/compat.ts')
@@ -164,8 +164,8 @@ const WIKI_LS = await fixture('wiki-ls-v016.json')
 const WIKI_SHOW = await fixture('wiki-show-v016.json')
 // Real Moai v0.8.0 output (as tests/moai.test.mjs reads it).
 const PRIME = await fixture('prime-v080.json')
-// Hand-written: the `statuses` array is the ASSUMED upstream shape (its `_assumed` key says so).
-const STATUSES_ASSUMED = await fixture('status-statuses-assumed.json')
+// Real moai 0.17.0 output from a scratch tracker whose config adds a `blocked` column.
+const STATUS_V017 = await fixture('status-v017.json')
 
 test('all rows are show --all and the backlog, read at once, backlog rows marked so', async () => {
   const client = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
@@ -193,6 +193,7 @@ test('a cut show --all falls back to prime with truncated, keeping the backlog',
   const loaded = await loadAllRows(client)
   assert.equal(loaded.ok, true)
   assert.equal(loaded.value.truncated, true)
+  assert.equal(loaded.value.partial, true)
   const primeIds = [...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id)
   assert.deepEqual(loaded.value.rows.map((row) => row.id), [...new Set(primeIds), 'tracker-m21g', 'tracker-zwyp'])
   assert.equal(loaded.value.more, (PRIME.rest || 0) + (PRIME.others_rest || 0))
@@ -213,6 +214,45 @@ test('in the cut fallback the backlog rows lose their references to the groups p
   const index = new IssueIndex(loaded.value.rows)
   for (const id of ['b-1', 'b-2', 'b-3']) assert.notDeepEqual(index.homeOf(index.find(id)), [LOST], id)
   assert.ok(loaded.value.rows.every((row) => row.epic === undefined && row.derived_epic === undefined && row.milestone === undefined))
+})
+
+test('a read the catalog lacks degrades the load instead of failing it: prime stands in for show --all, the backlog goes', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const primeIds = [...new Set([...PRIME.picked, ...PRIME.others, ...PRIME.ready].map((row) => row.id))]
+  // No show --all: prime's rows and the backlog, partial but not cut (the catalog line says why, not the cut banner).
+  // prime starts beside the backlog read, not after it, and nothing is called off.
+  const noAll = fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) })
+  const loaded = await loadAllRows(noAll)
+  assert.equal(loaded.ok, true)
+  assert.deepEqual([loaded.value.truncated, loaded.value.partial], [false, true])
+  assert.deepEqual(loaded.value.rows.map((row) => row.id), [...primeIds, 'tracker-m21g', 'tracker-zwyp'])
+  assert.deepEqual(noAll.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog, PROFILE.prime])
+  assert.deepEqual(noAll.cancels, [])
+  // An older host's thrown start naming the code reads as the refusal does.
+  const thrown = await loadAllRows(fakeClient({ [PROFILE.showAll]: { kind: 'not-started', code: 'unsupported-daemon' }, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: passed(PRIME) }))
+  assert.equal(thrown.value.partial, true)
+  // No backlog read: the whole list without the backlog, whole (not partial).
+  const noBacklog = await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: lacked }))
+  assert.equal(noBacklog.ok, true)
+  assert.deepEqual([noBacklog.value.truncated, noBacklog.value.partial], [false, false])
+  assert.deepEqual(noBacklog.value.rows.map((row) => row.id), SHOW_ALL.map((row) => row.id))
+  // Neither: prime alone.
+  const neither = await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: passed(PRIME) }))
+  assert.deepEqual(neither.value.rows.map((row) => row.id), primeIds)
+  assert.equal(neither.value.partial, true)
+  // A daemon too old for any machine run refuses prime too: that refusal is the load's failure.
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: lacked })), { ok: false, outcome: lacked })
+  // Only the catalog's lack degrades: another backlog refusal still fails the load.
+  const declined = { kind: 'refused', code: 'declined' }
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: declined })), { ok: false, outcome: declined })
+})
+
+test('the probe hears every read of a degraded load, so the catalog line names what is missing', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const probe = new CompatProbe()
+  await loadAllRows(fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: lacked, [PROFILE.prime]: passed(PRIME) }), undefined, probe)
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.showAll, PROFILE.backlog] })
+  assert.deepEqual(probe.report().degraded, ['all-rows', 'backlog'])
 })
 
 test('twins are kept for the index to decide, and backlog rows are kind backlog whatever they say', () => {
@@ -250,12 +290,17 @@ test('a failed read of either list is the load failure; a missing board says not
   assert.deepEqual(await loadAllRows(lone), { ok: false, outcome: declined })
   assert.deepEqual(lone.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
   assert.deepEqual(lone.cancels, [PROFILE.backlog])
-  // compat still learns what the backlog read ended with when show --all decided the load.
+  // compat still learns what the backlog read ended with when show --all decided the load, and tells its listeners,
+  // though the load does not wait for it. The status read ran, so the catalog can be judged.
   const probe = new CompatProbe()
+  probe.observe(PROFILE.status, passed(STATUS))
+  const told = []
+  probe.subscribe(() => told.push(probe.report().catalog))
   const gone = { kind: 'refused', code: 'unsupported-daemon' }
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: declined, [PROFILE.backlog]: gone }), undefined, probe), { ok: false, outcome: declined })
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.backlog] })
+  assert.deepEqual(told.at(-1), { state: 'missing', missing: [PROFILE.backlog] }, 'the listeners hear the backlog outcome')
   const whole = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
   await loadAllRows(whole)
   assert.deepEqual(whole.cancels, [])
@@ -272,9 +317,8 @@ test('loadRows still reads prime alone until the panel switches to loadAllRows',
   assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.prime])
 })
 
-test('the columns come from statuses (assumed shape), else from the counts in the default order', async () => {
-  assert.match(STATUSES_ASSUMED._assumed, /ASSUMED|requested upstream shape/i)
-  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(STATUSES_ASSUMED) })), { ok: true, value: ['todo', 'in_progress', 'blocked', 'review', 'done'] })
+test('the columns come from statuses (moai 0.17), else from the counts in the default order', async () => {
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(STATUS_V017) })), { ok: true, value: ['todo', 'in_progress', 'blocked', 'review', 'done'] })
   // Moai 0.16.0 has no statuses: its counts keys come alphabetically.
   assert.equal(STATUS.statuses, undefined)
   assert.deepEqual(statusesFrom(STATUS), { ok: true, value: ['todo', 'in_progress', 'review', 'done'] })
@@ -367,4 +411,53 @@ test('archive rows absent from the active set are tagged archived; loadArchived 
   const loaded = await loadArchived(fakeClient(archive(3)), { active: new Set(['r-0001']) })
   assert.deepEqual(loaded.value.map((row) => row.archived === true), [true, false, true])
   assert.equal((await loadArchived(fakeClient(archive(1)))).value[0].archived, undefined)
+})
+
+test('moai 0.17 marks its archive rows archived itself: the same meaning, never tagged twice, absence still tagged', async () => {
+  const showAll = await fixture('show-all-v017.json')
+  const archived = await fixture('show-archived-v017.json')
+  // Real 0.17: `archived: true` stands on the one row `show --all` hides (done past archive_days), on no other.
+  const marked = archived.filter((row) => row.archived === true).map((row) => row.id)
+  assert.equal(marked.length, 1)
+  assert.equal(showAll.some((row) => marked.includes(row.id)), false)
+  assert.equal(showAll.some((row) => 'archived' in row), false)
+  // Read against the rows held, the tag lands on exactly moai's row, which is passed through as moai printed it.
+  const away = withArchive({ rows: showAll, truncated: false }, archived).slice(showAll.length)
+  assert.deepEqual(away.map((row) => row.id), marked)
+  const held = archived.find((row) => row.id === marked[0])
+  assert.equal(markArchived([held], new Set())[0], held)
+  // A row the clock archived after the archive was read is in its answer unmarked (it was active then) and gone
+  // from the active rows read since: it is tagged by its absence.
+  assert.deepEqual(markArchived([held, { id: 'late', status: 'done' }], new Set()).map((row) => row.archived), [true, true])
+})
+
+test('a cut list does not make an active row of the archive archive-only by its absence; a done one stays tagged', () => {
+  // `--archived` lists the active rows too, with no mark of its own; prime held only mgd-a.
+  const archive = [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done' }]
+  const cut = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: true }
+  assert.deepEqual(withArchive(cut, archive), [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done', archived: true }])
+  assert.deepEqual([...activeIds(cut, archive)].sort(), ['mgd-a', 'mgd-b'])
+  // A whole list holds every active row: what it does not hold is archive-only, whatever its column.
+  const whole = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: false }
+  assert.deepEqual(withArchive(whole, archive).slice(1).map((row) => row.archived), [true, true])
+  assert.deepEqual(withArchive(whole, null), whole.rows)
+})
+
+test('a list prime stood in for because the catalog lacks show --all is judged as a cut one', () => {
+  const archive = [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done' }]
+  const primed = { rows: [{ id: 'mgd-a', status: 'todo' }], partial: true, truncated: false }
+  assert.deepEqual([...activeIds(primed, archive)].sort(), ['mgd-a', 'mgd-b'])
+  assert.deepEqual(withArchive(primed, archive).map((row) => [row.id, row.archived === true]), [['mgd-a', false], ['mgd-b', false], ['mgd-c', true]])
+})
+
+test('a cut list judges a group of the archive by the column it stands in (its members), not the status written on it', () => {
+  // moai leaves `todo` written on a group; its column is its members' (`derived_status`), as moai archives it.
+  const archive = [
+    { id: 'm-old', kind: 'milestone', status: 'todo', derived_status: 'done' },
+    { id: 'e-live', kind: 'epic', status: 'done', derived_status: 'in_progress' },
+    { id: 'e-new', kind: 'epic', status: 'todo' },
+  ]
+  const cut = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: true }
+  assert.deepEqual([...activeIds(cut, archive)].sort(), ['e-live', 'e-new', 'mgd-a'])
+  assert.deepEqual(withArchive(cut, archive).map((row) => [row.id, row.archived === true]), [['mgd-a', false], ['m-old', true], ['e-live', false], ['e-new', false]])
 })

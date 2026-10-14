@@ -33,10 +33,17 @@ moai TUI의 단축키를 세이코드 패널에서 같은 키로 지원할 수 �
 - **읽음 키**: `r`, `SPC m a`, `SPC m g`가 `read`·`read-all`·`read-group`을 부르고 쓰고 나서 다시 읽는다. NEW 칩은 아직 없다(`se-ehdi.zcx`).
 - **`Shift+Space`/`Shift+Backspace`**: 메뉴 안에서 정확한 토큰 일치라 삼켜진다. 의도가 불분명해 두었다(`se-pbqz.ygb` #10).
 
+### 해결된 것 (`se-h5c7`, `se-gq4i`, `d30fd6c`)
+
+- 도움말이 열린 동안에는 그 뒤의 컨트롤이 받는 키가 가지 않는다. 호스트의 조합(Cmd/Meta, macOS 밖의 Ctrl)은 통과하고(복사 등), Ctrl+Alt와 Enter·Space·Esc·방향키·Home/End·PageUp/PageDown·Backspace/Delete는 막는다(`se-1fy7`, 최종형 `6a1d7ff`).
+- `Tab`은 어떤 동작이 쓸 때만 막는다. 핸들러가 키를 브라우저에 맡길 수도 있다. 위키 검색은 `Tab`/`S-Tab`/`↑`을 자기가 쓴다. 위키 모드에서 탭 버튼의 `Tab`은 포커스를 평소대로 옮긴다.
+- 포커스된 탭 버튼에서 `SPC`는 SPC 메뉴를 연다.
+- 위키 목록에서 `PageDown`/`C-d`는 커서를 옮긴다.
+- 모드가 바뀌면 남은 SPC 메뉴가 닫힌다. 필터 제안은 blur 때 닫힌다.
+- 포커스 힌트는 오른쪽 아래에 있어 탭 바를 가리지 않는다.
+
 ### 아직 남은 것
 
-- `se-h5c7`: 도움말이 열려도 뒤의 컨트롤에 키가 간다, browse에서 `Tab`을 삼킨다, 위키 검색이 `Tab`/`S-Tab`/`↑`을 삼킨다, 위키 `Esc` 뒤 `SPC`가 탭을 다시 클릭한다, 위키 목록 `PageDown`/`C-d`가 본문을 스크롤한다, 모드가 바뀐 뒤 SPC 메뉴가 남는다, 필터 제안이 blur 뒤에도 열려 있다.
-- `se-gq4i`: 포커스 힌트가 탭 바 버튼을 가린다.
 - `se-5air`: 정렬 편집기 `D`(기본 정렬 저장)는 저장처가 없어 "사용 불가"로 보인다. `se-q0u4`: `SPC v a`는 아카이브를 숨긴 채 둔다.
 
 ### 실기 확인이 남은 것 (스파이크 `se-0g4a.zrf`)
@@ -59,7 +66,7 @@ moai TUI의 단축키를 세이코드 패널에서 같은 키로 지원할 수 �
 
 - 입력창(`input`, `textarea`, `select`, `contenteditable`)에 포커스가 있으면 단일 키 핸들러를 끈다. TUI에서도 글칸 모드에서는 이동 키가 그냥 글자가 된다.
 - `event.isComposing`(한글 IME 조합 중)이면 아무 키도 처리하지 않는다.
-- Browse 모드에서 `Tab`, `Space`, `Backspace`, `/`는 `preventDefault()`한다. 브라우저 기본 동작(포커스 이동, 스크롤)을 막기 위해서다.
+- Browse 모드에서 `Space`, `Backspace`, `/`는 `preventDefault()`한다. `Tab`은 동작이 쓸 때만 막고, 핸들러가 브라우저에 맡길 수 있다. 브라우저 기본 동작(포커스 이동, 스크롤)을 막기 위해서다.
 - 두 키 시퀀스(`gg`, `Ctrl-w w`, `SPC …`)는 키 버퍼로 처리한다. `gg`는 두 번째 키가 `g`가 아니면 버퍼를 버린다. SPC 메뉴는 메뉴에 없는 키를 무시한다. 메뉴 층에 없는 **이동 키**는 메뉴를 닫고 그 이동을 바로 한다(`moa-issue/src/tui/menu.rs`).
 - 키 표는 데이터로 둔다. SPC 메뉴 격자와 도움말 오버레이는 이 표에서 자동으로 만든다. TUI도 같은 방식이다.
 

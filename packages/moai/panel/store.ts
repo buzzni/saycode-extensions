@@ -10,6 +10,7 @@
  * column is `status`), and the list cells are the key table's `CellField` names (the name line is `names`).
  */
 import type { Outcome } from './data/client.js'
+import { compatFixed, sameReport, type CompatReport } from './data/compat.js'
 import { pathKey, type Path, type Row } from './data/index.js'
 import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
 import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
@@ -52,7 +53,12 @@ export interface BoardData {
   more: number
   /** `show --all` was cut at the output limit, so these are prime's rows and the backlog (source.ts loadAllRows). */
   truncated?: boolean
-  /** Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies); absent when that read failed. */
+  /** prime's rows and the backlog, not every active row: `show --all` was cut, or the catalog lacks it (source.ts activeIds). */
+  partial?: boolean
+  /**
+   * Milestone and epic `[done, total]` from `moai status` (source.ts loadTallies). Absent when that read failed, or on
+   * the first read until it answers; a later read keeps the counts of the board before it until its own come.
+   */
   tallies?: ReadonlyMap<string, readonly [number, number]>
   /** When the rows were read (ms since epoch). */
   loadedAt: number
@@ -105,10 +111,14 @@ export interface State {
   board: Loadable<BoardData>
   shown: Loadable<DetailData>
   /**
-   * The rows the archive holds (source.ts loadArchived, archive-only ones tagged `archived: true`), read when
-   * archived rows are shown (`view.showArchived`); null until then.
+   * The rows the archive holds as read (source.ts loadArchived, active ones among them), read when archived rows
+   * are shown (`view.showArchived`); null until then. source.ts withArchive tags the archive-only ones.
    */
   archive: Row[] | null
+  /** Why the last archive read failed; the board's rows and its own problem stay as they are. */
+  archiveProblem: Outcome | null
+  /** What the answers so far tell of the moai CLI and the daemon's catalog (data/compat.ts); null before any. */
+  compat: CompatReport | null
   /**
    * The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left; a wiki pane mounted on this
    * store starts from it (the mounted pane keeps its own state across tab switches).
@@ -184,6 +194,8 @@ export function initialState(): State {
     board: idle(),
     shown: idle(),
     archive: null,
+    archiveProblem: null,
+    compat: null,
     wiki: initialWiki(),
   }
 }
@@ -216,8 +228,20 @@ export type Action =
   /** `order` is the ids in the order they were drawn before this read, to place the cursor after it. */
   | { type: 'board-loaded'; data: BoardData; order?: string[] }
   | { type: 'board-failed'; problem: Outcome }
-  /** The archive's rows as read (null forgets them). */
+  /**
+   * The status counts that came after the rows of `data` (the board-loaded they belong to); null when they could not
+   * be read, so the board counts its own rows. A later read's board has its own counts, so counts for any board but
+   * the one shown are dropped.
+   */
+  | { type: 'tallies'; data: BoardData; tallies: NonNullable<BoardData['tallies']> | null }
+  /** The archive's rows as read (null forgets them); either way an archive problem told before goes. */
   | { type: 'archive'; rows: Row[] | null }
+  | { type: 'archive-failed'; problem: Outcome }
+  /**
+   * The compatibility probe's report after a read; one that says what the last one said changes nothing. A problem
+   * the last report told that this one says was fixed goes with it (data/compat.ts compatFixed).
+   */
+  | { type: 'compat'; report: CompatReport }
   | { type: 'detail-loading'; id: string }
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
@@ -310,8 +334,29 @@ export function reduce(state: State, action: Action): State {
     case 'board-failed':
       // The rows read before stay on screen; the problem is shown beside them.
       return { ...state, board: { ...state.board, loading: false, problem: action.problem } }
+    case 'tallies': {
+      // Only the counts change: the rows, and so the cursor and the drawn order, stay.
+      if (state.board.value !== action.data) return state
+      const { tallies: _drawn, ...uncounted } = action.data
+      return { ...state, board: { ...state.board, value: action.tallies ? { ...uncounted, tallies: action.tallies } : uncounted } }
+    }
     case 'archive':
-      return state.archive === action.rows ? state : { ...state, archive: action.rows }
+      return state.archive === action.rows && state.archiveProblem === null ? state : { ...state, archive: action.rows, archiveProblem: null }
+    case 'archive-failed':
+      return { ...state, archiveProblem: action.problem }
+    case 'compat': {
+      if (state.compat && sameReport(state.compat, action.report)) return state
+      // The report moves in the middle of a load (main.ts hands it over after each answer). A refusal the banner told,
+      // still held from the read before, would otherwise come back on its own banner the moment moai is found or the
+      // catalog is complete, telling what is no longer so until the new read ends. The detail's read is not one the
+      // probe hears (heard: false).
+      const fixed = (outcome: Outcome | null, heard?: boolean) => compatFixed(state.compat, action.report, outcome, heard)
+      const next: State = { ...state, compat: action.report }
+      if (fixed(state.board.problem)) next.board = { ...state.board, problem: null }
+      if (fixed(state.archiveProblem)) next.archiveProblem = null
+      if (fixed(state.shown.problem, false)) next.shown = { ...state.shown, problem: null }
+      return next
+    }
     case 'detail-loading':
       return { ...state, shown: { value: state.shown.value?.id === action.id ? state.shown.value : null, loading: true, problem: null } }
     case 'detail-loaded':

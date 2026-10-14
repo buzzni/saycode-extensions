@@ -9,8 +9,10 @@
 // open, `prompt` while a search or filter input has the caret, `wiki` on the wiki tab, `browse` otherwise.
 
 import type { Outcome } from "../data/client.ts"
-import { NO_MILESTONE } from "../data/index.ts"
+import { compatTells } from "../data/compat.ts"
+import { NO_MILESTONE, type Row } from "../data/index.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
+import { withArchive } from "../data/source.ts"
 import type { Copy } from "../i18n/index.ts"
 import type { ColumnName, State, Store } from "../store.ts"
 import { statusKeys } from "../view/board-groups.ts"
@@ -106,7 +108,8 @@ export interface KeyWiring {
   destroy(): void
 }
 
-type Handler = (action: DispatchedAction) => void
+/** Runs an action; `false` says it did not use the key, which then does what the browser does with it. */
+type Handler = (action: DispatchedAction) => boolean | void
 
 export function wireKeys(options: KeyWiringOptions): KeyWiring {
   const { document: doc, store, shell, copy } = options
@@ -181,7 +184,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
 
   /** The suggestions the filter has for its caret, shown or not (Tab opens a closed list on its first one). */
   const hintCount = () => bar.hintCount
-  /** A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). */
+  /**
+   * A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). What it does not
+   * read (Tab, S-Tab, ↑) is reported unused, so Tab moves the focus and ↑ the caret as in any input.
+   */
   const inWiki = () => store.getState().tab === "wiki"
   const wikiKey = (): boolean => (current ? panes().wiki?.handleKey?.(current) ?? false : false)
 
@@ -267,10 +273,23 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     setSort(sortEdit(store.getState().sort, field, how))
   }
   // ── read marks ──
+  /**
+   * The row under the cursor that takes a read mark, among the rows the list draws: with archived rows shown, the
+   * archive's answer too, tagged as main.ts indexOf draws it (source.ts withArchive). An archive-only row is active
+   * only where a cut list keeps it so (source.ts activeIds); one tagged `archived: true` takes no mark, as it draws no
+   * NEW (`moai read` resolves active rows only, read.ts isUnread).
+   */
+  function rowHere(): Row | undefined {
+    const state = store.getState()
+    const board = state.board.value
+    if (state.cursor === null || !board) return undefined
+    const row = withArchive(board, state.view.showArchived ? state.archive : null).find((r) => r.id === state.cursor)
+    return row?.archived === true ? undefined : row
+  }
   /** The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in. */
   function groupHere(): string | null {
     const state = store.getState()
-    const row = state.cursor === null ? undefined : state.board.value?.rows.find((r) => r.id === state.cursor)
+    const row = rowHere()
     if (row && (row.kind === "milestone" || row.kind === "epic")) return row.id
     // The "(no milestone)" bucket (`m:`, NO_MILESTONE) is a place, not a group: it has no id to mark.
     const place = [...state.path].reverse().find((segment) => (segment.startsWith("m:") && segment !== NO_MILESTONE) || segment.startsWith("e:"))
@@ -283,13 +302,17 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       const writing = write(marks)
       if (!writing) return
       void writing.then((outcome) => {
-        if (outcome) shell.refuse(outcome)
+        if (!outcome) return
+        // A refusal the compatibility banner tells (moai missing, read marks the catalog lacks) is told there alone:
+        // its own words ("the runtime is too old") would contradict the banner's.
+        if (compatTells(store.getState().compat, outcome)) say("")
+        else shell.refuse(outcome)
       })
     }
   }
   const readOne = marking((marks) => {
-    const id = store.getState().cursor
-    return id !== null && store.getState().board.value?.rows.some((row) => row.id === id) ? marks.one(id) : null
+    const row = rowHere()
+    return row ? marks.one(row.id) : null
   })
   const readAll = marking((marks) => marks.all())
   const readGroup = marking((marks) => {
@@ -371,14 +394,14 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       store.dispatch({ type: "detail-position", position })
     },
     "prompt.apply": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       // The filter's own Enter applies it (and handles the key), so only the search, which applies as it is typed,
       // gets here.
       promptFrom = undefined
       backToPane()
     },
     "prompt.cancel": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       // Read before the search closes: closing it takes the caret out of it, and that forgets the cursor.
       const from = promptFrom
       promptFrom = undefined
@@ -393,18 +416,19 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       backToPane()
     },
     "prompt.next": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       if (doc.activeElement === bar.filterInput) toolbar({ type: "hint-move", delta: 1, count: hintCount() })
       else toolbar({ type: "scope-next" })
     },
     "prompt.prev": () => {
-      if (inWiki()) return void wikiKey()
+      if (inWiki()) return wikiKey()
       if (doc.activeElement === bar.filterInput) toolbar({ type: "hint-move", delta: -1, count: hintCount() })
       else toolbar({ type: "scope-prev" })
     },
-    // The filter input moves through its suggestions itself; the search has none.
-    "prompt.up": () => void (inWiki() && wikiKey()),
-    "prompt.down": () => void (inWiki() && wikiKey()),
+    // The filter input moves through its suggestions itself and the search has none: outside the wiki the key is
+    // not the router's, so the input (or the browser) keeps it.
+    "prompt.up": () => (inWiki() ? wikiKey() : false),
+    "prompt.down": () => (inWiki() ? wikiKey() : false),
     "prompt.clear": () => editInput(() => ({ text: "", caret: 0 })),
     "prompt.deleteWord": () =>
       editInput((text, caret) => {
@@ -447,9 +471,10 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     platform,
     getContext: context,
     dispatch: (action) => {
-      handlers[action.id]?.(action)
+      const used = handlers[action.id]?.(action)
       // A toggle the store does not hold (the raw body) changes the menu too: draw it after every action.
       redraw()
+      return used
     },
     onChange: redraw,
   })
@@ -465,6 +490,11 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   win?.addEventListener("focus", showHint)
   win?.addEventListener("blur", showHint)
   doc.addEventListener("focusin", showHint)
+  // A click that puts the caret in an input (prompt) or leaves one changes the mode without a key: a menu or
+  // sequence held in the old mode is dropped then, not left drawn with items that no longer run.
+  const settle = () => router.settle()
+  doc.addEventListener("focusin", settle)
+  doc.addEventListener("focusout", settle)
 
   const unsubscribe = store.subscribe((state, previous) => {
     if (state.toolbar.sortOpen && !previous.toolbar.sortOpen) {
@@ -477,11 +507,16 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     }
     if (!state.toolbar.sortOpen) sorterFrom = null
     paintSorter()
+    // A tab switch or the sort editor opening is a change of mode: drop a menu held in the old one.
+    router.settle()
     // A toggle run from the menu changes the store without a change of the menu's layer: draw it again.
     redraw()
   })
 
-  // Keys are quiet while the help is open, even when the focus has left it; Esc closes it.
+  // Keys are quiet while the help is open, even when the focus has left it; Esc closes it. The help's guard stops
+  // every other key before it gets here but the host's combinations (copy, find: Cmd/Meta, and Ctrl off macOS; see
+  // help.ts guard): those are swallowed here without preventDefault, so the panel's shortcuts stay off and the
+  // browser still acts.
   const detach = attachKeyRouter(doc, {
     ...router,
     handle(event) {
@@ -517,6 +552,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       win?.removeEventListener("focus", showHint)
       win?.removeEventListener("blur", showHint)
       doc.removeEventListener("focusin", showHint)
+      doc.removeEventListener("focusin", settle)
+      doc.removeEventListener("focusout", settle)
+      help.close()
       menu.el.remove()
       help.el.remove()
       hint.remove()
