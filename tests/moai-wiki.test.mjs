@@ -120,6 +120,8 @@ test('sortPages: README and index first (root before folders), then title order,
   ]
   assert.deepEqual(wiki.sortPages(pages).map((p) => p.slug), ['Readme', 'index', 'guide/README', 'guide/Index', 'alpha', 'a-beta', 'beta', 'Zeta', '안내'])
   assert.equal(pages[0].slug, 'Zeta', 'the input is not reordered')
+  // Code-point order, as Rust compares: U+FF21 before an astral emoji (UTF-16 `<` would flip them).
+  assert.deepEqual(wiki.sortPages([{ slug: 'e', title: '\u{1F4D8} book' }, { slug: 'f', title: 'Ａ wide' }]).map((p) => p.slug), ['f', 'e'])
 })
 
 test('pageWarnings: conflict, unreadable and over 1 MB', () => {
@@ -142,6 +144,7 @@ test('resolveWikiTarget: the port of moai wiki::target', () => {
   assert.deepEqual(r('README', 'my%20page.md'), { kind: 'wiki', slug: 'my page' })
   assert.deepEqual(r('README', '%EC%95%88%EB%82%B4.md'), { kind: 'wiki', slug: '안내' })
   assert.deepEqual(r('README', 'bad%ZZ.md'), { kind: 'wiki', slug: 'bad%ZZ' }, 'malformed %XX stays as written')
+  assert.deepEqual(r('README', '%EF%BB%BFa.md'), { kind: 'wiki', slug: '﻿a' }, 'a decoded BOM is kept, as String::from_utf8 keeps it')
   assert.deepEqual(r('README', 'a.md?plain=1'), { kind: 'wiki', slug: 'a' })
   // #anchor: decoded and GitHub-slugged.
   assert.deepEqual(r('moai-panel/overview', 'keybindings.md#3.8 위키 탭'), { kind: 'wiki', slug: 'moai-panel/keybindings', anchor: '38-위키-탭' })
@@ -448,6 +451,71 @@ test('view: Esc clears the link selection first, then the search', async () => {
   assert.equal(event.defaultPrevented, true)
   event = press(doc.activeElement, 'Escape')
   assert.equal(event.defaultPrevented, false, 'nothing left: Esc is not the wiki tab\'s')
+})
+
+test('view: focus stays in the view after Enter opens a row or follows a link, and after a refresh', async () => {
+  const { view } = makeView()
+  view.setPages(allPages())
+  await tick()
+  view.focusPane('list')
+  press(doc.activeElement, 'j')
+  press(doc.activeElement, 'Enter')
+  await tick()
+  assert.ok(view.el.contains(doc.activeElement), 'the repaint did not leave focus on <body>')
+  const before = view.state().cursor
+  press(doc.activeElement, 'j')
+  assert.notEqual(view.state().cursor, before, 'j still reaches the view')
+  // Esc on a focused row clears the search and repaints the list: focus stays on a row.
+  view.setQuery('moai')
+  view.focusPane('list')
+  press(doc.activeElement, 'Escape')
+  assert.equal(view.state().query, '')
+  assert.equal(doc.activeElement.getAttribute('aria-selected'), 'true')
+  // Follow a link with the keyboard, then go back with Backspace pressed where focus is.
+  await view.open(PLAYGROUND.slug)
+  view.focusPane('body')
+  const wikiIndex = view.links().findIndex((a) => a.dataset.kind === 'wiki')
+  for (let i = 0; i <= wikiIndex; i++) press(doc.activeElement, 'Tab')
+  press(doc.activeElement, 'Enter')
+  await tick()
+  assert.equal(view.state().current, 'moai-panel/keybindings')
+  assert.equal(doc.activeElement, scroller(view))
+  press(doc.activeElement, 'Backspace')
+  await tick()
+  assert.equal(view.state().current, PLAYGROUND.slug)
+  // A list refresh keeps the selected link and its focus.
+  press(doc.activeElement, 'Tab')
+  press(doc.activeElement, 'Tab')
+  assert.equal(view.state().selectedLink, 1)
+  view.setPages(allPages())
+  assert.equal(view.state().selectedLink, 1)
+  assert.equal(doc.activeElement, view.links()[1])
+})
+
+test('view: Enter on a focused button is the button\'s; h and ArrowLeft go back from the list too', async () => {
+  const { view } = makeView()
+  view.setPages(allPages())
+  await view.open('moai-panel/overview')
+  await view.follow({ kind: 'wiki', slug: PLAYGROUND.slug })
+  const rawButton = [...view.el.querySelectorAll('.m-wiki-actions button')].find((b) => b.textContent === '원문')
+  rawButton.focus()
+  const event = press(rawButton, 'Enter')
+  assert.equal(event.defaultPrevented, false)
+  assert.equal(view.state().selectedLink, -1)
+  view.focusPane('list')
+  press(doc.activeElement, 'h')
+  await tick()
+  assert.equal(view.state().current, 'moai-panel/overview')
+})
+
+test('view: an issue id moai found no issue for stays text', async () => {
+  const { view } = makeView({
+    loadPage: () => Promise.resolve({ ...structuredClone(PLAYGROUND), issues: [{ id: 'se-rhu3.oej', exists: false }] }),
+  })
+  view.setPages(allPages())
+  await view.open(PLAYGROUND.slug)
+  assert.equal(view.links().filter((a) => a.dataset.kind === 'issue').length, 0)
+  assert.match(scroller(view).textContent, /se-rhu3\.oej/)
 })
 
 test('view: Enter in the body with no link selected selects the first', async () => {

@@ -59,6 +59,22 @@ test('githubAnchor: Korean kept, punctuation dropped, spaces to dashes, repeats 
   assert.equal(githubAnchor('A  B'), 'a--b')
   const seen = new Map()
   assert.deepEqual([githubAnchor('foo', seen), githubAnchor('foo', seen), githubAnchor('Foo', seen), githubAnchor('bar', seen)], ['foo', 'foo-1', 'foo-2', 'bar'])
+  // A numbered slug already taken by a heading is counted again (github-slugger, moai wiki::Anchors).
+  const taken = new Map()
+  assert.deepEqual(['Foo', 'Foo-1', 'Foo', 'Foo'].map((h) => githubAnchor(h, taken)), ['foo', 'foo-1', 'foo-2', 'foo-3'])
+  // GitHub drops superscript and circled digits but keeps combining marks.
+  assert.equal(githubAnchor('x² ①'), 'x-')
+  assert.equal(githubAnchor('Café'), 'café')
+})
+
+test('headings: a taken numbered anchor never repeats; setext headings; a leading BOM', () => {
+  const r = md('# Foo\n\n# Foo-1\n\n# Foo\n')
+  assert.deepEqual(r.headings.map((h) => h.anchor), ['foo', 'foo-1', 'foo-2'])
+  assert.equal(new Set([...r.root.querySelectorAll('[id]')].map((h) => h.id)).size, 3, 'ids are unique')
+  const setext = md('Title\n=====\n\nSub *x*\n---\n\ntext')
+  assert.deepEqual(setext.headings.map((h) => [h.level, h.text, h.anchor]), [[1, 'Title', 'title'], [2, 'Sub x', 'sub-x']])
+  assert.equal(setext.root.querySelector('hr'), null)
+  assert.equal(md('﻿# Title\n\nx').headings[0]?.text, 'Title')
 })
 
 test('paragraphs, soft and hard breaks, escapes', () => {
@@ -76,6 +92,15 @@ test('inline: bold, italic, code, nesting', () => {
   assert.equal(html('a * b * c'), '<p>a * b * c</p>')
   assert.equal(html('`x *y*` and ``a ` b``'), '<p><code class="m-md-inline-code">x *y*</code> and <code class="m-md-inline-code">a ` b</code></p>')
   assert.equal(html('unclosed `tick and **bold'), '<p>unclosed `tick and **bold</p>')
+})
+
+test('inline: openers that never close stay fast (no exponential backtracking)', () => {
+  // 40 unclosed `*x` openers took minutes before the per-position memo; a glob list is the everyday shape.
+  const started = Date.now()
+  const r = md('*a '.repeat(40) + '\n\nWatched: ' + Array.from({ length: 40 }, (_, i) => `*.e${i}`).join(', '))
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started}ms`)
+  assert.equal(r.root.querySelector('em'), null)
+  assert.match(r.root.textContent, /^\*a \*a /)
 })
 
 test('code blocks: fenced with ``` and ~~~, indented, nothing parsed inside', () => {
@@ -124,6 +149,8 @@ test('lists: bullets, ordered with start, nested, tight vs loose', () => {
   assert.equal(md('- a\n\n---\n\n- b').root.querySelectorAll('hr').length, 1)
   // A list can interrupt a paragraph.
   assert.equal(md('text\n- a\n- b').root.querySelectorAll('li').length, 2)
+  // A blank line before a nested list keeps the list tight, but two paragraphs never run together.
+  assert.equal(html('- first\n\n  second\n\n  - sub'), '<ul><li>first<p>second</p><ul><li>sub</li></ul></li></ul>')
 })
 
 test('tables: header, body, alignment, escaped pipes, inline content, ragged rows', () => {

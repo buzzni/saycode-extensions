@@ -43,8 +43,8 @@
   font: 12px/1.6 var(--mono);
 }
 
-/* Link selected with Tab (roving highlight) and a heading reached by an anchor. */
-.m-wiki .m-md-link { cursor: pointer; }
+/* Link selected with Tab (roving highlight) and a heading reached by an anchor. markdown.css gives links their
+   cursor: pointer, and external ones (which open nothing) the default cursor. */
 .m-wiki .m-md-link.m-wiki-link-selected { background: var(--selected); outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-xs); }
 .m-wiki .m-wiki-flash { background: var(--warn-soft); border-radius: var(--radius-xs); }
 @media (prefers-reduced-motion: no-preference) {

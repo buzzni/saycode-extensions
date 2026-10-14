@@ -157,13 +157,31 @@ export function parseWikiShow(input: unknown): Parsed<WikiPage> {
 
 const basename = (slug: string): string => slug.slice(slug.lastIndexOf("/") + 1)
 
-/** README and index first (the wiki root's before a folder's), then by lowercased title, then by slug. Stable. */
+/** Where a slug sorts among the homes: the root's README, index, then a folder's; every other page after them. */
 export function homeRank(slug: string): number {
   const home = HOMES.indexOf(basename(slug).toLowerCase())
   if (home < 0) return HOMES.length * 2
   return slug.includes("/") ? HOMES.length + home : home
 }
 
+/**
+ * Code-point order, as Rust compares `str` (moai's sort). Plain `<` compares UTF-16 units, which puts astral
+ * characters (emoji, CJK extension B) before U+E000-U+FFFF; shifting the units fixes that.
+ */
+function compareCodePoints(a: string, b: string): number {
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) {
+    let x = a.charCodeAt(i)
+    let y = b.charCodeAt(i)
+    if (x === y) continue
+    if (x >= 0xd800) x += x < 0xe000 ? 0x2000 : -0x800
+    if (y >= 0xd800) y += y < 0xe000 ? 0x2000 : -0x800
+    return x - y
+  }
+  return a.length - b.length
+}
+
+/** README and index first (the wiki root's before a folder's), then by lowercased title, then by slug. Stable. */
 export function sortPages<T extends { slug: string; title?: string }>(pages: ReadonlyArray<T>): T[] {
   return pages
     .map((page, index) => ({ page, index }))
@@ -173,9 +191,7 @@ export function sortPages<T extends { slug: string; title?: string }>(pages: Rea
       // Code-point order of the lowercased titles, as moai sorts (not localeCompare, which follows the host locale).
       const ta = (a.page.title || a.page.slug).toLowerCase()
       const tb = (b.page.title || b.page.slug).toLowerCase()
-      if (ta !== tb) return ta < tb ? -1 : 1
-      if (a.page.slug !== b.page.slug) return a.page.slug < b.page.slug ? -1 : 1
-      return a.index - b.index
+      return compareCodePoints(ta, tb) || compareCodePoints(a.page.slug, b.page.slug) || a.index - b.index
     })
     .map((entry) => entry.page)
 }
@@ -242,7 +258,8 @@ export function unpercent(text: string): string {
     } else bytes.push(raw[i]!)
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(new Uint8Array(bytes))
+    // ignoreBOM keeps a decoded leading U+FEFF, as Rust's String::from_utf8 does (the decoder drops it by default).
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(new Uint8Array(bytes))
   } catch {
     return text
   }
@@ -388,6 +405,10 @@ function isTextInput(target: EventTarget | null): boolean {
   return tag === "input" || tag === "textarea" || tag === "select" || node.isContentEditable === true || node.getAttribute?.("contenteditable") === "true"
 }
 
+function isButton(target: EventTarget | null): boolean {
+  return !!target && typeof (target as Element).tagName === "string" && (target as Element).tagName.toLowerCase() === "button"
+}
+
 const folderOf = (slug: string): string => (slug.includes("/") ? slug.slice(0, slug.lastIndexOf("/") + 1) : "")
 
 export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
@@ -450,7 +471,20 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   const visiblePages = (): WikiPage[] => filterPages(pages, query, bodies)
   const titleOf = (slug: string): string => pages.find((p) => p.slug === slug)?.title ?? slug
 
+  /**
+   * Repaint the list. Rebuilding drops the focused row, which would leave focus on <body> — outside the root, so
+   * its keydown listener stops hearing j/k/Enter — so focus goes back to the cursor row (or the page).
+   */
   function paintList(): void {
+    const had = listBox.contains(doc.activeElement)
+    buildList()
+    if (had && !listBox.contains(doc.activeElement)) {
+      focusCursorRow()
+      if (!root.contains(doc.activeElement)) scroller.focus({ preventScroll: true })
+    }
+  }
+
+  function buildList(): void {
     listNote.replaceChildren()
     listBox.replaceChildren()
     if (listError) {
@@ -530,7 +564,19 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     return section
   }
 
+  /**
+   * Repaint the page. Like paintList, a rebuild drops a focused link, and the back button disables itself once
+   * the trail is empty (the browser then moves focus to <body>); either way focus goes to the page.
+   */
   function paintBody(): void {
+    const active = doc.activeElement
+    const had = active !== scroller && scroller.contains(active)
+    buildBody()
+    const lost = had && !scroller.contains(doc.activeElement)
+    if (lost || (doc.activeElement === backButton && backButton.disabled)) scroller.focus({ preventScroll: true })
+  }
+
+  function buildBody(): void {
     selected = -1
     links = []
     headingNodes = new Map()
@@ -565,7 +611,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       try {
         const rendered = renderMarkdown(doc, page.body, {
           resolveLink: (href) => resolveWikiTarget(from, href, known),
-          issueIds: page.issues.map((issue) => issue.id),
+          // An id moai found no issue for (exists: false) stays text: there is no row to jump to.
+          issueIds: page.issues.filter((issue) => issue.exists !== false).map((issue) => issue.id),
         })
         rendered.root.classList.add("m-wiki-article")
         scroller.append(rendered.root)
@@ -602,7 +649,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   function scrollToAnchor(anchor: string): boolean {
     const heading = headingFor(anchor)
     if (!heading) {
-      setStatus(`이 페이지에 '${anchor}' 제목이 없습니다.`)
+      // The raw view has no heading elements; saying the heading is missing would be wrong there.
+      setStatus(raw ? `원문 보기에서는 '${anchor}' 제목으로 가지 않습니다.` : `이 페이지에 '${anchor}' 제목이 없습니다.`)
       return false
     }
     const top = heading.getBoundingClientRect().top - scroller.getBoundingClientRect().top
@@ -617,7 +665,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     return true
   }
 
-  function paintSelection(): void {
+  /** Mark the selected link (roving tabindex); with `focus`, also focus it and scroll it into view. */
+  function paintSelection(focus = true): void {
     links.forEach((link, index) => {
       const on = index === selected
       link.tabIndex = on ? 0 : -1
@@ -626,7 +675,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       else link.removeAttribute("aria-current")
     })
     const link = links[selected]
-    if (link) {
+    if (link && focus) {
       link.focus({ preventScroll: true })
       link.scrollIntoView?.({ block: "nearest" })
     }
@@ -774,6 +823,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     }
     if (isTextInput(event.target)) return false
     if (event.ctrlKey || event.metaKey || event.altKey) return false
+    // A focused button (back, raw) keeps its own Enter: preventing it would cancel the button's click.
+    if (event.key === "Enter" && isButton(event.target)) return false
     switch (event.key) {
       case "/":
         focusSearch()
@@ -788,7 +839,10 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       case "Tab":
         selectLink(event.shiftKey ? -1 : 1)
         return done()
+      // Back is the same in both panes, as in the TUI (Bksp, h, ←).
       case "Backspace":
+      case "h":
+      case "ArrowLeft":
         void back()
         return done()
     }
@@ -822,10 +876,6 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       case "Enter":
         if (selected >= 0) void followSelected()
         else selectLink(1) // the TUI opens a link picker here; the panel selects the first link instead
-        return done()
-      case "h":
-      case "ArrowLeft":
-        void back()
         return done()
       case "j":
       case "ArrowDown":
@@ -873,9 +923,23 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     listError = null
     listLoading = false
     for (const entry of pages) if (typeof entry.body === "string") bodies.set(entry.slug, entry.body)
+    if (!current && pages.length) {
+      paintList()
+      void open(pages[0]!.slug)
+      return
+    }
+    // A refresh re-resolves the body's links against the new page set; keep the reader's place, the selected
+    // link and the focus instead of dropping them with the old nodes.
+    const keep = selected
+    const onLink = keep >= 0 && links[keep] !== undefined && doc.activeElement === links[keep]
+    const top = scroller.scrollTop
     paintList()
-    if (!current && pages.length) void open(pages[0]!.slug)
-    else paintBody()
+    paintBody()
+    scroller.scrollTop = top
+    if (keep >= 0 && keep < links.length) {
+      selected = keep
+      paintSelection(onLink)
+    }
   }
 
   function setWidth(width: number): void {
@@ -903,7 +967,11 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       }
       if (typeof saved.cursor === "string") cursor = saved.cursor
       paintList()
-    } else paintBody()
+    } else {
+      // No page to show: still paint the list, or the restored cursor would not show until the next repaint.
+      paintList()
+      paintBody()
+    }
     if (typeof saved.selectedLink === "number" && saved.selectedLink >= 0 && saved.selectedLink < links.length) {
       selected = saved.selectedLink
       paintSelection()

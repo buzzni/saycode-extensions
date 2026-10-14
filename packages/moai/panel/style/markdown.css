@@ -13,7 +13,6 @@
 .m-md h3 { font-size: 14px; }
 .m-md :is(h4, h5, h6) { font-size: 13px; }
 .m-md h6 { color: var(--muted); }
-.m-md :is(h1, h2, h3, h4, h5, h6).m-md-flash { background: var(--selected); border-radius: var(--radius-xs); transition: background .3s; }
 
 .m-md p { margin: 0 0 10px; }
 .m-md :is(ul, ol) { margin: 0 0 10px; padding-left: 22px; }
@@ -51,4 +50,4 @@
 .m-md-link:hover { color: var(--accent-hover); }
 .m-md-link[data-kind="external"] { color: var(--muted); cursor: default; text-decoration-style: dotted; }
 .m-md-issue { font: 12px var(--mono); text-decoration: none; padding: 0 3px; background: var(--selected); }
-.m-md-link:is(.m-md-active, [aria-current="true"]) { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--selected); }
+.m-md-link[aria-current="true"] { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--selected); }

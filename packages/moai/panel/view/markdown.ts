@@ -24,21 +24,27 @@ export interface Rendered {
   links: HTMLAnchorElement[]
 }
 
-/** GitHub slug rule: lowercase; keep letters (any script), digits, '-', '_'; spaces -> '-'; drop the rest. */
+/**
+ * GitHub slug rule (github-slugger): trim, lowercase; keep letters (any script), combining marks, decimal digits,
+ * '-', '_' and spaces; each space -> '-'; drop the rest (punctuation, symbols, emoji, '²', '①'). With `seen`, a
+ * repeat gets '-1', '-2', ... and a numbered slug that is already taken is counted again, so `Foo`, `Foo-1`,
+ * `Foo` give `foo`, `foo-1`, `foo-2` (moai `wiki::Anchors`).
+ */
 export function githubAnchor(text: string, seen?: Map<string, number>): string {
   const base = text
     .trim()
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}\p{M}_\- ]/gu, "")
+    .replace(/[^\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\- ]/gu, "")
     .replace(/ /g, "-")
   if (!seen) return base
-  const count = seen.get(base)
-  if (count === undefined) {
-    seen.set(base, 0)
-    return base
+  let slug = base
+  while (seen.has(slug)) {
+    const count = (seen.get(base) ?? 0) + 1
+    seen.set(base, count)
+    slug = `${base}-${count}`
   }
-  seen.set(base, count + 1)
-  return `${base}-${count + 1}`
+  seen.set(slug, 0)
+  return slug
 }
 
 function defaultResolve(href: string): LinkTarget {
@@ -77,7 +83,10 @@ export function renderMarkdown(doc: Document, source: string, options: RenderOpt
     seen: new Map(),
   }
   const root = el(doc, "div", { class: "m-md" })
+  // A leading BOM (Windows editors) would keep the first `# Title` from reading as a heading; moai strips it the
+  // same way before parsing (`wiki::unmarked`), while `show --json` hands the body over with it.
   const lines = String(source ?? "")
+    .replace(/^﻿/, "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/^[ \t]*\t[ \t]*/, (lead) => lead.replace(/\t/g, "    ")))
@@ -92,7 +101,8 @@ const at = (items: ArrayLike<string | undefined>, index: number): string => item
 
 const FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/
-const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
+const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/
+const HR =/^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
 const QUOTE = /^ {0,3}>/
 const LIST = /^( *)([-+*]|\d{1,9}[.)])( +|$)/
 const DELIM_CELL = /^:?-+:?$/
@@ -141,6 +151,26 @@ function tableAt(lines: string[], i: number): { head: string[]; aligns: string[]
   return { head, aligns }
 }
 
+/** Append a heading: inline content, then its GitHub anchor (numbered on repeats) as id and data-anchor. */
+function appendHeading(ctx: Ctx, parent: Node, level: Heading["level"], source: string): void {
+  const h = el(ctx.doc, `h${level}` as "h1")
+  inlineInto(ctx, h, source.trim(), false)
+  const text = h.textContent ?? ""
+  const anchor = githubAnchor(text, ctx.seen)
+  h.setAttribute("id", `m-md-${anchor}`)
+  h.setAttribute("data-anchor", anchor)
+  ctx.headings.push({ level, text, anchor })
+  parent.appendChild(h)
+}
+
+const BLOCK_TAGS = new Set(["P", "PRE", "H1", "H2", "H3", "H4", "H5", "H6", "HR", "BLOCKQUOTE", "UL", "OL", "DIV"])
+
+/** True when `node` ends in inline content (a bare paragraph of a tight list item) rather than a block. */
+function endsInline(node: Node): boolean {
+  const last = node.lastChild
+  return last !== null && !(last.nodeType === 1 && BLOCK_TAGS.has((last as Element).tagName.toUpperCase()))
+}
+
 function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): void {
   const { doc } = ctx
   const n = lines.length
@@ -183,15 +213,7 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Heading.
     const atx = ATX.exec(line)
     if (atx) {
-      const level = at(atx, 1).length as Heading["level"]
-      const h = el(doc, `h${level}` as "h1")
-      inlineInto(ctx, h, (at(atx, 2) ?? "").trim(), false)
-      const text = h.textContent ?? ""
-      const anchor = githubAnchor(text, ctx.seen)
-      h.setAttribute("id", `m-md-${anchor}`)
-      h.setAttribute("data-anchor", anchor)
-      ctx.headings.push({ level, text, anchor })
-      parent.appendChild(h)
+      appendHeading(ctx, parent, at(atx, 1).length as Heading["level"], at(atx, 2))
       i++
       continue
     }
@@ -252,15 +274,26 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
       continue
     }
 
-    // Paragraph.
+    // Paragraph, or a setext heading when a `===` / `---` line underlines it.
     const para: string[] = [line.trimStart()]
+    let setext: Heading["level"] | 0 = 0
     i++
-    while (i < n && !isBlank(at(lines, i)) && !interrupts(at(lines, i)) && !tableAt(lines, i)) {
+    while (i < n && !isBlank(at(lines, i))) {
+      const underline = SETEXT.exec(at(lines, i))
+      if (underline) {
+        setext = at(underline, 1).charAt(0) === "=" ? 1 : 2
+        i++
+        break
+      }
+      if (interrupts(at(lines, i)) || tableAt(lines, i)) break
       para.push(at(lines, i).trimStart())
       i++
     }
     const text = para.join("\n").replace(/\s+$/, "")
-    if (tight) inlineInto(ctx, parent, text, false)
+    if (setext) appendHeading(ctx, parent, setext, text)
+    // A tight item's paragraph is bare text — unless bare text already ends the item (a blank line before a
+    // nested list keeps the list tight), where it gets a <p> so the two paragraphs do not run together.
+    else if (tight && !endsInline(parent)) inlineInto(ctx, parent, text, false)
     else {
       const p = el(doc, "p")
       inlineInto(ctx, p, text, false)
@@ -444,8 +477,21 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
 }
 
 interface EmphMatch { lit: number; k: number; start: number; close: number; end: number }
+type EmphMemo = Map<number, EmphMatch | null>
 
-function matchEmph(s: string, i: number): EmphMatch | null {
+/**
+ * The emphasis opening at i, or null. Memoized per position of `s`: an opener that never closes is retried by
+ * every opener before it, which without the memo is exponential (`*a *b *c ...` froze the panel at ~25 openers).
+ */
+function matchEmph(s: string, i: number, memo: EmphMemo): EmphMatch | null {
+  const known = memo.get(i)
+  if (known !== undefined) return known
+  const found = findEmph(s, i, memo)
+  memo.set(i, found)
+  return found
+}
+
+function findEmph(s: string, i: number, memo: EmphMemo): EmphMatch | null {
   const c = s.charAt(i)
   let r = 1
   while (s.charAt(i + r) === c) r++
@@ -473,7 +519,7 @@ function matchEmph(s: string, i: number): EmphMatch | null {
       const canOpen = next !== undefined && !/\s/.test(next) && (c !== "_" || prev === undefined || !WORD.test(prev))
       if (canClose && rr >= k) return { lit: r - k, k, start: i + r, close: j, end: j + k }
       if (canOpen && !canClose) {
-        const nested = matchEmph(s, j)
+        const nested = matchEmph(s, j, memo)
         if (nested) { j = nested.end; continue }
       }
       j += rr
@@ -484,6 +530,13 @@ function matchEmph(s: string, i: number): EmphMatch | null {
 
 function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
   const { doc } = ctx
+  // Fill the emphasis memo right to left first: every nested lookup in findEmph is then a memo hit, so the
+  // recursion stays one level deep however many openers the text has.
+  const emphMemo: EmphMemo = new Map()
+  for (let p = s.length - 1; p >= 0; p--) {
+    const ch = s.charAt(p)
+    if (ch === "*" || ch === "_") matchEmph(s, p, emphMemo)
+  }
   let buf = ""
   const flush = (): void => {
     if (buf) addText(ctx, parent, buf, noLinks)
@@ -559,7 +612,7 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
       }
     }
     if (c === "*" || c === "_") {
-      const m = matchEmph(s, i)
+      const m = matchEmph(s, i, emphMemo)
       if (m) {
         buf += c.repeat(m.lit)
         flush()
