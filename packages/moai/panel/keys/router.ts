@@ -39,6 +39,8 @@ export interface KeyEventLike {
   isComposing?: boolean
   /** 229 while an IME is busy (Chrome reports it before isComposing turns true). */
   keyCode?: number
+  /** Physical key ('KeyJ', 'Digit1'): the stand-in for a letter an input source (Korean) turned into a jamo. */
+  code?: string
   /** An auto-repeat of a held key. */
   repeat?: boolean
   /** The event target is editable. When absent, `target` is checked with isEditableTarget(). */
@@ -116,9 +118,27 @@ const NOT_KEYS = new Set([
   "Fn", "FnLock", "Dead", "Unidentified", "Process", "Compose", "HangulMode", "HanjaMode", "KanaMode",
 ])
 
+const ASCII_PRINTABLE = /^[\x20-\x7e]$/
+const DIGIT_SHIFT = ")!@#$%^&*("
+
+/**
+ * The key a keydown stands for. With a Korean (or any non-Latin) input source event.key is a jamo ('ㅓ' for J) or
+ * 'Process'; then the US-layout character of event.code (KeyA..KeyZ, Digit0..Digit9) is used, with Shift honoured.
+ * An ASCII event.key is left alone (AZERTY, Dvorak). Anything else without such a code is returned as it was.
+ */
+function codeKey(event: KeyEventLike): string {
+  const key = event.key
+  if (!key || ASCII_PRINTABLE.test(key)) return key
+  if (key.length > 1 && key !== "Process" && /^[A-Za-z]/.test(key)) return key // a named key (Enter, F1, ...)
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code ?? "")
+  if (!m) return key
+  if (m[1]) return event.shiftKey ? m[1] : m[1].toLowerCase()
+  return event.shiftKey ? DIGIT_SHIFT[Number(m[2])]! : m[2]!
+}
+
 /** A keydown to its token in the table's notation, or null when it is not a key the panel handles. */
 export function keyToken(event: KeyEventLike): string | null {
-  const key = event.key
+  const key = codeKey(event)
   if (!key || event.metaKey || NOT_KEYS.has(key)) return null
   const ctrl = event.ctrlKey ? "C-" : ""
   const alt = event.altKey ? "A-" : ""
@@ -238,11 +258,15 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
 
   return {
     handle(event) {
-      // 'Process' (an IME key) is in NOT_KEYS, so keyToken drops it.
-      if (event.isComposing || event.keyCode === 229) return none
+      const ctx = options.getContext()
+      if (event.isComposing || event.keyCode === 229) {
+        // An IME at work in an editable target (or the prompt) is its own. In a non-editable one Chrome sends
+        // 'Process'/a jamo: only a key event.code can name goes on ('Process' without one is in NOT_KEYS).
+        if (ctx.mode === "prompt" || (event.editable ?? isEditableTarget(event.target))) return none
+        if (codeKey(event) === event.key) return none
+      }
       const token = keyToken(event)
       if (token === null) return none
-      const ctx = options.getContext()
       if (ctx.mode !== "prompt") {
         const editable = event.editable ?? isEditableTarget(event.target)
         if (editable) {
@@ -324,6 +348,7 @@ export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => vo
       shiftKey: event.shiftKey,
       isComposing: event.isComposing,
       keyCode: event.keyCode,
+      code: event.code,
       repeat: event.repeat,
       editable: isEditableTarget(event.target),
     })
