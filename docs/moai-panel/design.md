@@ -43,7 +43,7 @@
 
 ### 아직 열려 있는 것
 
-`se-h5c7`(키 소유 잔여), `se-gq4i`(포커스 힌트가 탭 바를 가림), `se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-lv9n`(보드 읽기 잔여), `se-mht7`(활동 줄 안내), `se-ehdi.zcx`(NEW 뱃지), 호환 안내 배너, i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
+`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-lv9n`(보드 읽기 잔여), `se-mht7`(활동 줄 안내), `se-ehdi.zcx`(NEW 뱃지), 호환 안내 배너, i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 
