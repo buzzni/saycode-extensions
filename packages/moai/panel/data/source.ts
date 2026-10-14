@@ -25,6 +25,7 @@
  * backlog read has an id of its own.
  */
 import { PRIORITY, answerOf, requestKey, type Client, type Outcome } from './client.js'
+import type { CompatProbe } from './compat.js'
 import { DEFAULT_STATUSES, type Row } from './index.js'
 
 export const PROFILE = {
@@ -52,6 +53,12 @@ export interface Rows {
   more: number
   /** `show --all` was cut at the output limit, so these are prime's rows (and the backlog), not all of them. */
   truncated: boolean
+}
+
+/** Hands a request's outcome to the compatibility probe, when the caller keeps one (compat.ts). */
+function seen(probe: CompatProbe | undefined, profile: string, outcome: Outcome): Outcome {
+  probe?.observe(profile, outcome)
+  return outcome
 }
 
 export type Loaded<T> = { ok: true; value: T } | { ok: false; outcome: Outcome }
@@ -109,8 +116,8 @@ export function rowsFromLists(all: unknown, backlog: unknown): Loaded<Rows> {
 }
 
 /** The index rows from `prime` alone: what is held and what is ready (the panel's reader until it switches). */
-export async function loadRows(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Rows>> {
-  const outcome = await client.request(PROFILE.prime, undefined, { priority })
+export async function loadRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
+  const outcome = seen(probe, PROFILE.prime, await client.request(PROFILE.prime, undefined, { priority }))
   return outcome.kind === 'passed' ? rowsFromPrime(outcome.output) : { ok: false, outcome }
 }
 
@@ -119,10 +126,10 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list)
  * (`show --all` first). When `show --all` was cut at the output limit, prime's rows stand in with
  * `truncated: true`, plus the backlog when that read, without its references to the groups prime leaves out.
  */
-export async function loadAllRows(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Rows>> {
+export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
   const listing = client.request(PROFILE.showAll, undefined, { priority })
   const reading = client.request(PROFILE.backlog, undefined, { priority })
-  const all = await listing
+  const all = seen(probe, PROFILE.showAll, await listing)
   const cut = all.kind === 'unreadable' && all.truncated === true
   if (!cut && answerOf(all) === undefined) {
     // show --all alone decides this load (declined, no tracker): a backlog read still queued behind it
@@ -130,9 +137,9 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
     client.cancel(requestKey(PROFILE.backlog))
     return { ok: false, outcome: all }
   }
-  const backlog = await reading
+  const backlog = seen(probe, PROFILE.backlog, await reading)
   if (cut) {
-    const loaded = await loadRows(client, priority)
+    const loaded = await loadRows(client, priority, probe)
     if (!loaded.ok) return loaded
     return { ok: true, value: { rows: withBacklog(loaded.value.rows, answerOf(backlog), ungrouped), more: loaded.value.more, truncated: true } }
   }
@@ -140,7 +147,9 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
   if (listed === undefined) return { ok: false, outcome: all }
   const thoughts = answerOf(backlog)
   if (thoughts === undefined) return { ok: false, outcome: backlog }
-  return rowsFromLists(listed, thoughts)
+  const loaded = rowsFromLists(listed, thoughts)
+  if (loaded.ok) probe?.observeRows(loaded.value.rows)
+  return loaded
 }
 
 /**
@@ -183,15 +192,17 @@ export function talliesFrom(output: unknown): Map<string, [number, number]> {
 }
 
 /** The same `status` request as {@link loadStatuses}, which the client shares; read once, used for both. */
-export async function loadTallies(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Map<string, [number, number]>>> {
-  const outcome = await client.request(PROFILE.status, undefined, { priority })
+export async function loadTallies(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Map<string, [number, number]>>> {
+  const outcome = seen(probe, PROFILE.status, await client.request(PROFILE.status, undefined, { priority }))
   const output = answerOf(outcome)
+  if (output !== undefined) probe?.observeStatus(output)
   return output === undefined ? { ok: false, outcome } : { ok: true, value: talliesFrom(output) }
 }
 
-export async function loadStatuses(client: Client, priority: number = PRIORITY.list): Promise<Loaded<string[]>> {
-  const outcome = await client.request(PROFILE.status, undefined, { priority })
+export async function loadStatuses(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<string[]>> {
+  const outcome = seen(probe, PROFILE.status, await client.request(PROFILE.status, undefined, { priority }))
   const output = answerOf(outcome)
+  if (output !== undefined) probe?.observeStatus(output)
   return output === undefined ? { ok: false, outcome } : statusesFrom(output)
 }
 
@@ -201,6 +212,8 @@ export interface ArchiveOptions {
   /** Asked between pages; true stops the paging with a `cancelled` outcome. */
   cancelled?: () => boolean
   priority?: number
+  /** Told each page's outcome (compat.ts). */
+  probe?: CompatProbe
   /**
    * Ids of the active rows already held (`show --all`). `--archived` lists active rows too, and `moai read`
    * resolves only active rows, so a row whose id is not here is tagged `archived: true` (read.ts then never
@@ -226,9 +239,8 @@ export async function loadArchived(client: Client, options: ArchiveOptions = {})
   let after: string | undefined
   for (;;) {
     if (options.cancelled?.()) return { ok: false, outcome: { kind: 'cancelled', mayContinue: false } }
-    const outcome = after === undefined
-      ? await client.request(PROFILE.showArchived, undefined, { priority })
-      : await client.request(PROFILE.showArchivedAfter, after, { priority })
+    const profile = after === undefined ? PROFILE.showArchived : PROFILE.showArchivedAfter
+    const outcome = seen(options.probe, profile, await client.request(profile, after, { priority }))
     const output = answerOf(outcome)
     if (output === undefined) return { ok: false, outcome }
     if (!Array.isArray(output)) return { ok: false, outcome: { kind: 'unreadable' } }
@@ -243,15 +255,15 @@ export async function loadArchived(client: Client, options: ArchiveOptions = {})
 }
 
 /** `moai wiki ls` as printed (a skipped page's partial answer included); the wiki view parses it. */
-export async function loadWikiListing(client: Client): Promise<Loaded<unknown>> {
-  const outcome = await client.request(PROFILE.wikiLs, undefined, { priority: PRIORITY.wiki })
+export async function loadWikiListing(client: Client, probe?: CompatProbe): Promise<Loaded<unknown>> {
+  const outcome = seen(probe, PROFILE.wikiLs, await client.request(PROFILE.wikiLs, undefined, { priority: PRIORITY.wiki }))
   const output = answerOf(outcome)
   return output === undefined ? { ok: false, outcome } : { ok: true, value: output }
 }
 
 /** `moai wiki show <slug>` as printed; the wiki view parses it. */
-export async function loadWikiPage(client: Client, slug: string): Promise<Loaded<unknown>> {
-  const outcome = await client.request(PROFILE.wikiShow, slug, { priority: PRIORITY.wiki })
+export async function loadWikiPage(client: Client, slug: string, probe?: CompatProbe): Promise<Loaded<unknown>> {
+  const outcome = seen(probe, PROFILE.wikiShow, await client.request(PROFILE.wikiShow, slug, { priority: PRIORITY.wiki }))
   const output = answerOf(outcome)
   return output === undefined ? { ok: false, outcome } : { ok: true, value: output }
 }

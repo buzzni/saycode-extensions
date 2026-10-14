@@ -23,6 +23,7 @@
  * write. Callers re-read after every write.
  */
 import { PRIORITY, answerOf, type Client, type Outcome } from './client.js'
+import type { CompatProbe } from './compat.js'
 import type { IssueIndex, Row } from './index.js'
 import { PROFILE } from './source.js'
 
@@ -107,8 +108,9 @@ export function parseRead(output: unknown): ReadResult | undefined {
   }
 }
 
-async function write(client: Client, profileId: string, value?: string): Promise<Marked> {
+async function write(client: Client, profileId: string, value?: string, probe?: CompatProbe): Promise<Marked> {
   const outcome = await client.request(profileId, value, { priority: PRIORITY.detail, share: false })
+  probe?.observe(profileId, outcome)
   // A missing id ends the run non-zero with the whole answer still printed (see the header).
   const result = parseRead(answerOf(outcome))
   if (result) return { ok: true, result }
@@ -116,10 +118,10 @@ async function write(client: Client, profileId: string, value?: string): Promise
 }
 
 /** `r`: the drawn row. Only its id travels; see the note on stale draws above. */
-export const markRead = (client: Client, row: Pick<Row, 'id'>): Promise<Marked> => write(client, PROFILE.read, row.id)
+export const markRead = (client: Client, row: Pick<Row, 'id'>, probe?: CompatProbe): Promise<Marked> => write(client, PROFILE.read, row.id, probe)
 
 /** `SPC m a`: everything unread that came to me. */
-export const markAllRead = (client: Client): Promise<Marked> => write(client, PROFILE.readAll)
+export const markAllRead = (client: Client, probe?: CompatProbe): Promise<Marked> => write(client, PROFILE.readAll, undefined, probe)
 
 /** `SPC m g`: a group's members and what is drawn under it. */
-export const markGroupRead = (client: Client, groupId: string): Promise<Marked> => write(client, PROFILE.readGroup, groupId)
+export const markGroupRead = (client: Client, groupId: string, probe?: CompatProbe): Promise<Marked> => write(client, PROFILE.readGroup, groupId, probe)
