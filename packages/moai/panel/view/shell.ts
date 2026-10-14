@@ -415,15 +415,16 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
     showActivity(options.activity())
     hint.hidden = state.board.value !== null
-    // A refusal the compatibility banner tells (moai missing, a profile the catalog lacks) is told there alone.
-    const problem = state.board.problem ?? (state.detail.visible ? null : state.shown.problem)
-    explain(compatTells(state.compat, problem) ? null : problem)
+    // A refusal the compatibility banner tells (moai missing, a profile the catalog lacks) is told there alone, and the
+    // hidden detail's own problem takes the line it leaves. The detail's read is not one the probe hears (heard: false).
+    const untold = (outcome: Outcome | null, heard?: boolean) => (compatTells(state.compat, outcome, heard) ? null : outcome)
+    explain(untold(state.board.problem) ?? (state.detail.visible ? null : untold(state.shown.problem, false)))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
     // Written only when it changes: it is a live region.
     const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
     if (truncated.textContent !== partial) truncated.textContent = partial
-    explainArchive(compatTells(state.compat, state.archiveProblem) ? null : state.archiveProblem)
+    explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
 
     if (state.tab === "wiki") {

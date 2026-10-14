@@ -377,6 +377,19 @@ test('shell: a failed detail read is told once, in the pane, and does not hide t
   assert.match(panel.$('.moai-notice').textContent, /confirmation was declined/)
 })
 
+test('shell: a list refusal the compatibility banner tells leaves the error line to the hidden detail\'s own problem', () => {
+  const panel = boot(fakeStorage())
+  panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
+  panel.store.dispatch({ type: 'board-failed', problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.equal(panel.$('.moai-error').textContent, '', 'the catalog line tells it')
+  panel.store.dispatch({ type: 'detail-visible', visible: false })
+  panel.store.dispatch({ type: 'detail-failed', id: 'se-e1.a', problem: { kind: 'moai-error', message: 'issue se-e1.a not found' } })
+  assert.match(panel.$('.moai-error').textContent, /not found/, 'a read the user asked for is never silent')
+  // The detail's `show` is not a read the probe hears: a catalog line about other profiles does not stand for it.
+  panel.store.dispatch({ type: 'detail-failed', id: 'se-e1.a', problem: { kind: 'refused', code: 'unsupported-daemon' } })
+  assert.equal(panel.$('.moai-error').textContent, en.refused['unsupported-daemon'])
+})
+
 test('shell: the missing-board guidance is one sentence in its banner, and a banner is written only when it says something new', () => {
   const panel = boot(fakeStorage())
   panel.store.dispatch({ type: 'board-failed', problem: { kind: 'not-initialized' } })

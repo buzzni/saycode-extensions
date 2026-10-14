@@ -39,7 +39,7 @@ const wikiSource = () => ({
   },
 })
 
-function boot({ wiki, read, rows = ROWS } = {}) {
+function boot({ wiki, read, rows = ROWS, platform = 'other' } = {}) {
   const dom = new JSDOM('<!doctype html><html lang="en"><body><div id="moai-app"></div></body></html>', { pretendToBeVisual: true })
   const doc = dom.window.document
   const store = createStore()
@@ -65,7 +65,7 @@ function boot({ wiki, read, rows = ROWS } = {}) {
     wiki,
   })
   store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
-  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other', read })
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform, read })
   const $ = (selector) => doc.querySelector(selector)
   /** A keydown on `target` (the focused element when left out), as the browser sends it. */
   const press = (key, init = {}, target = doc.activeElement ?? doc.body) => {
@@ -595,7 +595,49 @@ test('keys: the help open — Ctrl+C and Ctrl+D go to the browser: not prevented
   assert.equal(panel.doc.activeElement, panel.keys.help.el)
 })
 
-test('keys: r and SPC m g see an active row only the archive answer holds when archived rows are shown (se-4f4s)', async () => {
+test('keys: the help open — a Ctrl key a control behind it acts on, and AltGr, are stopped there (se-1fy7)', () => {
+  const panel = inEpic()
+  panel.press('?')
+  const behind = panel.$('.m-toolbar-slot .m-sort button')
+  for (const key of ['Enter', ' ']) {
+    behind.focus()
+    assert.equal(panel.press(key, { ctrlKey: true }, behind).defaultPrevented, true, `Ctrl+${key} can press the button`)
+    assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  }
+  assert.equal(panel.state().toolbar.sortOpen, false)
+  // The tab strip and the resizer take arrows whatever the modifier.
+  const tab = panel.doc.getElementById('m-tab-list')
+  tab.focus()
+  assert.equal(panel.press('ArrowRight', { ctrlKey: true }, tab).defaultPrevented, true)
+  assert.equal(panel.state().tab, 'list', 'no tab switch behind the overlay')
+  // Ctrl+Backspace deletes a word, and AltGr (Ctrl+Alt on Windows) types a character: @ on a German layout.
+  const search = panel.shell.toolbar.searchInput
+  for (const [key, init] of [['Backspace', { ctrlKey: true }], ['@', { ctrlKey: true, altKey: true }]]) {
+    search.focus()
+    assert.equal(panel.press(key, init, search).defaultPrevented, true, `nothing is edited in the search behind: ${key}`)
+    assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  }
+  // Ctrl+Esc closes the help, as Esc does, rather than the search behind it.
+  search.focus()
+  panel.press('Escape', { ctrlKey: true }, search)
+  assert.equal(panel.keys.help.isOpen(), false)
+})
+
+test('keys: the help open on macOS — Ctrl edits text there (Ctrl+K) and is stopped; Cmd goes on (se-1fy7)', () => {
+  const panel = inEpic({ platform: 'mac' })
+  panel.press('?')
+  const search = panel.shell.toolbar.searchInput
+  search.focus()
+  assert.equal(panel.press('k', { ctrlKey: true }, search).defaultPrevented, true)
+  assert.equal(panel.doc.activeElement, panel.keys.help.el)
+  search.focus()
+  const copy = panel.press('c', { metaKey: true }, search)
+  assert.equal(copy.defaultPrevented, false, 'Cmd+C copies')
+  assert.equal(panel.doc.activeElement, search)
+  assert.equal(panel.keys.help.isOpen(), true)
+})
+
+test('keys: r and SPC m g see an active row only the archive answer holds in a cut list; an archived row takes no mark (se-4f4s)', async () => {
   const calls = []
   const read = {
     one: async (id) => (calls.push(['one', id]), null),
@@ -603,25 +645,41 @@ test('keys: r and SPC m g see an active row only the archive answer holds when a
     group: async (id) => (calls.push(['group', id]), null),
   }
   const panel = inEpic({ read })
+  // A cut list (prime's rows): the archive answers rows it does not hold, and those that do not stand done are
+  // active (source.ts activeIds). A done one is archived, as is every archive-only row beside a whole list.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, truncated: true, loadedAt: Date.now() } })
   const extra = [
-    { id: 'e2', kind: 'epic', title: 'Old epic', status: 'done' },
+    { id: 'e2', kind: 'epic', title: 'Other epic', status: 'todo' },
+    { id: 'e1.y', kind: 'issue', title: 'Ypsilon', epic: 'e1', status: 'todo' },
     { id: 'e1.z', kind: 'issue', title: 'Zeta', epic: 'e1', status: 'done' },
   ]
   panel.store.dispatch({ type: 'view', view: { showArchived: true } })
   panel.store.dispatch({ type: 'archive', rows: [...ROWS, ...extra] })
-  panel.store.dispatch({ type: 'cursor', id: 'e1.z' })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
   panel.shell.focusPane('list')
   panel.press('r')
   panel.store.dispatch({ type: 'cursor', id: 'e2' })
   panel.seq(' ', 'm', 'g')
   await ticks()
-  assert.deepEqual(calls, [['one', 'e1.z'], ['group', 'e2']])
-  // Archived rows hidden again: the archive answer is not the list's.
-  panel.store.dispatch({ type: 'view', view: { showArchived: false } })
+  assert.deepEqual(calls, [['one', 'e1.y'], ['group', 'e2']])
+  // An archived row: `moai read` resolves active rows only, so nothing is asked of it.
   panel.store.dispatch({ type: 'cursor', id: 'e1.z' })
   panel.press('r')
   await ticks()
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 2, 'a done archive-only row is archived')
+  // Beside a whole list every archive-only row is archived.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now() } })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2, 'whole list')
+  // Archived rows hidden again: the archive answer is not the list's.
+  panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, truncated: true, loadedAt: Date.now() } })
+  panel.store.dispatch({ type: 'view', view: { showArchived: false } })
+  panel.store.dispatch({ type: 'cursor', id: 'e1.y' })
+  panel.press('r')
+  await ticks()
+  assert.equal(calls.length, 2, 'archived rows hidden')
 })
 
 test('keys: Tab in browse moves the focus unless it runs expandAll on the list (se-h5c7)', () => {

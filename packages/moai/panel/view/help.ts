@@ -32,6 +32,16 @@ export interface HelpView {
   isOpen: () => boolean
 }
 
+/**
+ * Keys a focused control behind the help acts on with a modifier held too: Enter and Space press a button, the
+ * arrows, Home and End move the tab strip and the split resizer, Backspace and Delete edit an input, Esc leaves the
+ * search.
+ */
+const ACTS_BEHIND: ReadonlySet<string> = new Set([
+  "Enter", " ", "Escape", "Esc", "Backspace", "Delete",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown",
+])
+
 export function createHelp(doc: Document, props: HelpProps): HelpView {
   const root = el(doc, "div", {
     class: "m-menu m-help",
@@ -57,14 +67,15 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
    * While the overlay is open nothing behind it takes a key: a key pressed with the focus outside it (a click behind
    * it moved the focus) neither clicks a focused button nor types into an input — the focus comes back to the
    * overlay, and Esc closes it. Tab inside it stays inside it. On the document in the capture phase, so it runs
-   * before any control's own keydown listener. Ctrl and Cmd/Meta combinations (copy, find, a tab switch) type
-   * nothing and are the host's (but Ctrl+Enter/Space, which can press a button): they go on untouched, the focus stays where it is, and the key router (wiring.ts
-   * intercept) keeps the panel's own shortcuts from running on them.
+   * before any control's own keydown listener. The host's combinations (copy, find, a tab switch: Cmd/Meta, and Ctrl
+   * off macOS) go on untouched, the focus stays where it is, and the key router (wiring.ts intercept) keeps the
+   * panel's own shortcuts from running on them. Stopped all the same: a key a control behind acts on whatever the
+   * modifier ({@link ACTS_BEHIND}), Ctrl+Alt (AltGr on Windows, which types a character), and Ctrl on macOS (Ctrl+H,
+   * Ctrl+K edit text there).
    */
   function guard(event: KeyboardEvent): void {
-    // Ctrl+Enter and Ctrl+Space still press a focused button in some browsers: those stay stopped.
-    const presses = event.key === "Enter" || event.key === " "
-    if (root.hidden || event.metaKey || (event.ctrlKey && !presses)) return
+    const host = event.metaKey || (event.ctrlKey && !event.altKey && props.platform !== "mac")
+    if (root.hidden || (host && !ACTS_BEHIND.has(event.key))) return
     const target = event.target as Node | null
     const inside = target !== null && root.contains(target)
     if (inside && event.key !== "Tab") return

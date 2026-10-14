@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
-const { CompatProbe, compatTells, sameReport } = await panelModule('data/compat.ts')
+const { CompatProbe, compatFixed, compatTells, sameReport } = await panelModule('data/compat.ts')
 const { PROFILE, loadAllRows, loadStatuses, loadArchived, loadWikiListing } = await panelModule('data/source.ts')
 const { markRead } = await panelModule('data/read.ts')
 
@@ -193,10 +193,16 @@ test('the banner tells moai missing and a profile the catalog lacks; other refus
   // The daemon as a whole too old: the catalog line says nothing, so the board's banner tells it.
   assert.equal(compatTells(report(), refused('unsupported-daemon')), false)
   const told = report({ toolMissing: true, catalog: { state: 'missing', missing: [PROFILE.showAll] } })
-  for (const outcome of [refused('workspace-busy'), refused('unsupported-platform'), { kind: 'failed' }, { kind: 'not-started', code: 'unsupported-daemon' }, null]) {
+  for (const outcome of [refused('workspace-busy'), refused('unsupported-platform'), { kind: 'failed' }, { kind: 'not-started' }, { kind: 'not-started', code: 'binding-mismatch' }, null]) {
     assert.equal(compatTells(told, outcome), false, JSON.stringify(outcome))
   }
+  // A start that failed naming the code (an older host) is read as the refusal is: the catalog line tells it too.
+  assert.equal(compatTells(told, { kind: 'not-started', code: 'unsupported-daemon' }), true)
   assert.equal(compatTells(null, refused('tool-missing')), false)
+  // A read the probe does not hear (the detail, the add): the catalog line names only profiles it heard, while moai
+  // missing is the machine's.
+  assert.equal(compatTells(told, refused('unsupported-daemon'), false), false)
+  assert.equal(compatTells(told, refused('tool-missing'), false), true)
 })
 
 test('refusals before anything has run leave the catalog unknown: a daemon too old for machine.run refuses them too', () => {
@@ -210,6 +216,37 @@ test('refusals before anything has run leave the catalog unknown: a daemon too o
   assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.showAll, PROFILE.backlog] })
 })
 
+test('a thrown start naming unsupported-daemon is read as the refusal is: on a shipped profile, the daemon as a whole', () => {
+  const probe = new CompatProbe()
+  probe.observe(PROFILE.showAll, passed([]))
+  probe.observe(PROFILE.backlog, refused('unsupported-daemon'))
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.backlog] })
+  probe.observe(PROFILE.wikiLs, { kind: 'not-started', code: 'unsupported-daemon' })
+  assert.deepEqual(probe.report().catalog, { state: 'unknown', missing: [] }, 'as a refused wiki-ls would say')
+  // And after a pass of the same profile, as a refusal does.
+  const again = new CompatProbe()
+  again.observe(PROFILE.status, passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }))
+  again.observe(PROFILE.read, passed({ read: [], missing: [], held: [], problems: [], at: 'now' }))
+  again.observe(PROFILE.read, { kind: 'not-started', code: 'unsupported-daemon' })
+  assert.deepEqual(again.report().catalog, { state: 'missing', missing: [PROFILE.read] })
+})
+
+test('a refusal the banner told is fixed once moai has run there, or the catalog lacks nothing', () => {
+  const report = (change = {}) => ({ moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [], ...change })
+  const missing = report({ toolMissing: true })
+  assert.equal(compatFixed(missing, report(), refused('tool-missing')), true)
+  assert.equal(compatFixed(missing, missing, refused('tool-missing')), false, 'still missing')
+  assert.equal(compatFixed(report(), report(), refused('tool-missing')), false, 'never told')
+  const lacks = report({ catalog: { state: 'missing', missing: [PROFILE.showArchived] } })
+  assert.equal(compatFixed(lacks, report(), refused('unsupported-daemon')), true)
+  assert.equal(compatFixed(lacks, report({ catalog: { state: 'missing', missing: [PROFILE.read] } }), refused('unsupported-daemon')), false, 'still told')
+  // The verdict gone back to unknown (a shipped profile refused: the daemon as a whole) fixes nothing: the board tells it.
+  assert.equal(compatFixed(lacks, report({ catalog: { state: 'unknown', missing: [] } }), refused('unsupported-daemon')), false)
+  // The detail's read is not heard: the catalog line never told its refusal.
+  assert.equal(compatFixed(lacks, report(), refused('unsupported-daemon'), false), false)
+  assert.equal(compatFixed(missing, report(), refused('tool-missing'), false), true)
+})
+
 test('the probe tells its listeners after each thing handed over, until unsubscribed', () => {
   const probe = new CompatProbe()
   let told = 0
@@ -221,4 +258,17 @@ test('the probe tells its listeners after each thing handed over, until unsubscr
   unsubscribe()
   probe.observe(PROFILE.status, passed({ counts: { todo: 0 } }))
   assert.equal(told, 3)
+})
+
+test('a listener that throws does not stop the read that handed the answer over', async (t) => {
+  const probe = new CompatProbe()
+  const errors = []
+  t.mock.method(console, 'error', (error) => errors.push(error))
+  probe.subscribe(() => { throw new Error('the view broke') })
+  let heard = 0
+  probe.subscribe(() => { heard += 1 })
+  const client = clientOf(await everything())
+  assert.equal((await loadAllRows(client, undefined, probe)).ok, true)
+  assert.equal(heard, 3, 'show --all, the backlog and the rows were all handed over')
+  assert.equal(errors.length, 3)
 })

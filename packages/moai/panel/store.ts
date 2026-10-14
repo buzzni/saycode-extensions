@@ -10,7 +10,7 @@
  * column is `status`), and the list cells are the key table's `CellField` names (the name line is `names`).
  */
 import type { Outcome } from './data/client.js'
-import { sameReport, type CompatReport } from './data/compat.js'
+import { compatFixed, sameReport, type CompatReport } from './data/compat.js'
 import { pathKey, type Path, type Row } from './data/index.js'
 import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
 import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
@@ -235,7 +235,10 @@ export type Action =
   /** The archive's rows as read (null forgets them); either way an archive problem told before goes. */
   | { type: 'archive'; rows: Row[] | null }
   | { type: 'archive-failed'; problem: Outcome }
-  /** The compatibility probe's report after a read; one that says what the last one said changes nothing. */
+  /**
+   * The compatibility probe's report after a read; one that says what the last one said changes nothing. A problem
+   * the last report told that this one says was fixed goes with it (data/compat.ts compatFixed).
+   */
   | { type: 'compat'; report: CompatReport }
   | { type: 'detail-loading'; id: string }
   | { type: 'detail-loaded'; data: DetailData }
@@ -339,8 +342,19 @@ export function reduce(state: State, action: Action): State {
       return state.archive === action.rows && state.archiveProblem === null ? state : { ...state, archive: action.rows, archiveProblem: null }
     case 'archive-failed':
       return { ...state, archiveProblem: action.problem }
-    case 'compat':
-      return state.compat && sameReport(state.compat, action.report) ? state : { ...state, compat: action.report }
+    case 'compat': {
+      if (state.compat && sameReport(state.compat, action.report)) return state
+      // The report moves in the middle of a load (main.ts hands it over after each answer). A refusal the banner told,
+      // still held from the read before, would otherwise come back on its own banner the moment moai is found or the
+      // catalog is complete, telling what is no longer so until the new read ends. The detail's read is not one the
+      // probe hears (heard: false).
+      const fixed = (outcome: Outcome | null, heard?: boolean) => compatFixed(state.compat, action.report, outcome, heard)
+      const next: State = { ...state, compat: action.report }
+      if (fixed(state.board.problem)) next.board = { ...state.board, problem: null }
+      if (fixed(state.archiveProblem)) next.archiveProblem = null
+      if (fixed(state.shown.problem, false)) next.shown = { ...state.shown, problem: null }
+      return next
+    }
     case 'detail-loading':
       return { ...state, shown: { value: state.shown.value?.id === action.id ? state.shown.value : null, loading: true, problem: null } }
     case 'detail-loaded':

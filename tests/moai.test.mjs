@@ -957,11 +957,39 @@ test('compatibility: moai installed while the panel is open takes the install li
   assert.deepEqual(compatLine(panel), [])
 })
 
-test('compatibility: a new report that leaves the sentences as they were does not write them again', async () => {
-  let approve
+test('compatibility: moai installed, the refresh does not bring the install refusal back on the error banner while it runs', async () => {
+  let missing = true
+  let release
   const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => {
-    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
+    if (missing) return { action: 'start', state: 'refused', code: 'tool-missing' }
+    // The backlog read waits on its confirmation: the load is still running when show --all has found moai.
+    if (args[0] === 'buzzni.moai.backlog-all') return new Promise((resolve) => { release = () => resolve(null) })
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.equal(panel.$('.moai-error').textContent, '')
+  missing = false
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(compatLine(panel), [])
+  assert.equal(panel.$('.moai-error').textContent, '', 'not "Moai is not installed" now that it ran')
+  release()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('compatibility: a new report that leaves the sentences as they were does not write them again', async () => {
+  let approve
+  // The catalog is judged once a profile has run: the backlog read ends (passes) before show --all is refused, so
+  // the cancel that refusal sends finds nothing to call off. A macrotask apart, not an ordering of microtasks.
+  let backlogRan
+  const ran = new Promise((resolve) => { backlogRan = resolve })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017, 'buzzni.moai.backlog-all': () => (backlogRan(), NO_BACKLOG) })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return ran.then(() => new Promise((resolve) => setTimeout(resolve, 0))).then(() => ({ action: 'start', state: 'refused', code: 'unsupported-daemon' }))
     if (args[0] === 'buzzni.moai.status') return new Promise((resolve) => { approve = () => resolve(null) })
     return null
   }
@@ -996,6 +1024,33 @@ test('compatibility: an archive profile the catalog lacks is told by the banner,
   assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, '')
   assert.equal(panel.$('.moai-archive-problem[role="status"]').textContent, '')
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('compatibility: beside a catalog line for other profiles, a hidden detail\'s refusal is still told', async () => {
+  // The detail's `show` is not a read the probe hears, so the catalog line (archived rows) does not stand for it.
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
+  answer.start = (args) => (['buzzni.moai.show-archived', 'buzzni.moai.show'].includes(args[0]) ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await flush()
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (archived rows). Update the daemon catalog."])
+  panel.$('.moai-detail-toggle').click()
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-error').textContent, "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.")
+})
+
+test('compatibility: a read mark the catalog lacks is told by the banner, not again under the add field', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
+  answer.start = (args) => (args[0] === 'buzzni.moai.read' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await flush()
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (read marks). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-result').textContent, '', 'not "the runtime is too old" beside "update the catalog"')
 })
 
 test('while a refresh\'s status read still waits, a refresh asked for reads the rows again and shares that status read', async () => {
