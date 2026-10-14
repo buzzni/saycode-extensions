@@ -304,7 +304,7 @@ const MENU: ReadonlyArray<Binding> = [
   { action: "view.deferred", keys: ["SPC v l"], label: "미룸", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.deferred) },
   { action: "view.backlog", keys: ["SPC v b"], label: "backlog", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.backlog) },
   { action: "view.archived", keys: ["SPC v o"], label: "아카이브", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.archived) },
-  { action: "view.all", keys: ["SPC v a"], label: "모두 보이기", group: "view", modes: BROWSE_ONLY },
+  { action: "view.all", keys: ["SPC v a"], label: "모두 보이기 (아카이브 제외)", group: "view", modes: BROWSE_ONLY },
   ...columnBindings,
   { action: "view.detail", keys: ["SPC v d"], label: "상세", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(!detailShown(c)) },
   {
