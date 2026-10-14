@@ -283,7 +283,8 @@ test('a timer that falls due while hidden reads nothing, even when nobody said i
   shown = false
   await clock.advance(DEFAULT_INTERVAL_MS)
   assert.equal(loads, 1)
-  assert.equal(clock.pending(), 0)
+  // It looks again in a while: a frame under a hidden parent may hear no change as it is shown again either.
+  assert.equal(clock.pending(), 1)
   shown = true
   changed()
   await flush()
@@ -310,4 +311,26 @@ test('isVisible and the signal both have to say shown', async () => {
   await flush()
   assert.equal(loads, 2)
   refresher.stop()
+})
+
+test('a tool tab hidden without a word is read again once shown, though the signal hears no change', async () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, visibility: panelVisibility(win) })
+  await refresher.refresh()
+  // Hidden with no resize event reaching the frame: the signal still takes it for shown.
+  win.size(0, 0, { event: false })
+  await clock.advance(DEFAULT_INTERVAL_MS)
+  assert.equal(loads, 1, 'nothing is read while hidden')
+  await clock.advance(HIDDEN_PROBE_MS)
+  assert.equal(loads, 1)
+  // Shown again: to the signal the resize is no change, but the refresher looks again and reads.
+  win.size(800, 600)
+  await clock.advance(HIDDEN_PROBE_MS)
+  assert.equal(loads, 2)
+  await clock.advance(DEFAULT_INTERVAL_MS)
+  assert.equal(loads, 3, 'and the interval goes on from there')
+  refresher.stop()
+  assert.equal(clock.pending(), 0)
 })

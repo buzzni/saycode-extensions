@@ -18,7 +18,7 @@ const cli = join(root, 'packages/sdk/dist/cli.js')
 const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
 
-const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
+const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, activeIds, withArchive, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
   await panelModule('data/source.ts')
 const { IssueIndex, LOST } = await panelModule('data/index.ts')
 const { CompatProbe } = await panelModule('data/compat.ts')
@@ -367,4 +367,28 @@ test('archive rows absent from the active set are tagged archived; loadArchived 
   const loaded = await loadArchived(fakeClient(archive(3)), { active: new Set(['r-0001']) })
   assert.deepEqual(loaded.value.map((row) => row.archived === true), [true, false, true])
   assert.equal((await loadArchived(fakeClient(archive(1)))).value[0].archived, undefined)
+})
+
+test('a cut list does not make an active row of the archive archive-only by its absence; a done one stays tagged', () => {
+  // `--archived` lists the active rows too, with no mark of its own; prime held only mgd-a.
+  const archive = [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done' }]
+  const cut = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: true }
+  assert.deepEqual(withArchive(cut, archive), [{ id: 'mgd-a', status: 'todo' }, { id: 'mgd-b', status: 'in_progress' }, { id: 'mgd-c', status: 'done', archived: true }])
+  assert.deepEqual([...activeIds(cut, archive)].sort(), ['mgd-a', 'mgd-b'])
+  // A whole list holds every active row: what it does not hold is archive-only, whatever its column.
+  const whole = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: false }
+  assert.deepEqual(withArchive(whole, archive).slice(1).map((row) => row.archived), [true, true])
+  assert.deepEqual(withArchive(whole, null), whole.rows)
+})
+
+test('a cut list judges a group of the archive by the column it stands in (its members), not the status written on it', () => {
+  // moai leaves `todo` written on a group; its column is its members' (`derived_status`), as moai archives it.
+  const archive = [
+    { id: 'm-old', kind: 'milestone', status: 'todo', derived_status: 'done' },
+    { id: 'e-live', kind: 'epic', status: 'done', derived_status: 'in_progress' },
+    { id: 'e-new', kind: 'epic', status: 'todo' },
+  ]
+  const cut = { rows: [{ id: 'mgd-a', status: 'todo' }], truncated: true }
+  assert.deepEqual([...activeIds(cut, archive)].sort(), ['e-live', 'e-new', 'mgd-a'])
+  assert.deepEqual(withArchive(cut, archive).map((row) => [row.id, row.archived === true]), [['mgd-a', false], ['m-old', true], ['e-live', false], ['e-new', false]])
 })

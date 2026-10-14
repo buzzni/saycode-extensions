@@ -5,11 +5,63 @@
  * inside their own group without touching another's lines.
  */
 import type { RefusalCode } from '../data/client.js'
+import type { Feature } from '../data/compat.js'
 import type { GrepScope, SortKey } from '../data/query.js'
 
 export type Language = 'en' | 'ko' | 'ja' | 'zh'
 
 // ── shell: tab bar, toggles, path line, add field (E2 se-qwkz.2v9) ────────────────────────────────────
+
+/** The compatibility banner (data/compat.ts report): one sentence per thing to fix on that machine (se-93p3). */
+export interface CompatCopy {
+  /** `moai` is not installed where the daemon runs. */
+  toolMissing: string
+  /** An older moai: the features on a fallback follow (maybe none). */
+  oldMoai: (features: string[]) => string
+  /** The daemon's catalog lacks `missing` of the panel's profiles; the features they serve follow. */
+  catalog: (missing: number, features: string[]) => string
+  features: Record<Feature, string>
+}
+
+const COMPAT_EN: CompatCopy = {
+  toolMissing: 'Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.',
+  oldMoai: (features) => `That machine's moai is older than this panel expects${features.length ? ` (on a fallback: ${features.join(', ')})` : ''}. Upgrade moai.`,
+  catalog: (missing, features) => `That machine's Happy daemon catalog lacks ${missing === 1 ? '1 Moai profile' : `${missing} Moai profiles`} this panel uses${features.length ? ` (${features.join(', ')})` : ''}. Update the daemon catalog.`,
+  features: {
+    'all-rows': 'the whole list', backlog: 'the backlog', archive: 'archived rows', wiki: 'the wiki', 'read-marks': 'read marks',
+    unread: 'NEW marks', 'status-order': 'the column order', tallies: 'milestone and epic counts',
+  },
+}
+
+const COMPAT_KO: CompatCopy = {
+  toolMissing: '그 머신에 Moai가 설치되어 있지 않습니다. 설정 → 확장의 머신 도구에서 moai를 설치하세요.',
+  oldMoai: (features) => `그 머신의 moai가 이 패널이 기대하는 버전보다 오래되었습니다${features.length ? `(대체 방식으로 동작: ${features.join(', ')})` : ''}. moai를 업그레이드하세요.`,
+  catalog: (missing, features) => `그 머신의 Happy 데몬 카탈로그에 이 패널이 쓰는 Moai 프로필 ${missing}개가 없습니다${features.length ? `(${features.join(', ')})` : ''}. 데몬 카탈로그를 업데이트하세요.`,
+  features: {
+    'all-rows': '전체 목록', backlog: '백로그', archive: '아카이브된 항목', wiki: '위키', 'read-marks': '읽음 표시',
+    unread: 'NEW 표시', 'status-order': '칸 순서', tallies: '마일스톤·에픽 개수',
+  },
+}
+
+const COMPAT_JA: CompatCopy = {
+  toolMissing: 'そのマシンに Moai がインストールされていません。設定 → 拡張機能のマシンツールから moai をインストールしてください。',
+  oldMoai: (features) => `そのマシンの moai は、このパネルが想定するバージョンより古いです${features.length ? `（代わりの方法で動作中: ${features.join('、')}）` : ''}。moai をアップグレードしてください。`,
+  catalog: (missing, features) => `そのマシンの Happy デーモンのカタログに、このパネルが使う Moai プロファイルが ${missing} 個ありません${features.length ? `（${features.join('、')}）` : ''}。デーモンのカタログを更新してください。`,
+  features: {
+    'all-rows': '一覧全体', backlog: 'バックログ', archive: 'アーカイブ済みの項目', wiki: 'Wiki', 'read-marks': '既読マーク',
+    unread: 'NEW 表示', 'status-order': '列の順序', tallies: 'マイルストーンとエピックの件数',
+  },
+}
+
+const COMPAT_ZH: CompatCopy = {
+  toolMissing: '该机器上未安装 Moai。请在「设置 → 扩展」的机器工具中安装 moai。',
+  oldMoai: (features) => `该机器上的 moai 比此面板预期的版本旧${features.length ? `（正以替代方式运行：${features.join('、')}）` : ''}。请升级 moai。`,
+  catalog: (missing, features) => `该机器的 Happy 守护进程目录缺少此面板使用的 ${missing} 个 Moai 配置${features.length ? `（${features.join('、')}）` : ''}。请更新守护进程目录。`,
+  features: {
+    'all-rows': '完整列表', backlog: '待办池', archive: '已归档的条目', wiki: 'Wiki', 'read-marks': '已读标记',
+    unread: 'NEW 标记', 'status-order': '列的顺序', tallies: '里程碑和史诗的计数',
+  },
+}
 
 export interface ShellCopy {
   /** Accessible name of the tab strip. */
@@ -47,6 +99,9 @@ export interface ShellCopy {
   wikiListFailed: (reason: string) => string
   /** `show --all` was cut at the output limit: the list stands on prime's rows and the backlog (source.ts loadAllRows). */
   truncated: string
+  /** The archive read failed (`SPC v o`); why follows. The board's rows stand. */
+  archiveFailed: string
+  compat: CompatCopy
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -74,6 +129,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: 'The wiki cannot be read here yet.',
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
     truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up (and the backlog) are shown.',
+    archiveFailed: 'Archived rows could not be read:',
+    compat: COMPAT_EN,
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -99,6 +156,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: '아직 여기서는 위키를 읽을 수 없습니다.',
     wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
     truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일(그리고 백로그)만 보입니다.',
+    archiveFailed: '아카이브된 항목을 읽지 못했습니다:',
+    compat: COMPAT_KO,
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -124,6 +183,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: 'ここではまだ Wiki を読めません。',
     wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
     truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスク（とバックログ）だけを表示しています。',
+    archiveFailed: 'アーカイブ済みの項目を読めませんでした:',
+    compat: COMPAT_JA,
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -149,6 +210,8 @@ const SHELL: Record<Language, ShellCopy> = {
     wikiUnavailable: '这里暂时无法读取 Wiki。',
     wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
     truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务（以及待办池）。',
+    archiveFailed: '无法读取已归档的条目:',
+    compat: COMPAT_ZH,
   },
 }
 

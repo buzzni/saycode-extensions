@@ -3,12 +3,13 @@
  * data layer and mounts the shell (view/shell.ts), which renders from the store.
  * Built by build.mjs into the single file dist/panel.html.
  */
-import { createClient, PANEL_CLIENT_OPTIONS, type Bridge, type Outcome } from './data/client.js'
+import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Outcome } from './data/client.js'
+import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, markArchived, type Loaded } from './data/source.js'
+import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -32,17 +33,14 @@ const store = createStore()
 remember(store, createMemory(() => window.localStorage))
 // Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
+// What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): the list, archive and wiki
+// reads and the read marks hand it their outcomes (the detail and the add do not), and the shell's banner says what
+// to upgrade, update or install.
+const probe = new CompatProbe()
 
-/**
- * The active rows, then the archive's rows no active row holds (only while archived rows are shown), tagged
- * `archived: true` against the rows held now: a row the clock archived after the archive was read left `show --all`
- * and is in the archive's answer untagged (it was active then), and it stays in the list as an archived row.
- */
-function withArchive(rows: Row[], archive: Row[] | null): Row[] {
-  if (!archive) return rows
-  const active = new Set(rows.map((row) => row.id))
-  const away = markArchived(archive, active).filter((row) => !active.has(row.id))
-  return away.length ? [...rows, ...away] : rows
+/** `loading`, with the probe's report put in the store once it settles (the store keeps only a changed one). */
+function probed<T>(loading: Promise<T>): Promise<T> {
+  return loading.finally(() => store.dispatch({ type: 'compat', report: probe.report() }))
 }
 
 // The index is built once per read, not per render: again when the rows, the status counts or the archive shown change.
@@ -52,7 +50,7 @@ function indexOf(state: State): IssueIndex | null {
   if (!board) return null
   const archive = state.view.showArchived ? state.archive : null
   if (indexed?.rows !== board.rows || indexed.tallies !== board.tallies || indexed.archive !== archive) {
-    indexed = { rows: board.rows, tallies: board.tallies, archive, index: new IssueIndex(withArchive(board.rows, archive), board.tallies) }
+    indexed = { rows: board.rows, tallies: board.tallies, archive, index: new IssueIndex(withArchive(board, archive), board.tallies) }
   }
   return indexed.index
 }
@@ -69,19 +67,26 @@ function drawnOrder(): string[] {
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   // The rows and the milestone and epic counts `moai status` prints (they count archived rows too) side by side.
-  // Without the counts the board counts its own rows. A load the rows already failed does not wait for the counts
-  // (their confirmation may still be open): the failure is told at once, and the next load shares that read.
-  const listing = loadAllRows(client)
-  const counting = loadTallies(client)
+  // Without the counts the board counts its own rows. The load does not wait for the counts (their confirmation may
+  // still be open): a failure is told at once, rows are drawn at once, and the counts are put on them when they come.
+  // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
+  // still running (client.ts); none of the panel's writes — an add with no group, read marks — moves a count.
+  const listing = probed(loadAllRows(client, PRIORITY.list, probe))
+  const counting = probed(loadTallies(client, PRIORITY.list, probe))
+  let counted: Awaited<typeof counting> | undefined
+  void counting.then((tallies) => { counted = tallies })
   const loaded = await listing
   if (!loaded.ok) {
     store.dispatch({ type: 'board-failed', problem: loaded.outcome })
     return
   }
-  const tallies = await counting
   const { rows, more, truncated } = loaded.value
-  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(tallies.ok ? { tallies: tallies.value } : {}) }
   const before = store.getState()
+  // Counts that came first go in with the rows, so the board is not drawn twice. Until this read's counts come, a
+  // refresh keeps the counts the board showed: its rows alone undercount (they leave the archived members out).
+  const carried = counted === undefined ? before.board.value?.tallies : undefined
+  const counts = counted?.ok ? counted.value : carried
+  const data: BoardData = { rows, more, truncated, loadedAt: Date.now(), ...(counts ? { tallies: counts } : {}) }
   const shownBefore = before.shown.value
   // The detail on screen was read before this list and stands beside it: when its row has left the list
   // (finished, moved away) the pane goes with it, as choose() does for a read still running. A detail the list
@@ -94,23 +99,34 @@ async function loadBoard(): Promise<void> {
   // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed). Not while
   // a read still pages: that one would be cancelled and the paging started over.
   if (state.view.showArchived && state.archive === null && archiveRunning === null) void loadArchive()
+  // Counts that come later go on this board only: a later load's board has its own (store 'tallies'). Counts that
+  // match the ones carried (most refreshes) change nothing on screen, so the board is not drawn again for them;
+  // counts that could not be read leave the board counting its own rows, as when they fail first.
+  if (counted === undefined) {
+    void counting.then((late) => {
+      if (late.ok ? !sameTallies(late.value, carried) : carried) store.dispatch({ type: 'tallies', data, tallies: late.ok ? late.value : null })
+    })
+  }
 }
 
 // The archive is read when archived rows are shown (`SPC v o`), each time they are turned on, once the active
-// rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked).
+// rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked;
+// a cut list judges by column instead, source.ts activeIds).
 let archiving = 0
 /** The `archiving` number of the archive read still paging, or null when none is. */
 let archiveRunning: number | null = null
 async function loadArchive(): Promise<void> {
-  const rows = store.getState().board.value?.rows
-  if (!rows) return
+  if (!store.getState().board.value) return
   const mine = ++archiving
   archiveRunning = mine
   try {
-    const loaded = await loadArchived(client, { active: new Set(rows.map((row) => row.id)), cancelled: () => mine !== archiving })
+    // Read untagged: withArchive tags the archive-only rows against the rows held when it draws, and a cut list
+    // needs the archive's own rows to judge by (source.ts activeIds).
+    const loaded = await probed(loadArchived(client, { probe, cancelled: () => mine !== archiving }))
     if (mine !== archiving) return
+    // The archive's own problem: the board's rows and whatever the board said stand.
     if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
-    else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+    else store.dispatch({ type: 'archive-failed', problem: loaded.outcome })
   } finally {
     if (archiveRunning === mine) archiveRunning = null
   }
@@ -125,8 +141,9 @@ store.subscribe((state, previous) => {
   }
 })
 
-const refresher = createRefresher({ load: loadBoard, isVisible: () => document.visibilityState !== 'hidden' })
-document.addEventListener('visibilitychange', () => refresher.visibilityChanged())
+// Paused while the panel is out of sight — the Desktop window hidden, or the tool tab it sits in: the refresher's
+// own visibility signal hears both (data/refresh.ts panelVisibility).
+const refresher = createRefresher({ load: loadBoard })
 
 let choice = 0
 async function choose(id: string) {
@@ -183,13 +200,13 @@ function answer(loaded: Loaded<unknown>): unknown {
 }
 
 const wiki: WikiSource = {
-  list: async () => answer(await loadWikiListing(client)),
-  page: async (slug) => answer(await loadWikiPage(client, slug)),
+  list: async () => answer(await probed(loadWikiListing(client, probe))),
+  page: async (slug) => answer(await probed(loadWikiPage(client, slug, probe))),
 }
 
 /** A read-mark write, then the list again: the marks come back with the rows (data/read.ts). */
 async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
-  const done = await writing
+  const done = await probed(writing)
   if (!done.ok) return done.outcome
   // A list read already running started before the write and cannot hold its marks.
   await refresher.refresh({ fresh: true })
@@ -197,9 +214,9 @@ async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
 }
 
 const read: ReadMarks = {
-  one: (id) => marked(markRead(client, { id })),
-  all: () => marked(markAllRead(client)),
-  group: (id) => marked(markGroupRead(client, id)),
+  one: (id) => marked(markRead(client, { id }, probe)),
+  all: () => marked(markAllRead(client, probe)),
+  group: (id) => marked(markGroupRead(client, id, probe)),
 }
 
 function activity(): Activity {
@@ -207,6 +224,7 @@ function activity(): Activity {
   const running = requests.find((request) => request.operationId !== null)
   return {
     phase: running ? 'running' : requests.length ? 'starting' : 'idle',
+    waiting: requests.some((request) => request.phase === 'starting'),
     // Nothing to cancel while the confirmation is still open: the run has no operation id yet.
     cancellable: running !== undefined,
   }
