@@ -9,9 +9,9 @@
  *   profiles, so the panel is to run up to 3 at once ({@link PANEL_CLIENT_OPTIONS}) until Desktop is
  *   measured live.
  * - The daemon refuses an overlapping write-scope run at once with `workspace-busy` instead of waiting. A
- *   shared read refused so goes back to the queue after a backoff (`busyBackoffMs`, then twice that…) and
- *   is tried up to `busyAttempts` times in all before it resolves refused. A write (`share: false`) is
- *   never retried: whether to send it again is the user's call.
+ *   shared read refused so goes back to the queue after a backoff that grows by `busyBackoffMs` each time
+ *   (1×, 2×, 3× …) and is tried up to `busyAttempts` times in all before it resolves refused. A write
+ *   (`share: false`) is never retried: whether to send it again is the user's call.
  * - The bare defaults are still one run at a time and no busy retry, the 1.x behaviour main.ts and the
  *   board's jsdom tests (tests/moai.test.mjs) rely on; both are held by other work. Turning the panel over
  *   is `createClient(bridge, PANEL_CLIENT_OPTIONS)` in main.ts together with those tests.
@@ -22,6 +22,9 @@
  *   looks for the flag); if the stdout still parses (only stderr was cut) it is `passed` with the flag.
  * - Core's refusal codes, Moai's own errors and a missing `.moai/` come back as an {@link Outcome}, so each
  *   area of the panel can explain its own failure.
+ * - Moai ends a partial answer non-zero yet still prints it whole on stdout (an unreadable line in the
+ *   tracker, a wiki page it skipped, an id `read` could not find; only `prime` ends those with 0). Such a
+ *   run is `failed` with the parsed stdout as `output`, and {@link answerOf} hands out either kind of answer.
  */
 
 export interface Bridge {
@@ -49,7 +52,8 @@ export type Outcome =
   /** Moai says this folder has no `.moai/`; the panel cannot run `moai init` itself. */
   | { kind: 'not-initialized' }
   | { kind: 'moai-error'; message: string }
-  | { kind: 'failed' }
+  /** `output`: the stdout of a run Moai ended non-zero on a partial answer, when it still parsed. */
+  | { kind: 'failed'; output?: unknown }
   /** It passed but stdout was not JSON; `truncated` when that is because the daemon cut it at the output limit. */
   | { kind: 'unreadable'; truncated?: true }
   | { kind: 'cancelled'; mayContinue: boolean }
@@ -115,7 +119,16 @@ export function outcomeOf(finished: unknown): Outcome {
   const problem = parse(finished.stderr ?? '') ?? output
   const reason = isRecord(problem) && typeof problem.error === 'string' ? problem.error : null
   if (reason && NOT_A_REPOSITORY.test(reason)) return { kind: 'not-initialized' }
-  return reason ? { kind: 'moai-error', message: reason } : { kind: 'failed' }
+  if (reason) return { kind: 'moai-error', message: reason }
+  return output === null ? { kind: 'failed' } : { kind: 'failed', output }
+}
+
+/**
+ * What a run answered: a pass's output, or the whole answer Moai printed before it ended non-zero on a partial
+ * one (see the header). Undefined when the run gave no answer.
+ */
+export function answerOf(outcome: Outcome): unknown {
+  return outcome.kind === 'passed' || outcome.kind === 'failed' ? outcome.output : undefined
 }
 
 /** What a start answer says, or null when it was accepted with an operation id. */
@@ -221,6 +234,9 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
 
   /** Back to the queue after a backoff; the slot is free meanwhile. A cancel while it waits settles it. */
   function requeue(entry: Pending) {
+    // A cancel that landed after the busy answer but before this ran: nothing is running, so it ends here
+    // instead of being started again after the backoff.
+    if (entry.cancelled) return settle(entry, { kind: 'cancelled', mayContinue: false })
     entry.phase = 'queued'
     entry.held = true
     notify()

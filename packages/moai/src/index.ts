@@ -7,7 +7,7 @@ const withoutValue = new Set([
   'buzzni.moai.status',
   'buzzni.moai.prime',
   'buzzni.moai.show-all',
-  'buzzni.moai.backlog',
+  'buzzni.moai.backlog-all',
   'buzzni.moai.show-archived',
   'buzzni.moai.wiki-ls',
   'buzzni.moai.read-all',

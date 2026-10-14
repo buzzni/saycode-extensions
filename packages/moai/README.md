@@ -11,13 +11,13 @@ run, status, and cancel commands for these fixed profiles, each `moai --json -C 
 | `buzzni.moai.show` | `show <id>` | one row's body, children, journal, commits | no |
 | `buzzni.moai.add` | `add <title>` | add a task | the tracker (`writeScope: moai`) |
 | `buzzni.moai.show-all` | `show --all` | every active row, done and deferred included, archive left out | no |
-| `buzzni.moai.backlog` | `backlog show` | the backlog rows | no |
+| `buzzni.moai.backlog-all` | `backlog show --all` | the backlog rows, done and deferred included | no |
 | `buzzni.moai.show-archived` | `show --archived -n 200 --sort id` | the first archive page | no |
 | `buzzni.moai.show-archived-after` | `show --archived -n 200 --sort id --after <id>` | each next archive page | no |
 | `buzzni.moai.wiki-ls` | `wiki ls` | the wiki pages, their links and backlinks | no |
 | `buzzni.moai.wiki-show` | `wiki show <slug>` | one wiki page's body | no |
 | `buzzni.moai.read` | `read <id>` | mark one row read | your own `~/.config/moai/read` only |
-| `buzzni.moai.read-all` | `read --all` | mark every row read | your own `~/.config/moai/read` only |
+| `buzzni.moai.read-all` | `read --all` | mark everything unread that came to you read | your own `~/.config/moai/read` only |
 | `buzzni.moai.read-group` | `read -e <group>` | mark an epic or milestone and its rows read | your own `~/.config/moai/read` only |
 
 Only `add` writes the tracker, so only `add` declares `writeScope` and asks for a one-operation approval each time.
@@ -35,9 +35,11 @@ The run command accepts a value only where the profile takes one (`show`, `wiki-
 `read --all`; `add`: the title) and refuses one everywhere else.
 
 These declarations are meant to match the Happy daemon's Moai catalog verbatim, so their digests match what the daemon
-runs. The first four are the v0.8.0 catalog; the catalog entries for the others are assumed to match until they are
-checked live (se-0g4a.anz). They start from the workspace root, pass through only `HOME` (Moai user config and the git
-identity a write needs), may launch only `git`, and disable stdin.
+runs. The first four, `wiki-ls` and `wiki-show` match the catalog the daemon ships (happy-cli 1.1.10-aplus.320); the
+catalog entries for the others are assumed to be added to match until they are checked live (se-0g4a.anz). The
+catalog's own `buzzni.moai.backlog` is `backlog add <title>`, so the backlog read is `backlog-all`. They start from
+the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs), may launch only
+`git`, and disable stdin.
 The sample deliberately has no init, tui, wake, hooks, editor, or shell entry points.
 
 ## Board panel

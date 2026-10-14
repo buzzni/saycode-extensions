@@ -14,7 +14,7 @@
  * Not ported (see the report of the change that added this file): the eclipsed/lost-row rules that need
  * duplicate ids, the journal-only filters (`--removed`), keyset paging (`--after`) and `me`.
  */
-import { IssueIndex, displayOrder, isBacklog, isGroup, parentOf, priorityOf, type Row } from './index.js'
+import { DEFAULT_STATUSES, IssueIndex, displayOrder, isBacklog, isGroup, parentOf, priorityOf, type Row } from './index.js'
 
 /** Everything the filter and the order may need beyond the rows themselves. All of it is optional. */
 export interface Context {
@@ -541,6 +541,8 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   const epic = (row: Row): string | undefined => (ctx.epicOf ? ctx.epicOf(row) : (str(row.derived_epic) ?? undefined))
   const milestone = (row: Row): string | undefined => {
     if (ctx.milestoneOf) return ctx.milestoneOf(row)
+    // ASSUMED upstream `derived_milestone` wins when the row carries it (null or empty: none).
+    if (row.derived_milestone !== undefined) return str(row.derived_milestone)
     // The epic beats the milestone a row wrote for itself.
     const e = epic(row)
     const home = e === undefined ? undefined : byId.get(e)
@@ -552,6 +554,8 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   let shelf: { index: IssueIndex; at: Map<Row, number> } | undefined
   const deferred = (row: Row): boolean => {
     if (ctx.deferredOf) return ctx.deferredOf(row)
+    // ASSUMED upstream `derived_deferred` wins when the row carries it (the index's shelf reads it too).
+    if (typeof row.derived_deferred === 'boolean') return row.derived_deferred
     if (own(row)) return true
     shelf ??= { index: new IssueIndex(rows), at: new Map(rows.map((one, at) => [one, at])) }
     const at = shelf.at.get(row)
@@ -559,6 +563,8 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   }
   const since = (row: Row): string => str(row.status_since) ?? str(row.updated_at) ?? ''
   const archived = (row: Row): boolean => {
+    // ASSUMED upstream `archive_candidate` (computed with the CLI's own archive_days) wins when the row carries it.
+    if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
     if (!ctx.archiveDays || ctx.archiveDays <= 0 || !ctx.now || column(row) !== 'done') return false
     const now = parseStamp(ctx.now)
     const at = parseStamp(since(row))
@@ -741,8 +747,6 @@ const compareCodePoints = (a: string, b: string): number => {
   return x.length - y.length
 }
 const compareCaseless = (a: string, b: string): number => compareCodePoints(a.toLowerCase(), b.toLowerCase())
-
-const DEFAULT_STATUSES: readonly string[] = ['todo', 'in_progress', 'review', 'done']
 
 /** What the screen shows for an assignee, as moai's `label`: `name (email)`, the name or the email. */
 function shownName(row: Row, ctx: Context): string {

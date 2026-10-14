@@ -4,7 +4,7 @@ import { after, test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { createClient } = await panelModule('data/client.ts')
+const { PRIORITY, createClient } = await panelModule('data/client.ts')
 const { PROFILE } = await panelModule('data/source.ts')
 const { IssueIndex } = await panelModule('data/index.ts')
 const { applyRead, isUnread, knowsUnread, markAllRead, markGroupRead, markRead, parseRead, staleAgainst, unreadCount, unreadIds, unreadUnder } =
@@ -25,11 +25,17 @@ function fakeBridge(stdout, state = 'passed') {
       calls.push([command, args])
       if (command === 'buzzni.moai.run') return { action: 'start', state: 'accepted', operationId: `op-${calls.length}` }
       if (closing) return { state: 'cancelled' }
-      return { action: 'status', state, stdout: typeof stdout === 'string' ? stdout : JSON.stringify(stdout), stderr: '', exitCode: 0 }
+      return { action: 'status', state, stdout: typeof stdout === 'string' ? stdout : JSON.stringify(stdout), stderr: '', exitCode: state === 'passed' ? 0 : 1 }
     },
   }
 }
 const runs = (bridge) => bridge.calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args)
+
+/** A client that records the options of every request it passes on. */
+function recording(client) {
+  const options = []
+  return { options, client: { ...client, request: (profileId, value, how) => (options.push(how), client.request(profileId, value, how)) } }
+}
 
 test('the profile ids the data layer writes with', () => {
   assert.equal(PROFILE.read, 'buzzni.moai.read')
@@ -76,11 +82,19 @@ test('staleAgainst names rows whose updated_at moved since they were drawn', () 
 test('markRead sends the id as an unshared detail-priority write and parses the real read --json', async () => {
   const one = await fixture('read-one-v016.json')
   const bridge = fakeBridge(one)
-  const client = createClient(bridge, { sleep: async () => {} })
+  const { client, options } = recording(createClient(bridge, { sleep: async () => {} }))
   const marked = await markRead(client, rows.find((row) => row.id === 't-qhza'))
   assert.deepEqual(runs(bridge), [[PROFILE.read, 't-qhza']])
+  assert.deepEqual(options, [{ priority: PRIORITY.detail, share: false }])
   assert.equal(marked.ok, true)
   assert.deepEqual(marked.result, one)
+})
+
+test('a missing id ends the write non-zero, yet its answer still comes through with missing', async () => {
+  // As `moai read <removed id> --json` answers: the whole answer on stdout, exit 1.
+  const answer = { read: ['t-qhza'], missing: ['gone'], held: [], problems: [], at: '2026-10-14T05:57:45Z' }
+  const marked = await markGroupRead(createClient(fakeBridge(answer, 'failed'), { sleep: async () => {} }), 'gone')
+  assert.deepEqual(marked, { ok: true, result: answer })
 })
 
 test('markAllRead and markGroupRead use their profiles', async () => {

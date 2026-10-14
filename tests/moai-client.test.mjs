@@ -3,7 +3,7 @@ import { after, test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { PANEL_CLIENT_OPTIONS, PRIORITY, createClient, outcomeOf, refusalOf, requestKey } = await panelModule('data/client.ts')
+const { PANEL_CLIENT_OPTIONS, PRIORITY, answerOf, createClient, outcomeOf, refusalOf, requestKey } = await panelModule('data/client.ts')
 const { rowsFromPrime } = await panelModule('data/source.ts')
 
 // Runs a test leaves running would poll forever; once every test is over they all end cancelled.
@@ -183,7 +183,7 @@ test('the panel options are 3 runs at once and a busy read tried 3 times; the ba
 test('the panel options run three reads at once', async () => {
   const bridge = fakeBridge()
   const client = createClient(bridge, { ...PANEL_CLIENT_OPTIONS, sleep: () => flush() })
-  for (const profile of ['buzzni.moai.show-all', 'buzzni.moai.backlog', 'buzzni.moai.status', 'buzzni.moai.wiki-ls']) client.request(profile)
+  for (const profile of ['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.status', 'buzzni.moai.wiki-ls']) client.request(profile)
   await flush()
   assert.deepEqual(client.requests().map((request) => request.phase), ['running', 'running', 'running', 'queued'])
 })
@@ -200,7 +200,7 @@ test('a shared read refused as busy goes back to the queue and is tried again af
 test('a busy read is refused once its tries are spent; a write is never tried again', async () => {
   const reads = busyBridge(5)
   const client = createClient(reads, { ...PANEL_CLIENT_OPTIONS, sleep: reads.sleep })
-  assert.deepEqual(await client.request('buzzni.moai.backlog'), { kind: 'refused', code: 'workspace-busy' })
+  assert.deepEqual(await client.request('buzzni.moai.backlog-all'), { kind: 'refused', code: 'workspace-busy' })
   assert.equal(starts(reads).length, 3)
   const writes = busyBridge(1)
   const writer = createClient(writes, { ...PANEL_CLIENT_OPTIONS, sleep: writes.sleep })
@@ -233,4 +233,56 @@ test('a cut stdout reads as unreadable with truncated; one that still parses pas
   assert.deepEqual(outcomeOf({ state: 'passed', stdout: '[]', truncated: false }), { kind: 'passed', output: [] })
   // A Moai error still reads as one, cut or not.
   assert.deepEqual(outcomeOf({ state: 'failed', stdout: '[{', stderr: JSON.stringify({ error: 'boom' }), truncated: true }), { kind: 'moai-error', message: 'boom' })
+})
+
+test('a run Moai ended non-zero on a partial answer keeps the answer it printed', () => {
+  // `moai read gone --json`: prose on stderr, the whole answer on stdout, exit 1.
+  const answer = { read: [], missing: ['gone'], held: [], problems: [], at: 't' }
+  assert.deepEqual(outcomeOf({ state: 'failed', stdout: JSON.stringify(answer), stderr: 'moai: gone not found\n', exitCode: 1 }), { kind: 'failed', output: answer })
+  assert.deepEqual(answerOf({ kind: 'failed', output: answer }), answer)
+  assert.deepEqual(answerOf({ kind: 'passed', output: [] }), [])
+  assert.equal(answerOf({ kind: 'failed' }), undefined)
+  assert.equal(answerOf({ kind: 'moai-error', message: 'boom' }), undefined)
+  assert.equal(answerOf({ kind: 'unreadable', truncated: true }), undefined)
+})
+
+/** A bridge whose every start is refused `workspace-busy` (as `answer` arranges) and whose runs pass. */
+function refusingBridge(answer) {
+  const calls = []
+  return {
+    calls,
+    invokeCommand(command, args) {
+      calls.push([command, args])
+      if (command === 'buzzni.moai.run') return answer()
+      return Promise.resolve({ action: 'status', operationId: args[0], ...passed({}) })
+    },
+  }
+}
+const BUSY = { action: 'start', state: 'refused', code: 'workspace-busy' }
+
+test('a busy read cancelled while its start was out is not tried again', async () => {
+  let reply
+  const bridge = refusingBridge(() => new Promise((resolve) => (reply = resolve)))
+  const client = createClient(bridge, { ...PANEL_CLIENT_OPTIONS, sleep: () => flush() })
+  const pending = client.request('buzzni.moai.show-all')
+  await flush()
+  client.cancel(requestKey('buzzni.moai.show-all'))
+  reply(BUSY)
+  assert.deepEqual(await pending, { kind: 'refused', code: 'workspace-busy' })
+  await flush()
+  assert.deepEqual(starts(bridge), [['buzzni.moai.show-all']])
+})
+
+test('a cancel landing between the busy answer and the requeue ends the read without a second start', async () => {
+  let client
+  const bridge = refusingBridge(() => {
+    const answer = Promise.resolve(BUSY)
+    // Two hops on: after the run has read the answer and chosen to retry, before the queue takes it back.
+    answer.then(() => queueMicrotask(() => client.cancel(requestKey('buzzni.moai.show-all'))))
+    return answer
+  })
+  client = createClient(bridge, { ...PANEL_CLIENT_OPTIONS, sleep: () => flush() })
+  assert.deepEqual(await client.request('buzzni.moai.show-all'), { kind: 'cancelled', mayContinue: false })
+  await flush()
+  assert.deepEqual(starts(bridge), [['buzzni.moai.show-all']])
 })

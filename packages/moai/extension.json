@@ -94,9 +94,9 @@
         "descendantAllowlist": ["git"]
       },
       {
-        "id": "buzzni.moai.backlog",
+        "id": "buzzni.moai.backlog-all",
         "executable": "moai",
-        "argv": ["--json", "-C", "{{workspaceRoot}}", "backlog", "show"],
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "backlog", "show", "--all"],
         "parameters": {},
         "cwd": "workspaceRoot",
         "envAllowlist": ["HOME"],
@@ -148,7 +148,7 @@
         "executable": "moai",
         "argv": ["--json", "-C", "{{workspaceRoot}}", "wiki", "show", "{{slug}}"],
         "parameters": {
-          "slug": { "type": "string", "maxLength": 512 }
+          "slug": { "type": "string", "maxLength": 128 }
         },
         "cwd": "workspaceRoot",
         "envAllowlist": ["HOME"],

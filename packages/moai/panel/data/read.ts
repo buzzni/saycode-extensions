@@ -11,7 +11,9 @@
  * `~/.config/moai/read/`; nothing goes to the tracker. `--json` prints
  * `{"read":[ids written now],"missing":[ids not in the tracker],"held":[ids a hand-written value blocked],
  *   "problems":[prose],"at":"<when the command ran>"}`. Ids that were already read at their current
- * `updated_at` are not rewritten and so appear in none of `read`, `missing`, `held`.
+ * `updated_at` are not rewritten and so appear in none of `read`, `missing`, `held`. A missing id or group
+ * (a row removed, or one only the archive holds) still writes the rest and prints that answer, but ends the run
+ * non-zero; the answer is handed out all the same, with `missing` naming it.
  *
  * Stale draws. The design says the value written is the drawn row's `updated_at` (a row changed after it was
  * drawn comes back NEW). The CLI takes no value: it writes the row's *current* `updated_at`, and its result
@@ -20,7 +22,7 @@
  * re-reads afterwards ({@link staleAgainst}); that shows the row changed, not whether before or after the
  * write. Callers re-read after every write.
  */
-import { PRIORITY, type Client, type Outcome } from './client.js'
+import { PRIORITY, answerOf, type Client, type Outcome } from './client.js'
 import type { IssueIndex, Row } from './index.js'
 import { PROFILE } from './source.js'
 
@@ -104,9 +106,10 @@ export function parseRead(output: unknown): ReadResult | undefined {
 
 async function write(client: Client, profileId: string, value?: string): Promise<Marked> {
   const outcome = await client.request(profileId, value, { priority: PRIORITY.detail, share: false })
-  if (outcome.kind !== 'passed') return { ok: false, outcome }
-  const result = parseRead(outcome.output)
-  return result ? { ok: true, result } : { ok: false, outcome: { kind: 'unreadable' } }
+  // A missing id ends the run non-zero with the whole answer still printed (see the header).
+  const result = parseRead(answerOf(outcome))
+  if (result) return { ok: true, result }
+  return { ok: false, outcome: outcome.kind === 'passed' ? { kind: 'unreadable' } : outcome }
 }
 
 /** `r`: the drawn row. Only its id travels; see the note on stale draws above. */
