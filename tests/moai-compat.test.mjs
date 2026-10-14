@@ -59,7 +59,7 @@ test('real 0.16 output: no statuses[] is an old moai, yet nothing the panel uses
   assert.equal(report.catalog.state, 'ok')
 })
 
-test('rows without `unread` on an old moai name the NEW marks as off (they are drawn)', async () => {
+test('rows without `unread` on an old moai do not name the NEW marks: the key is absent when nothing is unread', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything({
     [PROFILE.showAll]: passed(withoutUnread(await fixture('show-all-unread-v016.json'))),
@@ -68,7 +68,31 @@ test('rows without `unread` on an old moai name the NEW marks as off (they are d
   }))
   await loadAllRows(client, undefined, probe)
   await loadStatuses(client, undefined, probe)
-  assert.deepEqual(probe.report().degraded, ['unread'])
+  assert.equal(probe.report().moai, 'old')
+  assert.deepEqual(probe.report().degraded, [])
+})
+
+test('an old status without the tallies still asks to upgrade, and names the counts, never the NEW marks', async () => {
+  const probe = new CompatProbe()
+  const client = clientOf(await everything({
+    [PROFILE.showAll]: passed(withoutUnread(await fixture('show-all-v016.json'))),
+    [PROFILE.backlog]: passed(withoutUnread(await fixture('backlog-v016.json'))),
+  }))
+  await loadAllRows(client, undefined, probe)
+  probe.observeStatus({ counts: { todo: 1 }, total: 1, statuses: ['todo'] })
+  assert.equal(probe.report().moai, 'old')
+  assert.deepEqual(probe.report().degraded, ['tallies'])
+})
+
+test('a 0.17 list with no `unread` key says nothing: nothing is unread', async () => {
+  const probe = new CompatProbe()
+  const client = clientOf(await everything({
+    [PROFILE.showAll]: passed(withoutUnread(await fixture('show-all-v017.json'))),
+    [PROFILE.backlog]: passed(withoutUnread(await fixture('backlog-v017.json'))),
+  }))
+  await loadAllRows(client, undefined, probe)
+  await loadStatuses(client, undefined, probe)
+  assert.deepEqual(probe.report(), { moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [] })
 })
 
 test('rows without `unread` alone are not proof: moai stays unknown', async () => {

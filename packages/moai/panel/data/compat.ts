@@ -25,8 +25,9 @@
  *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
  *   alone say `unknown`, never `old`.
  * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and `statuses[]` it lacks
- *   serves nothing drawn yet, so a 0.16 that prints `unread` reads `old` with nothing degraded; one whose rows print
- *   none leaves the NEW marks off, and that is named.
+ *   serves nothing drawn yet, so a 0.16 reads `old` with nothing degraded. NEW marks are not judged: moai 0.16 prints
+ *   `unread` too, and the key is absent whenever nothing is unread, so its absence tells "nothing unread" from
+ *   "moai gives no unread" never (se-xee6).
  */
 import { refusalCode, type Outcome } from './client.js'
 import type { Row } from './index.js'
@@ -65,11 +66,11 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
 
 /**
  * The features the panel uses, in the banner's order; one judged off that is not here is left out of `degraded`.
- * `unread` (NEW marks: read.ts isUnread) is drawn (view/unread.ts: list rows, board cards, the detail, the tab badge).
+ * `unread` (NEW marks: read.ts isUnread) is drawn, but is not here: a missing key cannot be told from nothing unread.
  * `status-order` (the columns from `status`: source.ts loadStatuses) is told apart below but has no caller yet: put
  * it back here when it is drawn.
  */
-const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'unread', 'tallies']
+const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'tallies']
 
 type Seen = 'unsupported' | 'passed'
 
@@ -109,8 +110,6 @@ export class CompatProbe {
   private toolMissing = false
   /** undefined: not seen yet. */
   private statusShape: { statuses: boolean; tallies: boolean } | undefined
-  private rowsSeen = 0
-  private unreadSeen = false
   private readonly listeners = new Set<() => void>()
 
   /** `listener` is called after each thing handed over; the report may say what it said before. Returns the unsubscribe. */
@@ -161,13 +160,8 @@ export class CompatProbe {
     }
   }
 
-  /** The rows of `show --all` (or `prime`), archive-tagged ones left out. */
-  observeRows(rows: readonly Row[]): void {
-    for (const row of rows) {
-      if (row.archived === true) continue
-      this.rowsSeen += 1
-      if ('unread' in row) this.unreadSeen = true
-    }
+  /** The rows of `show --all` (or `prime`): they say nothing of compatibility, but each read is a thing handed over. */
+  observeRows(_rows: readonly Row[]): void {
     this.told()
   }
 
@@ -206,8 +200,6 @@ export class CompatProbe {
     }
     if (this.statusShape !== undefined && !this.statusShape.statuses) degraded.add('status-order')
     if (this.statusShape !== undefined && !this.statusShape.tallies) degraded.add('tallies')
-    // NEW needs the `unread` key; an old moai that prints none leaves the marks off (a 0.16 that prints it keeps them).
-    if (moai === 'old' && this.rowsSeen > 0 && !this.unreadSeen) degraded.add('unread')
 
     return {
       moai,

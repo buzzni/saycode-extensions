@@ -1377,10 +1377,10 @@ test('compatibility: moai 0.16 that prints `unread` (no statuses[], the tallies 
   assert.deepEqual(compatLine(panel), [])
 })
 
-test('compatibility: moai 0.16 whose rows print no `unread` asks to upgrade, naming the NEW marks it leaves off', async () => {
+test('compatibility: moai 0.16 whose rows print no `unread` says nothing: the key is absent when nothing is unread', async () => {
   const panel = await runPanel(board())
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
-  assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: NEW marks). Upgrade moai."])
+  assert.deepEqual(compatLine(panel), [])
 })
 
 test('compatibility: a status without the tallies asks to upgrade moai, naming the counts, in the panel language', async () => {
@@ -1610,7 +1610,7 @@ test('a read mark reads the list again at once, though the status read of the lo
 
 test('compatibility: the banner speaks Japanese and Chinese too', async () => {
   const ja = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'ja')
-  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: NEW 表示、マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
+  assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
   const zh = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'zh')
-  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：NEW 标记、里程碑和史诗的计数）。请升级 moai。'])
+  assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：里程碑和史诗的计数）。请升级 moai。'])
 })
