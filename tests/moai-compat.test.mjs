@@ -102,8 +102,8 @@ test('unsupported-daemon on added profiles names them; their features degrade, t
   await loadArchived(client, { probe })
   const report = probe.report()
   assert.equal(report.catalog.state, 'missing')
-  assert.deepEqual(report.catalog.missing.sort(), [PROFILE.showAll, PROFILE.showArchived].sort())
-  assert.deepEqual(report.degraded, ['all-rows', 'archive'])
+  assert.deepEqual(report.catalog.missing.sort(), [PROFILE.showAll, PROFILE.backlog, PROFILE.showArchived].sort())
+  assert.deepEqual(report.degraded, ['all-rows', 'backlog', 'archive'])
 })
 
 test('a shipped profile refused as unsupported means the daemon as a whole, not 13 missing profiles', async () => {
@@ -121,15 +121,26 @@ test('tool-missing is its own flag and does not blame the catalog', async () => 
   assert.deepEqual(probe.report(), { moai: 'unknown', toolMissing: true, catalog: { state: 'unknown', missing: [] }, degraded: [] })
 })
 
-test('a profile that only ever fails to start (binding-mismatch is thrown and folded) is read as missing; a pass clears it', async () => {
+test('a profile that only ever fails to start (binding-mismatch is thrown, its code carried) is read as missing; a pass clears it', async () => {
   const probe = new CompatProbe()
-  const reads = [{ kind: 'not-started' }, passed({ read: ['a'], missing: [], held: [], problems: [], at: 'now' })]
+  const reads = [{ kind: 'not-started', code: 'binding-mismatch' }, passed({ read: ['a'], missing: [], held: [], problems: [], at: 'now' })]
   const client = clientOf({ [PROFILE.status]: passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }), [PROFILE.read]: () => reads.shift() })
   await loadStatuses(client, undefined, probe)
   await markRead(client, { id: 'a' }, probe)
   assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.read] })
   assert.deepEqual(probe.report().degraded, ['read-marks'])
   await markRead(client, { id: 'a' }, probe)
+  assert.deepEqual(probe.report().catalog, { state: 'ok', missing: [] })
+})
+
+test('a start that failed without naming a catalog code leaves the catalog unknown, not missing', async () => {
+  const probe = new CompatProbe()
+  const client = clientOf({ [PROFILE.status]: passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }), [PROFILE.read]: { kind: 'not-started' } })
+  await loadStatuses(client, undefined, probe)
+  await markRead(client, { id: 'a' }, probe)
+  assert.deepEqual(probe.report().catalog, { state: 'ok', missing: [] })
+  assert.deepEqual(probe.report().degraded, [])
+  probe.observe(PROFILE.readAll, { kind: 'not-started', code: 'something-new' })
   assert.deepEqual(probe.report().catalog, { state: 'ok', missing: [] })
 })
 

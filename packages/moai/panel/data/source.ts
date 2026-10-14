@@ -135,6 +135,9 @@ export async function loadAllRows(client: Client, priority: number = PRIORITY.li
     // show --all alone decides this load (declined, no tracker): a backlog read still queued behind it
     // would only open a second confirmation for a load that already failed.
     client.cancel(requestKey(PROFILE.backlog))
+    // A read that already ended keeps its outcome, and compat learns it; a cancelled one says nothing.
+    // Not awaited: the panel does not wait on a read it no longer wants.
+    if (probe) void reading.then((outcome) => probe.observe(PROFILE.backlog, outcome))
     return { ok: false, outcome: all }
   }
   const backlog = seen(probe, PROFILE.backlog, await reading)

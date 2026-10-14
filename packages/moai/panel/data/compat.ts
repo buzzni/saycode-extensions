@@ -12,9 +12,10 @@
  * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it (or the daemon is too
  *   old for the machine run at all, when the baseline profiles refuse too: the catalog is then `unknown`
  *   as a whole, not 13 missing ones). `tool-missing`: `moai` is not installed there.
- * - `binding-mismatch` is thrown by the start, and client.ts folds every throw into `not-started`. A profile
- *   that only ever came back `not-started` is therefore read as missing from the catalog (the likeliest cause
- *   of a throw naming a binding); one pass of the same profile clears it.
+ * - `binding-mismatch` is thrown by the start; client.ts carries the code on the `not-started` outcome. A
+ *   profile whose start named `binding-mismatch` or `unsupported-daemon` is read as missing from the catalog;
+ *   one pass of the same profile clears it. A start that failed without naming either says nothing of the
+ *   catalog (`unknown`).
  * - The shape of `status --json` is the strong sign of an old moai: new moai prints `statuses[]` and the
  *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`. The `unread` key on
  *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
@@ -57,7 +58,7 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
 
 const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'unread', 'status-order', 'tallies']
 
-type Seen = 'unsupported' | 'unstarted' | 'passed'
+type Seen = 'unsupported' | 'unstarted' | 'failed-start' | 'passed'
 
 export class CompatProbe {
   private readonly seen = new Map<string, Seen>()
@@ -75,7 +76,11 @@ export class CompatProbe {
         else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, 'unsupported')
         return
       case 'not-started':
-        if (this.seen.get(profile) !== 'passed') this.seen.set(profile, 'unstarted')
+        if (outcome.code === 'binding-mismatch' || outcome.code === 'unsupported-daemon') {
+          if (this.seen.get(profile) !== 'passed' && this.seen.get(profile) !== 'unsupported') this.seen.set(profile, 'unstarted')
+        } else if (!this.seen.has(profile)) {
+          this.seen.set(profile, 'failed-start')
+        }
         return
       case 'passed':
       case 'failed':
@@ -111,8 +116,8 @@ export class CompatProbe {
   }
 
   report(): CompatReport {
-    const refused = [...this.seen].filter(([, seen]) => seen !== 'passed').map(([id]) => id)
-    const passed = this.seen.size - refused.length
+    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported' || seen === 'unstarted').map(([id]) => id)
+    const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
     // A shipped profile refused as unsupported, or nothing passed while a shipped one was refused: the daemon as
     // a whole is too old (or bound wrong), and 13 missing profiles would say less than that.
     const wholeDaemon = refused.some((id) => BASELINE.has(id) && (this.seen.get(id) === 'unsupported' || passed === 0))

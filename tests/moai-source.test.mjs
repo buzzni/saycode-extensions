@@ -21,6 +21,7 @@ const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/mo
 const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
   await panelModule('data/source.ts')
 const { IssueIndex, LOST } = await panelModule('data/index.ts')
+const { CompatProbe } = await panelModule('data/compat.ts')
 
 /** The extension as shipped: packed by the CLI and read back out of the archive (as tests/moai.test.mjs does). */
 async function packMoai() {
@@ -249,6 +250,12 @@ test('a failed read of either list is the load failure; a missing board says not
   assert.deepEqual(await loadAllRows(lone), { ok: false, outcome: declined })
   assert.deepEqual(lone.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
   assert.deepEqual(lone.cancels, [PROFILE.backlog])
+  // compat still learns what the backlog read ended with when show --all decided the load.
+  const probe = new CompatProbe()
+  const gone = { kind: 'refused', code: 'unsupported-daemon' }
+  assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: declined, [PROFILE.backlog]: gone }), undefined, probe), { ok: false, outcome: declined })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.backlog] })
   const whole = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
   await loadAllRows(whole)
   assert.deepEqual(whole.cancels, [])
