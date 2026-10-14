@@ -21,16 +21,13 @@
  *   panel does not list; the extension answers every SDK refusal code, src/index.ts) says the binding or the
  *   approval changed, nothing of the catalog: it counts as a start that failed, as one naming no code does.
  * - The shape of `status --json` is the strong sign of an old moai: new moai prints `statuses[]` and the
- *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`. The `unread` key on
- *   rows is weak: it is absent for a person it does not know and when nothing is unread, so rows without it
- *   alone say `unknown`, never `old`.
+ *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`.
  * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and `statuses[]` it lacks
  *   serves nothing drawn yet, so a 0.16 reads `old` with nothing degraded. NEW marks are not judged: moai 0.16 prints
  *   `unread` too, and the key is absent whenever nothing is unread, so its absence tells "nothing unread" from
  *   "moai gives no unread" never (se-xee6).
  */
 import { refusalCode, type Outcome } from './client.js'
-import type { Row } from './index.js'
 import { PROFILE } from './source.js'
 
 export type Feature = 'all-rows' | 'backlog' | 'archive' | 'wiki' | 'read-marks' | 'status-order' | 'tallies'
@@ -158,11 +155,6 @@ export class CompatProbe {
       case 'cancelled':
         return
     }
-  }
-
-  /** The rows of `show --all` (or `prime`): they say nothing of compatibility, but each read is a thing handed over. */
-  observeRows(_rows: readonly Row[]): void {
-    this.told()
   }
 
   /** The `status --json` output; anything that is not the counts object (the project list) is not read. */

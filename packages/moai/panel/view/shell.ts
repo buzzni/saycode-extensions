@@ -119,8 +119,8 @@ const MOAI_FEATURES: readonly Feature[] = ["status-order", "tallies"]
 /**
  * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
  * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named, and an old moai
- * none of whose fallbacks the panel uses (a 0.16 that prints `unread` lacks only what is not drawn yet) is not asked
- * to upgrade.
+ * none of whose fallbacks the panel uses (a 0.16 lacks only `statuses[]`, which nothing draws yet) is not asked to
+ * upgrade.
  */
 export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
   if (!report) return []
