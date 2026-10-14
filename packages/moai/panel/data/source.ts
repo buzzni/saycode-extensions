@@ -288,8 +288,7 @@ export const primeRows = (listed: Omit<Listed, 'rows'>): boolean => listed.parti
  */
 export function activeIds(listed: Listed, archive: readonly Row[] = []): Set<string> {
   const active = new Set(listed.rows.map((row) => row.id))
-  // A cut list (`truncated`) is prime's rows too.
-  if (listed.partial || listed.truncated) for (const row of archive) if (!standsDone(row)) active.add(row.id)
+  if (primeRows(listed)) for (const row of archive) if (!standsDone(row)) active.add(row.id)
   return active
 }
 
