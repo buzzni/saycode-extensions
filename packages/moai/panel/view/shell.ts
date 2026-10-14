@@ -8,6 +8,7 @@
 // (main.ts) and arrive as ShellIntents.
 
 import { isInformation, type Outcome } from "../data/client.ts"
+import type { CompatReport, Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -109,6 +110,24 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
   }
 }
 
+// Which features follow from which fix: the profiles the catalog lacks, and what an older moai prints.
+const CATALOG_FEATURES: readonly Feature[] = ["all-rows", "backlog", "archive", "wiki", "read-marks"]
+const MOAI_FEATURES: readonly Feature[] = ["unread", "status-order", "tallies"]
+
+/**
+ * The compatibility banner's sentences, one per thing to fix on that machine: install moai, upgrade it, update the
+ * daemon catalog. What cannot be told (`unknown`) says nothing; the features that work are not named.
+ */
+export function compatLines(report: CompatReport | null, copy: Copy["shell"]["compat"]): string[] {
+  if (!report) return []
+  const named = (among: readonly Feature[]) => report.degraded.filter((feature) => among.includes(feature)).map((feature) => copy.features[feature])
+  const lines: string[] = []
+  if (report.toolMissing) lines.push(copy.toolMissing)
+  if (report.moai === "old") lines.push(copy.oldMoai(named(MOAI_FEATURES)))
+  if (report.catalog.state === "missing") lines.push(copy.catalog(report.catalog.missing.length, named(CATALOG_FEATURES)))
+  return lines
+}
+
 /** The main pane's width: all of it, less the detail's share when the detail stands on the left. */
 export function mainWidth(width: number, position: PaneLayout["position"], detailVisible: boolean, leftRatio: number): number {
   return position === "left" && detailVisible ? width * (1 - leftRatio) : width
@@ -185,6 +204,8 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const more = el(doc, "p", { class: "moai-more" })
   // The list stands on prime's rows because `show --all` was cut at the output limit (BoardData.truncated).
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
+  // What to upgrade, update or install on that machine (data/compat.ts): the reads that work keep showing.
+  const compat = el(doc, "div", { class: "m-banner m-banner-warn moai-compat", role: "status" })
   // Why the archive could not be read (`SPC v o`): its own line, as the board's rows and their banners stand.
   const archiveNote = el(doc, "div", { class: "m-banner moai-archive-problem", role: "status" })
   const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
@@ -207,7 +228,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
   // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, truncated, archiveNote, more, add, result)
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, archiveNote, more, add, result)
   // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -331,6 +352,14 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     if (said) (said.info ? notice : error).append(el(doc, "span", {}, ...said.parts))
   }
 
+  let compatTold: CompatReport | null = null
+  function explainCompat(report: CompatReport | null) {
+    // A live region: the store keeps a report only when it says something new, so one drawn is not drawn again.
+    if (report === compatTold) return
+    compatTold = report
+    compat.replaceChildren(...compatLines(report, copy.shell.compat).map((line) => el(doc, "p", {}, line)))
+  }
+
   let archiveTold: Outcome | null = null
   function explainArchive(outcome: Outcome | null) {
     // A live region too: written once per outcome, as explain() does.
@@ -381,6 +410,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
     if (truncated.textContent !== partial) truncated.textContent = partial
     explainArchive(state.archiveProblem)
+    explainCompat(state.compat)
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

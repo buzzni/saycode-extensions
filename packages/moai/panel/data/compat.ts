@@ -60,6 +60,14 @@ const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 're
 
 type Seen = 'unsupported' | 'unstarted' | 'failed-start' | 'passed'
 
+const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((item, n) => item === b[n])
+
+/** Two reports that say the same; a banner drawn from the first need not be drawn (or read out) again. */
+export function sameReport(a: CompatReport, b: CompatReport): boolean {
+  return a.moai === b.moai && a.toolMissing === b.toolMissing && a.catalog.state === b.catalog.state &&
+    sameList(a.catalog.missing, b.catalog.missing) && sameList(a.degraded, b.degraded)
+}
+
 export class CompatProbe {
   private readonly seen = new Map<string, Seen>()
   private toolMissing = false

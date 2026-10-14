@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
-const { CompatProbe } = await panelModule('data/compat.ts')
+const { CompatProbe, sameReport } = await panelModule('data/compat.ts')
 const { PROFILE, loadAllRows, loadStatuses, loadArchived, loadWikiListing } = await panelModule('data/source.ts')
 const { markRead } = await panelModule('data/read.ts')
 
@@ -150,4 +150,12 @@ test('information refusals and cancellations are not compatibility evidence', ()
   probe.observe(PROFILE.showAll, refused('workspace-busy'))
   probe.observe(PROFILE.showAll, { kind: 'cancelled', mayContinue: false })
   assert.equal(probe.report().catalog.state, 'unknown')
+})
+
+test('two reports that say the same are the same, so the banner is not drawn again', () => {
+  const report = () => ({ moai: 'old', toolMissing: false, catalog: { state: 'missing', missing: [PROFILE.showAll] }, degraded: ['all-rows', 'status-order'] })
+  assert.equal(sameReport(report(), report()), true)
+  for (const change of [{ moai: 'ok' }, { toolMissing: true }, { catalog: { state: 'missing', missing: [PROFILE.backlog] } }, { degraded: ['all-rows'] }]) {
+    assert.equal(sameReport(report(), { ...report(), ...change }), false, JSON.stringify(change))
+  }
 })

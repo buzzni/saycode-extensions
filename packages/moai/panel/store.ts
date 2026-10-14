@@ -10,6 +10,7 @@
  * column is `status`), and the list cells are the key table's `CellField` names (the name line is `names`).
  */
 import type { Outcome } from './data/client.js'
+import { sameReport, type CompatReport } from './data/compat.js'
 import { pathKey, type Path, type Row } from './data/index.js'
 import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
 import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
@@ -111,6 +112,8 @@ export interface State {
   archive: Row[] | null
   /** Why the last archive read failed; the board's rows and its own problem stay as they are. */
   archiveProblem: Outcome | null
+  /** What the answers so far tell of the moai CLI and the daemon's catalog (data/compat.ts); null before any. */
+  compat: CompatReport | null
   /**
    * The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left; a wiki pane mounted on this
    * store starts from it (the mounted pane keeps its own state across tab switches).
@@ -187,6 +190,7 @@ export function initialState(): State {
     shown: idle(),
     archive: null,
     archiveProblem: null,
+    compat: null,
     wiki: initialWiki(),
   }
 }
@@ -227,6 +231,8 @@ export type Action =
   /** The archive's rows as read (null forgets them); either way an archive problem told before goes. */
   | { type: 'archive'; rows: Row[] | null }
   | { type: 'archive-failed'; problem: Outcome }
+  /** The compatibility probe's report after a read; one that says what the last one said changes nothing. */
+  | { type: 'compat'; report: CompatReport }
   | { type: 'detail-loading'; id: string }
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
@@ -327,6 +333,8 @@ export function reduce(state: State, action: Action): State {
       return state.archive === action.rows && state.archiveProblem === null ? state : { ...state, archive: action.rows, archiveProblem: null }
     case 'archive-failed':
       return { ...state, archiveProblem: action.problem }
+    case 'compat':
+      return state.compat && sameReport(state.compat, action.report) ? state : { ...state, compat: action.report }
     case 'detail-loading':
       return { ...state, shown: { value: state.shown.value?.id === action.id ? state.shown.value : null, loading: true, problem: null } }
     case 'detail-loaded':

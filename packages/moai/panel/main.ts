@@ -3,7 +3,8 @@
  * data layer and mounts the shell (view/shell.ts), which renders from the store.
  * Built by build.mjs into the single file dist/panel.html.
  */
-import { createClient, PANEL_CLIENT_OPTIONS, type Bridge, type Outcome } from './data/client.js'
+import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Outcome } from './data/client.js'
+import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
@@ -32,6 +33,14 @@ const store = createStore()
 remember(store, createMemory(() => window.localStorage))
 // Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
+// What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): every read the panel
+// makes hands it its outcome, and the shell's banner says what to upgrade, update or install.
+const probe = new CompatProbe()
+
+/** `loading`, with the probe's report put in the store once it settles (the store keeps only a changed one). */
+function probed<T>(loading: Promise<T>): Promise<T> {
+  return loading.finally(() => store.dispatch({ type: 'compat', report: probe.report() }))
+}
 
 // The index is built once per read, not per render: again when the rows, the status counts or the archive shown change.
 let indexed: { rows: Row[]; tallies: BoardData['tallies']; archive: Row[] | null; index: IssueIndex } | null = null
@@ -60,8 +69,8 @@ async function loadBoard(): Promise<void> {
   // Without the counts the board counts its own rows. The rows do not wait for the counts (their confirmation may
   // still be open): a failure is told at once, and rows are drawn at once, with the counts put on them when they
   // come. A load the rows failed does not wait for them at all; the next load shares that read.
-  const listing = loadAllRows(client)
-  const counting = loadTallies(client)
+  const listing = probed(loadAllRows(client, PRIORITY.list, probe))
+  const counting = probed(loadTallies(client, PRIORITY.list, probe))
   let counted: Awaited<typeof counting> | undefined
   void counting.then((tallies) => { counted = tallies })
   const loaded = await listing
@@ -106,7 +115,7 @@ async function loadArchive(): Promise<void> {
   try {
     // Read untagged: withArchive tags the archive-only rows against the rows held when it draws, and a cut list
     // needs the archive's own rows to judge by (source.ts activeIds).
-    const loaded = await loadArchived(client, { cancelled: () => mine !== archiving })
+    const loaded = await probed(loadArchived(client, { probe, cancelled: () => mine !== archiving }))
     if (mine !== archiving) return
     // The archive's own problem: the board's rows and whatever the board said stand.
     if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
@@ -183,13 +192,13 @@ function answer(loaded: Loaded<unknown>): unknown {
 }
 
 const wiki: WikiSource = {
-  list: async () => answer(await loadWikiListing(client)),
-  page: async (slug) => answer(await loadWikiPage(client, slug)),
+  list: async () => answer(await probed(loadWikiListing(client, probe))),
+  page: async (slug) => answer(await probed(loadWikiPage(client, slug, probe))),
 }
 
 /** A read-mark write, then the list again: the marks come back with the rows (data/read.ts). */
 async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
-  const done = await writing
+  const done = await probed(writing)
   if (!done.ok) return done.outcome
   // A list read already running started before the write and cannot hold its marks.
   await refresher.refresh({ fresh: true })
@@ -197,9 +206,9 @@ async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
 }
 
 const read: ReadMarks = {
-  one: (id) => marked(markRead(client, { id })),
-  all: () => marked(markAllRead(client)),
-  group: (id) => marked(markGroupRead(client, id)),
+  one: (id) => marked(markRead(client, { id }, probe)),
+  all: () => marked(markAllRead(client, probe)),
+  group: (id) => marked(markGroupRead(client, id, probe)),
 }
 
 function activity(): Activity {

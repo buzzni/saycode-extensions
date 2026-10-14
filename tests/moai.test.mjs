@@ -826,3 +826,45 @@ test('while one run goes and another waits for its confirmation, the line still 
   await flush()
   assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine…')
 })
+
+const STATUS_ASSUMED = await fixture('status-statuses-assumed.json')
+const compatLine = (panel) => [...panel.$('.moai-compat').children].map((line) => line.textContent)
+
+test('compatibility: a whole new setup shows no banner', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_ASSUMED }))
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.deepEqual(compatLine(panel), [])
+  assert.equal(panel.window.getComputedStyle(panel.$('.moai-compat')).display, 'none')
+})
+
+test('compatibility: a profile the daemon catalog lacks asks to update the catalog', async () => {
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
+})
+
+test('compatibility: the old status shape asks to upgrade moai, naming what falls back, in the panel language', async () => {
+  const panel = await runPanel(board())
+  assert.deepEqual(compatLine(panel), ["That machine's moai is older than this panel expects (on a fallback: NEW marks, the column order). Upgrade moai."])
+  // The rows that work keep showing.
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  const ko = await runPanel(board(), 'ko')
+  assert.deepEqual(compatLine(ko), ['그 머신의 moai가 이 패널이 기대하는 버전보다 오래되었습니다(대체 방식으로 동작: NEW 표시, 칸 순서). moai를 업그레이드하세요.'])
+})
+
+test('compatibility: moai missing on the machine asks to install it', async () => {
+  const answer = stdoutFor({})
+  answer.start = () => ({ action: 'start', state: 'refused', code: 'tool-missing' })
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), ['Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.'])
+})
+
+test('compatibility: a report that says the same is not written again (it is a live region)', async () => {
+  const panel = await runPanel(board())
+  const before = panel.$('.moai-compat').firstChild
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-compat').firstChild, before)
+})
