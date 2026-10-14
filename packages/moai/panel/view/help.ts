@@ -40,10 +40,15 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
     tabindex: -1,
     hidden: true,
   })
+  /** Where focus was before the overlay took it; it goes back there on close. */
+  let returnTo: Element | null = null
   const close = (): void => {
     if (root.hidden) return
     root.hidden = true
     root.replaceChildren()
+    const back = returnTo as HTMLElement | null
+    returnTo = null
+    if (back && back !== doc.body && back.isConnected) back.focus?.()
     props.onClose?.()
   }
   root.addEventListener("keydown", (event) => {
@@ -54,6 +59,7 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
     }
   })
   const open = (mode: Mode, ctx: KeyContext): void => {
+    if (root.hidden) returnTo = doc.activeElement
     const head = el(doc, "div", { class: "m-help-head" }, el(doc, "strong", {}, "단축키"))
     head.append(iconButton(doc, { icon: "x", label: "닫기", onClick: close }))
     const body = el(doc, "div", { class: "m-help-body" })

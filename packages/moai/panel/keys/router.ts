@@ -13,10 +13,12 @@
 //     Chord::feed — "g j" does not move down).
 //   - SPC menu (buffer starting with SPC): Esc or SPC closes, Backspace goes up one layer (closing at the root), an
 //     unknown or unavailable key is ignored, a toggle item keeps the menu open, an action item closes it, a motion key
-//     the layer does not carry closes the menu and moves.
+//     the layer does not carry closes the menu and moves. Auto-repeats of SPC or of a key inside the menu are ignored.
+//   - a key pressed inside an open modal dialog (the shortcut help) is the dialog's (attachKeyRouter).
 
 import {
   KEY_TABLE,
+  bindingKeys,
   bindingsFor,
   isAvailable,
   live,
@@ -37,6 +39,8 @@ export interface KeyEventLike {
   isComposing?: boolean
   /** 229 while an IME is busy (Chrome reports it before isComposing turns true). */
   keyCode?: number
+  /** An auto-repeat of a held key. */
+  repeat?: boolean
   /** The event target is editable. When absent, `target` is checked with isEditableTarget(). */
   editable?: boolean
   target?: unknown
@@ -135,6 +139,8 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
   const table = options.table ?? KEY_TABLE
   const platform = options.platform
   let buffer: string[] = []
+  /** The mode the held sequence or menu was started in. */
+  let heldIn: Mode | null = null
 
   const snapshot = (): RouterState =>
     buffer[0] === LEADER ? { pending: [], menu: [...buffer] } : { pending: [...buffer], menu: null }
@@ -158,7 +164,7 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
     const found = lookup(own, [token], platform)
     if (found.kind === "run") return found.binding.motion === true && isAvailable(found.binding, ctx)
     if (found.kind === "unknown") return false
-    const under = own.filter((b) => [...b.keys, ...(platform === "mac" ? b.macKeys ?? [] : [])].some((k) => k.startsWith(`${token} `)))
+    const under = own.filter((b) => bindingKeys(b, platform).some((k) => k.startsWith(`${token} `)))
     return under.length > 0 && under.every((b) => b.motion === true)
   }
 
@@ -217,7 +223,10 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
   }
 
   const feed = (token: string, ctx: KeyContext): KeyResult => {
-    if (ctx.mode !== "browse" && ctx.mode !== "wiki" && buffer.length > 0) setBuffer([])
+    // A sequence or menu held in another mode is dropped: prompt and sorter, and also a click that switched
+    // browse ↔ wiki under an open browse-only layer.
+    if (buffer.length > 0 && heldIn !== ctx.mode) setBuffer([])
+    heldIn = ctx.mode
     if (buffer[0] === LEADER) return feedMenu(token, ctx)
     return feedDirect(token, ctx)
   }
@@ -226,7 +235,8 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
 
   return {
     handle(event) {
-      if (event.isComposing || event.keyCode === 229 || event.key === "Process") return none
+      // 'Process' (an IME key) is in NOT_KEYS, so keyToken drops it.
+      if (event.isComposing || event.keyCode === 229) return none
       const token = keyToken(event)
       if (token === null) return none
       const ctx = options.getContext()
@@ -236,6 +246,10 @@ export function createKeyRouter(options: KeyRouterOptions): KeyRouter {
           setBuffer([])
           return none
         }
+      }
+      // Holding SPC, or a key inside the menu, must not flip the menu or a toggle back and forth on every repeat.
+      if (event.repeat && (ctx.mode === "browse" || ctx.mode === "wiki") && (token === LEADER || buffer[0] === LEADER)) {
+        return { handled: true, preventDefault: true }
       }
       return feed(token, ctx)
     },
@@ -279,13 +293,19 @@ export interface KeyboardEventLike extends KeyEventLike {
   preventDefault(): void
 }
 
+/** Inside an open modal dialog (the shortcut help): its keys are its own, not the panel's behind it. */
+function inModal(target: unknown): boolean {
+  const el = target as ElementLike | null
+  return typeof el?.closest === "function" && el.closest('[aria-modal="true"]:not([hidden])') != null
+}
+
 /**
  * Wire the router to a document's keydown. A key a component already handled (defaultPrevented: the tab strip's
- * arrows, the split resizer) is left alone. Returns the function that unwires it.
+ * arrows, the split resizer) or pressed inside a modal dialog is left alone. Returns the function that unwires it.
  */
 export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => void {
   const onKeyDown = (event: KeyboardEventLike): void => {
-    if (event.defaultPrevented) return
+    if (event.defaultPrevented || inModal(event.target)) return
     const result = router.handle({
       key: event.key,
       ctrlKey: event.ctrlKey,
@@ -294,6 +314,7 @@ export function attachKeyRouter(doc: KeydownTarget, router: KeyRouter): () => vo
       shiftKey: event.shiftKey,
       isComposing: event.isComposing,
       keyCode: event.keyCode,
+      repeat: event.repeat,
       editable: isEditableTarget(event.target),
     })
     if (result.preventDefault) event.preventDefault()

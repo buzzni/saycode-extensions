@@ -123,6 +123,8 @@ export interface Binding {
   help?: boolean
   /** Keys printed in the help overlay instead of `keys`. */
   helpKeys?: ReadonlyArray<string>
+  /** Label printed in the help overlay instead of `label` / `labelFor` (a row that stands for several bindings). */
+  helpLabel?: string
 }
 
 export interface Layer {
@@ -229,6 +231,8 @@ const columnBindings: Binding[] = Array.from({ length: 9 }, (_, i): Binding => (
   state: (c) => shown(c.hidden?.columns?.[i]),
   help: i === 0,
   helpKeys: i === 0 ? ["SPC v 1~9"] : undefined,
+  // The one help row stands for all nine: not the first column's name.
+  helpLabel: i === 0 ? "1~9번째 칸" : undefined,
 }))
 
 const sortBindings: Binding[] = SORTS.flatMap(([key, field, word]): Binding[] => [
@@ -277,7 +281,8 @@ const focusMenu = (action: string, key: string, label: string, side: Parameters<
   keys: [`SPC w ${key}`],
   label,
   group: "focus",
-  modes: BOTH,
+  // The wiki is list | page side by side: it has no up/down (its help must not list them either).
+  modes: side === "up" || side === "down" ? BROWSE_ONLY : BOTH,
   when: focusWhen(side),
   verdict: "대체",
 })
@@ -545,10 +550,8 @@ export interface HelpSection {
 
 /** The help overlay for a mode: rows grouped by HELP_GROUPS order, platform keys only, empty groups left out. */
 export function helpSections(mode: Mode, ctx: KeyContext, platform: Platform, table: KeyTable = KEY_TABLE): HelpSection[] {
-  const bindings: Binding[] = [...table[mode]]
-  if (mode === "browse" || mode === "wiki") {
-    bindings.push(...table.menu.filter((b) => !b.modes || b.modes.includes(mode)), ...MENU_CONTROLS)
-  }
+  const bindings = bindingsFor(mode, table)
+  if (mode === "browse" || mode === "wiki") bindings.push(...MENU_CONTROLS)
   const sections: HelpSection[] = []
   for (const group of HELP_GROUPS) {
     const rows: HelpRow[] = []
@@ -564,7 +567,7 @@ export function helpSections(mode: Mode, ctx: KeyContext, platform: Platform, ta
         same.available ||= available
         continue
       }
-      rows.push({ action: binding.action, args: binding.args, label: labelOf(binding, ctx), keys, available })
+      rows.push({ action: binding.action, args: binding.args, label: binding.helpLabel ?? labelOf(binding, ctx), keys, available })
     }
     if (rows.length > 0) sections.push({ id: group.id, title: group.title, rows })
   }

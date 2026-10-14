@@ -313,6 +313,28 @@ test('menu: unavailable layers and items cannot be entered; press() acts like th
   assert.equal(r.router.state().menu, null)
 })
 
+test('menu: auto-repeats of SPC or of a key inside the menu are ignored; repeats outside it still run', () => {
+  const { key, router, ids } = setup()
+  key(' ')
+  assert.deepEqual(key(' ', { repeat: true }), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state().menu, ['SPC'], 'holding SPC keeps the menu open')
+  key('v'); key('l')
+  key('l', { repeat: true }); key('l', { repeat: true })
+  assert.deepEqual(ids(), ['view.deferred'], 'holding a toggle flips it once')
+  key('Escape')
+  key('j'); key('j', { repeat: true })
+  assert.deepEqual(ids(), ['view.deferred', 'move.down', 'move.down'])
+})
+
+test('router: a browse → wiki switch drops a held browse menu layer', () => {
+  const { key, router, state } = setup()
+  key(' '); key('s')
+  assert.deepEqual(router.state().menu, ['SPC', 's'])
+  state.ctx = { mode: 'wiki', tab: 'wiki', focus: 'list' }
+  assert.equal(key('j').action.id, 'move.down', 'the dead sort layer is gone: j moves')
+  assert.equal(router.state().menu, null)
+})
+
 test('router: wiki mode has its own keys and a wiki-sized SPC menu', () => {
   const { key, ids, router } = setup({ ctx: { mode: 'wiki', tab: 'wiki', focus: 'list' } })
   key('j'); key('h'); key('Tab'); key('Tab', { shiftKey: true }); key('Escape'); key('/'); key('Enter')
@@ -399,6 +421,12 @@ test('helpSections: grouped rows, platform keys, availability', () => {
   assert.equal(row(wiki, 'sort.set'), undefined, 'no sort rows in the wiki help')
   assert.ok(row(wiki, 'wiki.back'))
   assert.equal(MENU_CONTROLS.length, 2)
+  // The SPC v 1~9 row stands for all nine columns, not for the first column's name.
+  assert.equal(row(helpSections('browse', browse({ columns: ['todo', 'doing'] }), 'other'), 'view.column').label, '1~9번째 칸')
+  // The wiki has no up/down panes: its help does not list SPC w j/k.
+  assert.equal(row(wiki, 'focus.up'), undefined)
+  assert.equal(row(wiki, 'focus.down'), undefined)
+  assert.ok(row(wiki, 'focus.left'))
 })
 
 test('keyLabel prints keys for kbd hints', () => {
@@ -570,6 +598,31 @@ test('help: Esc and the close button close it and call onClose', () => {
   assert.equal(closed, 2)
   help.close()
   assert.equal(closed, 2)
+})
+
+test('help: keys pressed inside the open overlay do not reach the router; closing gives focus back', () => {
+  const dom = new JSDOM('<!doctype html><body><button id="list">list</button></body>')
+  const doc = dom.window.document
+  const sent = []
+  const router = createKeyRouter({ platform: 'other', getContext: () => browse(), dispatch: (a) => sent.push(a.id) })
+  const detach = attachKeyRouter(doc, router)
+  const help = createHelp(doc, { platform: 'other' })
+  doc.body.append(help.el)
+  const list = doc.getElementById('list')
+  list.focus()
+  help.open('browse', browse())
+  assert.equal(doc.activeElement, help.el)
+  for (const key of ['j', 'Tab', ' ', '?']) {
+    help.el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+  }
+  assert.deepEqual(sent, [])
+  assert.equal(router.state().menu, null)
+  help.el.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  assert.equal(help.isOpen(), false)
+  assert.equal(doc.activeElement, list, 'focus returns to where it was')
+  list.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true }))
+  assert.deepEqual(sent, ['move.down'], 'the router works again once the overlay is closed')
+  detach()
 })
 
 test('help: the router dispatches help for ?', () => {

@@ -105,7 +105,7 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
 .m-wk-state { flex: 0 0 auto; color: var(--muted); font: 11px var(--mono); }
 .m-wk-footer { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; padding: 6px 8px 2px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 11px; }
 .m-wk-control { display: inline-flex; align-items: center; gap: 4px; }
-.m-help { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px)); max-height: 80vh; padding: 0; }
+.m-help { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px)); max-width: none; max-height: 80vh; padding: 0; }
 .m-help-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border-soft); background: var(--bg); }
 .m-help-body { padding: 4px 12px 12px; }
 .m-help-title { margin: 12px 0 4px; color: var(--muted); font: 600 12px var(--font); }
