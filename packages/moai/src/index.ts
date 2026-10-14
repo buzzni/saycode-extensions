@@ -1,9 +1,30 @@
 import { defineExtension, machineRun, MachineRunError, type ExtensionContext, type JsonValue, type MachineRunStartRequest } from '@buzzni/saycode-extension-sdk'
 
 const extensionId = 'buzzni.moai'
-/** Reads that take no value; `show` takes a task id and `add` a title. */
-const readsWithoutValue = new Set(['buzzni.moai.status', 'buzzni.moai.prime'])
-const profiles = new Set([...readsWithoutValue, 'buzzni.moai.show', 'buzzni.moai.add'])
+
+/** Reads that take no value. `read-all` writes only the user's own `~/.config/moai/read`, never the tracker. */
+const withoutValue = new Set([
+  'buzzni.moai.status',
+  'buzzni.moai.prime',
+  'buzzni.moai.show-all',
+  'buzzni.moai.backlog',
+  'buzzni.moai.show-archived',
+  'buzzni.moai.wiki-ls',
+  'buzzni.moai.read-all',
+])
+
+/**
+ * Profiles that take one non-empty string, by the parameter name the manifest declares. The value lands in
+ * argv as its own word after a subcommand, so one that starts with `-` would be read as a flag (`read --all`
+ * from a `read <id>` call): such a value is refused.
+ */
+const withValue = new Map([
+  ['buzzni.moai.show', 'id'],
+  ['buzzni.moai.wiki-show', 'slug'],
+  ['buzzni.moai.read', 'id'],
+  ['buzzni.moai.read-group', 'group'],
+  ['buzzni.moai.show-archived-after', 'after'],
+])
 
 /**
  * The panel bridge forwards only an error message, so a refusal Core explains with a code comes back as a
@@ -23,15 +44,19 @@ export default defineExtension({
     // The project tool opens the board panel; the panel drives the commands below.
     context.commands.register(`${extensionId}.open`, () => null)
     context.commands.register(`${extensionId}.run`, (profileId, value) => {
-      if (typeof profileId !== 'string' || !profiles.has(profileId)) throw new Error('unsupported Moai profile')
-      if (readsWithoutValue.has(profileId)) {
+      if (typeof profileId !== 'string') throw new Error('unsupported Moai profile')
+      if (withoutValue.has(profileId)) {
         if (value !== undefined) throw new Error(`${profileId} takes no value`)
         return start(context, { action: 'start', profileId, parameters: {} })
       }
-      if (profileId === 'buzzni.moai.show') {
-        if (typeof value !== 'string' || value.length === 0) throw new Error('task id is required')
-        return start(context, { action: 'start', profileId, parameters: { id: value } })
+      const parameter = withValue.get(profileId)
+      if (parameter) {
+        if (typeof value !== 'string' || value.length === 0) throw new Error(`${parameter} is required`)
+        if (value.startsWith('-')) throw new Error(`${parameter} cannot start with "-"`)
+        return start(context, { action: 'start', profileId, parameters: { [parameter]: value } })
       }
+      // `add` is the one profile that writes the tracker (writeScope `moai`).
+      if (profileId !== `${extensionId}.add`) throw new Error('unsupported Moai profile')
       if (typeof value !== 'string') throw new Error('title is required')
       return start(context, { action: 'start', profileId, parameters: { title: value } })
     })

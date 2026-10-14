@@ -2,17 +2,42 @@
 
 This first-party sample uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for four fixed profiles:
+run, status, and cancel commands for these fixed profiles, each `moai --json -C <workspace> …`:
 
-- `buzzni.moai.status` runs `moai --json -C <workspace> status` (managed read).
-- `buzzni.moai.prime` runs `moai --json -C <workspace> prime` (managed read): the held and ready tasks the board lists.
-- `buzzni.moai.show` runs `moai --json -C <workspace> show <id>` (managed read): one task's body, subtasks and history.
-- `buzzni.moai.add` runs `moai --json -C <workspace> add <title>`, declared to change only `.moai/` (managed project
-  write; Desktop asks for a one-operation approval).
+| Profile | Runs | For | Writes |
+|---|---|---|---|
+| `buzzni.moai.status` | `status` | counts, warnings, the column names | no |
+| `buzzni.moai.prime` | `prime` | held and ready tasks; the index rows' fallback when `show --all` is cut | no |
+| `buzzni.moai.show` | `show <id>` | one row's body, children, journal, commits | no |
+| `buzzni.moai.add` | `add <title>` | add a task | the tracker (`writeScope: moai`) |
+| `buzzni.moai.show-all` | `show --all` | every active row, done and deferred included, archive left out | no |
+| `buzzni.moai.backlog` | `backlog show` | the backlog rows | no |
+| `buzzni.moai.show-archived` | `show --archived -n 200 --sort id` | the first archive page | no |
+| `buzzni.moai.show-archived-after` | `show --archived -n 200 --sort id --after <id>` | each next archive page | no |
+| `buzzni.moai.wiki-ls` | `wiki ls` | the wiki pages, their links and backlinks | no |
+| `buzzni.moai.wiki-show` | `wiki show <slug>` | one wiki page's body | no |
+| `buzzni.moai.read` | `read <id>` | mark one row read | your own `~/.config/moai/read` only |
+| `buzzni.moai.read-all` | `read --all` | mark every row read | your own `~/.config/moai/read` only |
+| `buzzni.moai.read-group` | `read -e <group>` | mark an epic or milestone and its rows read | your own `~/.config/moai/read` only |
 
-All four declarations copy the Happy daemon's Moai v0.8.0 catalog verbatim, so their digests match what the daemon runs.
-They start from the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs),
-may launch only `git`, and disable stdin.
+Only `add` writes the tracker, so only `add` declares `writeScope` and asks for a one-operation approval each time.
+The `read*` profiles change nothing under `.moai/`: Moai keeps what you have read in your own user config, so they
+carry no `writeScope` and are approved like reads.
+
+The archive can pass the 1 MiB output limit in one read (2.35 MB for 2,289 archived rows in a measured repository), so
+it is read 200 rows a page sorted by id: the first page with `show-archived`, then `show-archived-after` with the last
+id of the page before, until a page comes back with fewer than 200 rows. Moai refuses `--after ''`, which is why the
+first page has its own profile. When `show --all` itself is cut at the limit (the daemon flags `truncated`), the rows
+can fall back to `prime` and the board can say the list is partial.
+
+The run command accepts a value only where the profile takes one (`show`, `wiki-show`, `read`, `read-group`,
+`show-archived-after`: one non-empty string that does not start with `-`, so `read <id>` can never become
+`read --all`; `add`: the title) and refuses one everywhere else.
+
+These declarations are meant to match the Happy daemon's Moai catalog verbatim, so their digests match what the daemon
+runs. The first four are the v0.8.0 catalog; the catalog entries for the others are assumed to match until they are
+checked live (se-0g4a.anz). They start from the workspace root, pass through only `HOME` (Moai user config and the git
+identity a write needs), may launch only `git`, and disable stdin.
 The sample deliberately has no init, tui, wake, hooks, editor, or shell entry points.
 
 ## Board panel

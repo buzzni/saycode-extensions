@@ -5,8 +5,21 @@
  * - A request is `start` (`buzzni.moai.run`) → poll (`buzzni.moai.status` every `pollMs`) → parse.
  * - A read already queued or running with the same profile and value is shared, not started twice.
  * - At most `concurrency` runs are in flight; the rest wait in priority order (detail before wiki before
- *   list). Whether Desktop runs several `machine.run` operations at once is still to be measured
- *   (se-0g4a.fjl), so the default is 1.
+ *   list). The spike (se-0g4a.fjl) found nothing in the SDK, Desktop or daemon that serialises read-only
+ *   profiles, so the panel is to run up to 3 at once ({@link PANEL_CLIENT_OPTIONS}) until Desktop is
+ *   measured live.
+ * - The daemon refuses an overlapping write-scope run at once with `workspace-busy` instead of waiting. A
+ *   shared read refused so goes back to the queue after a backoff (`busyBackoffMs`, then twice that…) and
+ *   is tried up to `busyAttempts` times in all before it resolves refused. A write (`share: false`) is
+ *   never retried: whether to send it again is the user's call.
+ * - The bare defaults are still one run at a time and no busy retry, the 1.x behaviour main.ts and the
+ *   board's jsdom tests (tests/moai.test.mjs) rely on; both are held by other work. Turning the panel over
+ *   is `createClient(bridge, PANEL_CLIENT_OPTIONS)` in main.ts together with those tests.
+ * - The daemon cuts stdout at the profile's `outputLimitBytes` and says so with `truncated: true` (a flag
+ *   on a finished status, not an error code). The outcome carries it as `truncated: true` on the kind it
+ *   would have anyway: cut JSON does not parse, so a cut list is `unreadable` with `truncated: true`
+ *   (every area already explains `unreadable`, and a reader that has a fallback, like the index rows,
+ *   looks for the flag); if the stdout still parses (only stderr was cut) it is `passed` with the flag.
  * - Core's refusal codes, Moai's own errors and a missing `.moai/` come back as an {@link Outcome}, so each
  *   area of the panel can explain its own failure.
  */
@@ -28,7 +41,8 @@ export type RefusalCode = (typeof REFUSAL_CODES)[number]
 export const INFO_REFUSALS: ReadonlySet<RefusalCode> = new Set(['declined', 'approval-timeout', 'workspace-busy'])
 
 export type Outcome =
-  | { kind: 'passed'; output: unknown }
+  /** `truncated`: the daemon flagged a cut at the output limit, yet the stdout still parsed. */
+  | { kind: 'passed'; output: unknown; truncated?: true }
   | { kind: 'refused'; code: RefusalCode }
   /** The start threw, or came back without an operation (an older Desktop, an unknown refusal). */
   | { kind: 'not-started' }
@@ -36,11 +50,14 @@ export type Outcome =
   | { kind: 'not-initialized' }
   | { kind: 'moai-error'; message: string }
   | { kind: 'failed' }
-  /** It passed but stdout was not JSON. */
-  | { kind: 'unreadable' }
+  /** It passed but stdout was not JSON; `truncated` when that is because the daemon cut it at the output limit. */
+  | { kind: 'unreadable'; truncated?: true }
   | { kind: 'cancelled'; mayContinue: boolean }
 
 export type Phase = 'queued' | 'starting' | 'running'
+
+/** What the panel is to run with (se-0g4a.fjl): 3 reads at once, a busy read tried 3 times, 1 s then 2 s apart. */
+export const PANEL_CLIENT_OPTIONS = { concurrency: 3, busyAttempts: 3, busyBackoffMs: 1000 } as const
 
 /** Lower runs first. */
 export const PRIORITY = { detail: 0, wiki: 1, list: 2, background: 3 } as const
@@ -64,6 +81,10 @@ export interface RequestOptions {
 export interface ClientOptions {
   pollMs?: number
   concurrency?: number
+  /** Tries in all for a shared read refused with `workspace-busy` (default 1: no retry). */
+  busyAttempts?: number
+  /** Wait before the first retry; each later one waits that much longer (default 1000 ms). */
+  busyBackoffMs?: number
   sleep?: (ms: number) => Promise<void>
 }
 
@@ -85,7 +106,11 @@ export function outcomeOf(finished: unknown): Outcome {
   if (!isRecord(finished)) return { kind: 'failed' }
   if (finished.state === 'cancelled') return { kind: 'cancelled', mayContinue: finished.remoteMayContinue === true }
   const output = parse(finished.stdout ?? '')
-  if (finished.state === 'passed') return output === null ? { kind: 'unreadable' } : { kind: 'passed', output }
+  const truncated = finished.truncated === true
+  if (finished.state === 'passed') {
+    if (output === null) return truncated ? { kind: 'unreadable', truncated: true } : { kind: 'unreadable' }
+    return truncated ? { kind: 'passed', output, truncated: true } : { kind: 'passed', output }
+  }
   // Moai prints its JSON error on stderr.
   const problem = parse(finished.stderr ?? '') ?? output
   const reason = isRecord(problem) && typeof problem.error === 'string' ? problem.error : null
@@ -109,7 +134,14 @@ interface Pending extends RequestState {
   resolve: (outcome: Outcome) => void
   cancelled: boolean
   share: boolean
+  /** Starts tried so far. */
+  attempts: number
+  /** Waiting out a `workspace-busy` backoff: queued, but not to be picked yet. */
+  held: boolean
 }
+
+/** A shared read Core refused as busy, to be queued again. */
+const RETRY = Symbol('retry')
 
 export interface Client {
   request(profileId: string, value?: string, options?: RequestOptions): Promise<Outcome>
@@ -124,6 +156,8 @@ export const requestKey = (profileId: string, value?: string): string => (value 
 export function createClient(bridge: Bridge, options: ClientOptions = {}): Client {
   const pollMs = options.pollMs ?? 500
   const concurrency = Math.max(1, options.concurrency ?? 1)
+  const busyAttempts = Math.max(1, options.busyAttempts ?? 1)
+  const busyBackoffMs = options.busyBackoffMs ?? 1000
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   const pending: Pending[] = []
   const listeners = new Set<() => void>()
@@ -150,7 +184,8 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
     }
   }
 
-  async function execute(entry: Pending): Promise<Outcome> {
+  async function execute(entry: Pending): Promise<Outcome | typeof RETRY> {
+    entry.attempts += 1
     let started: unknown
     try {
       started = await bridge.invokeCommand(COMMAND.run, entry.value === undefined ? [entry.profileId] : [entry.profileId, entry.value])
@@ -158,7 +193,10 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
       return { kind: 'not-started' }
     }
     const refusal = refusalOf(started)
-    if (refusal) return refusal
+    if (refusal) {
+      const busy = refusal.kind === 'refused' && refusal.code === 'workspace-busy'
+      return busy && entry.share && !entry.cancelled && entry.attempts < busyAttempts ? RETRY : refusal
+    }
     entry.operationId = (started as { operationId: string }).operationId
     entry.phase = 'running'
     notify()
@@ -173,12 +211,24 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
 
   function pump() {
     while (running() < concurrency) {
-      const next = pending.filter((entry) => entry.phase === 'queued').sort((a, b) => a.priority - b.priority || a.seq - b.seq)[0]
+      const next = pending.filter((entry) => entry.phase === 'queued' && !entry.held).sort((a, b) => a.priority - b.priority || a.seq - b.seq)[0]
       if (!next) return
       next.phase = 'starting'
       notify()
-      void execute(next).then((outcome) => settle(next, outcome))
+      void execute(next).then((outcome) => (outcome === RETRY ? requeue(next) : settle(next, outcome)))
     }
+  }
+
+  /** Back to the queue after a backoff; the slot is free meanwhile. A cancel while it waits settles it. */
+  function requeue(entry: Pending) {
+    entry.phase = 'queued'
+    entry.held = true
+    notify()
+    pump()
+    void sleep(busyBackoffMs * entry.attempts).then(() => {
+      entry.held = false
+      if (pending.includes(entry)) pump()
+    })
   }
 
   function sendCancel(entry: Pending) {
@@ -204,7 +254,7 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
       const promise = new Promise<Outcome>((done) => (resolve = done))
       const entry: Pending = {
         key, profileId, value, priority, phase: 'queued', operationId: null,
-        seq: seq++, promise, resolve, cancelled: false, share: requestOptions.share !== false,
+        seq: seq++, promise, resolve, cancelled: false, share: requestOptions.share !== false, attempts: 0, held: false,
       }
       pending.push(entry)
       notify()
