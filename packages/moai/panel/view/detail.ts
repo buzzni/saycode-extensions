@@ -23,16 +23,14 @@ import {
   tagsOf,
   workOf,
 } from './detail-format.ts'
+import { renderMarkdown } from './markdown.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
-/**
- * The body into `parent`: escaped, line breaks kept, nothing parsed. The markdown renderer (E7) takes this
- * function's place — `renderBody(doc, text)` there returns the same kind of element.
- */
+/** The body as markdown (view/markdown.ts: raw HTML stays text, links are only recorded, never followed). */
 export function renderBody(doc: Document, text: string): HTMLElement {
-  const body = el(doc, 'div', { class: 'moai-detail-body' })
-  body.textContent = text
-  return body
+  const { root } = renderMarkdown(doc, text)
+  root.classList.add('moai-detail-body')
+  return root
 }
 
 const STYLE_ID = 'moai-detail-style'
@@ -51,7 +49,7 @@ const STYLE = `
 .moai-detail-mark { display: inline-block; width: 1.2em; color: var(--muted); }
 .moai-detail-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
 .moai-detail-bar > span { display: block; height: 100%; background: var(--ok); }
-.moai-detail-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.moai-detail-body { overflow-wrap: anywhere; }
 .moai-detail h3, .moai-detail summary { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .moai-detail summary { cursor: pointer; }
 .moai-detail-list { margin: 4px 0 0; padding: 0; list-style: none; }
