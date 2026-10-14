@@ -38,12 +38,12 @@
 | `se-pbqz.k84` | 한글 입력 소스는 `event.code`로 읽는다. **실기 확인 남음** |
 | `se-cv7w.0qk` | 툴바(검색·필터·정렬)를 스토어·목록·칸반에 이었다. 툴바는 한 번만 만들고 갱신해 IME 조합이 끊기지 않는다 |
 | `se-jj42` | 위키 탭을 셸에 이었다. 탭을 바꿔도 상태가 복원되고, 라우터가 `wiki.handleKey`를 부른다 |
-| `se-bco3`, `se-poaz` | `main.ts`가 `PANEL_CLIENT_OPTIONS`·`loadAllRows`·잘림 배너·`loadTallies`·`loadArchived({active})`를 쓴다 |
+| `se-bco3`, `se-poaz` | `main.ts`가 `PANEL_CLIENT_OPTIONS`·`loadAllRows`·잘림 배너·`loadTallies`·`loadArchived`를 쓴다 |
 | 스토어 어휘 | 칸 이름 `status`, 사람 이름 `names`, 아카이브 표시 `showArchived`(참이면 보임) |
 
 ### 아직 열려 있는 것
 
-`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-lv9n`(보드 읽기 잔여), `se-mht7`(활동 줄 안내), `se-ehdi.zcx`(NEW 뱃지), 호환 안내 배너, i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
+`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-hd7v`·`se-q1l4`(호환 배너 잔여), `se-4f4s`(잘린 목록의 `r`), `se-ehdi.zcx`(NEW 뱃지), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 
