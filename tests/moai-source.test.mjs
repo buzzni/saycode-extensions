@@ -137,8 +137,13 @@ test('the source names every declared profile', () => {
 /** A client that answers each request from `answers[profileId]` (an outcome, or a function of the value). */
 function fakeClient(answers) {
   const calls = []
+  const cancels = []
   return {
     calls,
+    cancels,
+    cancel(key) {
+      cancels.push(key)
+    },
     async request(profileId, value, options) {
       calls.push({ profileId, value, priority: options?.priority })
       const answer = answers[profileId]
@@ -238,6 +243,15 @@ test('a failed read of either list is the load failure; a missing board says not
   const busy = { kind: 'refused', code: 'workspace-busy' }
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: busy })), { ok: false, outcome: busy })
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed({ not: 'a list' }), [PROFILE.backlog]: passed(BACKLOG) })), { ok: false, outcome: { kind: 'unreadable' } })
+  // show --all alone decides a declined load: the backlog read queued behind it is cancelled, not run.
+  const declined = { kind: 'refused', code: 'declined' }
+  const lone = fakeClient({ [PROFILE.showAll]: declined, [PROFILE.backlog]: passed(BACKLOG) })
+  assert.deepEqual(await loadAllRows(lone), { ok: false, outcome: declined })
+  assert.deepEqual(lone.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog])
+  assert.deepEqual(lone.cancels, [PROFILE.backlog])
+  const whole = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
+  await loadAllRows(whole)
+  assert.deepEqual(whole.cancels, [])
   // The cut fallback reports prime's own failure.
   const cut = fakeClient({ [PROFILE.showAll]: { kind: 'unreadable', truncated: true }, [PROFILE.backlog]: passed(BACKLOG), [PROFILE.prime]: missing })
   assert.deepEqual(await loadAllRows(cut), { ok: false, outcome: missing })

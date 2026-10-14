@@ -24,7 +24,7 @@
  * (se-0g4a.anz) until it is checked live. The catalog's own `buzzni.moai.backlog` is `backlog add`, so the
  * backlog read has an id of its own.
  */
-import { PRIORITY, answerOf, type Client, type Outcome } from './client.js'
+import { PRIORITY, answerOf, requestKey, type Client, type Outcome } from './client.js'
 import { DEFAULT_STATUSES, type Row } from './index.js'
 
 export const PROFILE = {
@@ -117,11 +117,18 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list)
  * `truncated: true`, plus the backlog when that read, without its references to the groups prime leaves out.
  */
 export async function loadAllRows(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Rows>> {
-  const [all, backlog] = await Promise.all([
-    client.request(PROFILE.showAll, undefined, { priority }),
-    client.request(PROFILE.backlog, undefined, { priority }),
-  ])
-  if (all.kind === 'unreadable' && all.truncated) {
+  const listing = client.request(PROFILE.showAll, undefined, { priority })
+  const reading = client.request(PROFILE.backlog, undefined, { priority })
+  const all = await listing
+  const cut = all.kind === 'unreadable' && all.truncated === true
+  if (!cut && answerOf(all) === undefined) {
+    // show --all alone decides this load (declined, no tracker): a backlog read still queued behind it
+    // would only open a second confirmation for a load that already failed.
+    client.cancel(requestKey(PROFILE.backlog))
+    return { ok: false, outcome: all }
+  }
+  const backlog = await reading
+  if (cut) {
     const loaded = await loadRows(client, priority)
     if (!loaded.ok) return loaded
     return { ok: true, value: { rows: withBacklog(loaded.value.rows, answerOf(backlog), ungrouped), more: loaded.value.more, truncated: true } }
