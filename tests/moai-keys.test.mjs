@@ -81,7 +81,7 @@ test('table: the menu and help speak the words they are given; Korean when none'
   assert.equal(view.l.label, 'Deferred')
   assert.equal(view.l.state.label, '[hidden]')
   const sort = Object.fromEntries(menuLayer('SPC s', browse(), TABLE.ja).items.map((i) => [i.key, i]))
-  assert.equal(sort.P.label, '優先度 (末尾に追加)')
+  assert.equal(sort.P.label, '優先度 (追加)')
   const help = helpSections('browse', browse(), 'other', TABLE.zh)
   assert.equal(help[0].title, '移动')
   assert.equal(help[0].rows[0].label, '下移一行')
@@ -881,4 +881,28 @@ test('menu: the menu label fits its cell — SPC v a in every language, and the 
   m.router.press('SPC'); m.router.press('v')
   const label = m.item('a').querySelector('.m-wk-label')
   assert.equal(label.title, label.textContent)
+})
+
+test('menu: no label in any layer outgrows its cell in any language, and the help keeps the long words (se-kd3u)', () => {
+  const width = (text) => [...text].reduce((sum, ch) => sum + (/[\u1100-\uffff]/.test(ch) ? 13 : 7), 0)
+  const ctx = browse()
+  for (const [lang, words] of Object.entries(TABLE)) {
+    for (const path of [['SPC'], ['SPC', 'v'], ['SPC', 's'], ['SPC', 'c'], ['SPC', 'm'], ['SPC', 'o'], ['SPC', 'g'], ['SPC', 'w']]) {
+      for (const item of menuLayer(path, ctx, words).items) assert.ok(width(item.label) <= 126, `${lang} ${path.join(' ')} ${item.key}: ${item.label}`)
+    }
+  }
+  const rows = helpSections('browse', ctx, 'other', TABLE.en).flatMap((s) => s.rows)
+  const longer = (action) => rows.find((r) => r.action === action).label
+  assert.equal(longer('option.detailAt'), 'Details position (left ↔ bottom)')
+  assert.equal(longer('read.group'), 'Mark the group read')
+  assert.equal(longer('view.raw'), 'Raw or rendered')
+  assert.equal(rows.find((r) => r.action === 'sort.add' && r.args?.field === 'priority').label, 'Priority (add at the end)')
+})
+
+test('toolbar: the scope select is capped, so its disabled notes line cannot widen it (se-s3vv)', async () => {
+  const { readFileSync } = await import('node:fs')
+  const css = readFileSync(new URL('style/components.css', panel), 'utf8')
+  const rule = css.match(/\.m-search \.m-select \{[^}]*\}/)?.[0]
+  assert.ok(rule, 'a rule for the search box select')
+  assert.match(rule, /max-width:\s*\d+(\.\d+)?(em|px|ch)/)
 })
