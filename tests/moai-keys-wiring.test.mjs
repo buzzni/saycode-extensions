@@ -487,6 +487,40 @@ test('keys: a click on a filter suggestion keeps the caret in the filter; Tab op
   assert.equal(panel.state().filter.text, 'status=', 'S-Tab took no suggestion')
 })
 
+test('keys: the filter suggestions outlive the window losing the focus, not the filter losing it (se-4fci)', () => {
+  const panel = inEpic()
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  assert.equal(panel.state().toolbar.hintsOpen, true)
+  // The window going away blurs the input but leaves it the active element.
+  filter.dispatchEvent(new panel.dom.window.FocusEvent('blur'))
+  assert.equal(panel.doc.activeElement, filter)
+  assert.equal(panel.state().toolbar.hintsOpen, true, 'a window blur keeps the suggestions')
+  filter.blur()
+  assert.notEqual(panel.doc.activeElement, filter)
+  assert.equal(panel.state().toolbar.hintsOpen, false, 'leaving the filter closes them')
+})
+
+test('keys: outside the wiki ↑/↓ in the search are the input\'s, and ↓ in the filter still moves the suggestions (se-4fci)', () => {
+  const panel = inEpic()
+  panel.press('/')
+  assert.equal(panel.doc.activeElement, panel.shell.toolbar.searchInput)
+  assert.equal(panel.press('ArrowUp').defaultPrevented, false, '↑ moves the caret')
+  assert.equal(panel.press('ArrowDown').defaultPrevented, false, '↓ moves the caret')
+  panel.press('Escape')
+  panel.seq(' ', 'f')
+  const filter = panel.shell.toolbar.filterInput
+  filter.value = 'sta'
+  filter.setSelectionRange(3, 3)
+  filter.dispatchEvent(new panel.dom.window.InputEvent('input', { bubbles: true }))
+  const at = panel.state().toolbar.hintIndex
+  assert.equal(panel.press('ArrowDown').defaultPrevented, true, 'the filter takes ↓ itself')
+  assert.equal(panel.state().toolbar.hintIndex, at + 1)
+})
+
 test('keys: SPC m g in the "(no milestone)" bucket says where to go and writes nothing', () => {
   const calls = []
   const read = { one: async () => null, all: async () => null, group: async (id) => (calls.push(id), null) }

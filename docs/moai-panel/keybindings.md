@@ -35,7 +35,7 @@ moai TUI의 단축키를 세이코드 패널에서 같은 키로 지원할 수 �
 
 ### 해결된 것 (`se-h5c7`, `se-gq4i`, `d30fd6c`)
 
-- 도움말이 열린 동안에는 그 뒤의 컨트롤로 키가 가지 않는다.
+- 도움말이 열린 동안에는 그 뒤의 컨트롤이 받는 키가 가지 않는다. 호스트의 조합(Cmd/Meta, macOS 밖의 Ctrl)은 통과하고(복사 등), Ctrl+Alt와 Enter·Space·Esc·방향키·Home/End·PageUp/PageDown·Backspace/Delete는 막는다(`se-1fy7`, 최종형 `6a1d7ff`).
 - `Tab`은 어떤 동작이 쓸 때만 막는다. 핸들러가 키를 브라우저에 맡길 수도 있다. 위키 검색은 `Tab`/`S-Tab`/`↑`을 자기가 쓴다. 위키 모드에서 탭 버튼의 `Tab`은 포커스를 평소대로 옮긴다.
 - 포커스된 탭 버튼에서 `SPC`는 SPC 메뉴를 연다.
 - 위키 목록에서 `PageDown`/`C-d`는 커서를 옮긴다.
