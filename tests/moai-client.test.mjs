@@ -152,9 +152,9 @@ test('a start that throws or is refused is an outcome, and the next request stil
       return command === 'buzzni.moai.run' ? { state: 'accepted', operationId: 'op' } : passed({})
     },
   }, { sleep: () => flush() })
-  assert.deepEqual(await client.request('buzzni.moai.prime'), { kind: 'not-started' })
+  assert.deepEqual(await client.request('buzzni.moai.prime'), { kind: 'not-started', code: 'binding-mismatch' })
   assert.deepEqual(await client.request('buzzni.moai.prime'), { kind: 'refused', code: 'workspace-busy' })
-  assert.deepEqual(await client.request('buzzni.moai.prime'), { kind: 'not-started' })
+  assert.deepEqual(await client.request('buzzni.moai.prime'), { kind: 'not-started', code: 'something-new' })
   assert.equal((await client.request('buzzni.moai.prime')).kind, 'passed')
 })
 
