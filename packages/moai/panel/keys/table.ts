@@ -88,8 +88,8 @@ export type KeyLabel =
   | "focus.next" | "focus.prev" | "focus.left" | "focus.right" | "focus.up" | "focus.down"
   | "enter" | "leave" | "expand" | "collapse" | "expandAll" | "search" | "clear" | "read" | "help"
   | "filter" | "add" | "tab.list" | "tab.board" | "tab.wiki"
-  | "view.deferred" | "view.backlog" | "view.archived" | "view.all" | "view.allHelp" | "view.detail" | "view.raw"
-  | "sort.edit" | "read.all" | "read.group" | "option.detailAt" | "menu.close" | "menu.up"
+  | "view.deferred" | "view.backlog" | "view.archived" | "view.all" | "view.allHelp" | "view.detail" | "view.raw" | "view.rawHelp"
+  | "sort.edit" | "read.all" | "read.group" | "read.groupHelp" | "option.detailAt" | "option.detailAtHelp" | "menu.close" | "menu.up"
   | "prompt.apply" | "prompt.cancel" | "prompt.next" | "prompt.prev" | "prompt.up" | "prompt.down" | "prompt.clear" | "prompt.deleteWord"
   | "sorter.down" | "sorter.up" | "sorter.lower" | "sorter.raise" | "sorter.toggle" | "sorter.flip" | "sorter.apply" | "sorter.default" | "sorter.cancel"
   | "wiki.enter" | "wiki.back" | "wiki.page" | "wiki.nextLink" | "wiki.prevLink" | "wiki.search" | "wiki.clear"
@@ -259,6 +259,7 @@ const sortBindings: Binding[] = SORTS.flatMap(([key, field]): Binding[] => [
     args: { field },
     keys: [`SPC s ${key.toUpperCase()}`],
     label: (w) => w.sortAdd(w.sortFields[field]),
+    helpLabel: (w) => w.sortAddHelp(w.sortFields[field]),
     group: "sort",
     kind: "toggle",
     modes: BROWSE_ONLY,
@@ -309,6 +310,7 @@ const MENU: ReadonlyArray<Binding> = [
     action: "view.raw",
     keys: ["SPC v r"],
     label: "view.raw",
+    helpLabel: "view.rawHelp",
     group: "view",
     kind: "toggle",
     modes: BOTH,
@@ -320,11 +322,12 @@ const MENU: ReadonlyArray<Binding> = [
   { action: "sort.edit", keys: ["SPC s e"], label: "sort.edit", group: "sort", modes: BROWSE_ONLY },
   ...cellBindings,
   { action: "read.all", keys: ["SPC m a"], label: "read.all", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
-  { action: "read.group", keys: ["SPC m g"], label: "read.group", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
+  { action: "read.group", keys: ["SPC m g"], label: "read.group", helpLabel: "read.groupHelp", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
   {
     action: "option.detailAt",
     keys: ["SPC o d"],
     label: "option.detailAt",
+    helpLabel: "option.detailAtHelp",
     group: "option",
     kind: "toggle",
     modes: BROWSE_ONLY,

@@ -84,7 +84,9 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
 .m-search .m-icon { width: 14px; height: 14px; }
 .m-search input { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 13px/1.5 var(--font); }
 .m-search input::placeholder { color: var(--muted); opacity: .8; }
-.m-search .m-select { min-height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
+.m-search .m-select { min-height: 24px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: 12px;
+  /* A select is as wide as its widest option: the disabled "notes are not searched" line (se-thyl) must not set it. */
+  flex: 0 0 auto; max-width: 8em; text-overflow: ellipsis; }
 
 /* Menus and popovers. */
 .m-menu {

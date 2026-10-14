@@ -21,11 +21,13 @@
   | E4 `se-cv7w` 검색·필터·정렬 | `query.ts`, `toolbar.ts`, 스토어·목록·칸반 연결(`se-cv7w.0qk`) | 없음 (완료, `997aed0`). 설정은 세션 동안만 기억하고 영속은 `se-c9mu`(SDK API 대기) |
   | E5 `se-pbqz` 단축키 | 키 표·라우터·SPC 메뉴·도움말, 패널 연결(`se-jwl3`), 한글 입력 소스(`se-pbqz.k84`), 키 소유 잔여(`se-h5c7`), 포커스 힌트 위치(`se-gq4i`) | 없음 (완료). 칸반·상세 제자리 갱신 `se-mzlx` |
   | E6 `se-ehdi` 읽음 | 판정·쓰기, 읽음 키 `r` / `SPC m a` / `SPC m g`, 아카이브 행 NEW 끔, NEW 칩(목록 행·칸반 카드·상세 머리), 탭 뱃지(프로젝트 전체 안 읽음 수, `se-ehdi.zcx`), 읽음 표시 뒤 열린 상세 다시 읽기 | 없음 (완료) |
-  | E7 `se-rhu3` 위키 | 렌더러, 위키 뷰, 검색·역링크·링크 따라가기, 라이브 프로필, 셸의 위키 탭(`se-jj42`) | 없음 (완료). 위키 문구 번역은 backlog `se-ti70` |
-  | E8 `se-bz5y` 출시 | 사용자 문서 `PANEL.md`, 2.0.0, README 호환 표, 크기·pack 점검, 호환 점검 데이터 쪽(`se-93p3`), 이 위키 | i18n `se-bz5y.m35` |
+  | E7 `se-rhu3` 위키 | 렌더러, 위키 뷰, 검색·역링크·링크 따라가기, 라이브 프로필, 셸의 위키 탭(`se-jj42`) | 없음 (완료). 위키 문구 번역은 `se-ti70`에서 끝남 |
+  | E8 `se-bz5y` 출시 | 사용자 문서 `PANEL.md`, 2.0.0, README 호환 표, 크기·pack 점검, 호환 점검 데이터 쪽(`se-93p3`), i18n 4개 언어(`se-bz5y.m35`, `se-ti70`, `19c43c5`), 에픽 끝 리뷰(`se-bz5y.v5b`), 이 위키 | 열린 이슈 `se-1t2r`, `se-5y3p`, `se-kd3u`, `se-s3vv`(2.0.8절) |
 
 - **지금 머지된 패널이 하는 일.** 탭 바(칸반·목록·위키), 경로줄, 툴바(검색·필터·정렬·보기·열), 칸반·목록·상세 뷰, 분할과 리사이저, SPC 메뉴·`?` 도움말·kbd 힌트, 위키 탭, 읽음 키가 모두 `main.ts`에 이어져 있다. 시작 때 `PANEL_CLIENT_OPTIONS`(동시 3·`workspace-busy` 재시도)로 `loadAllRows`가 `show-all`과 `backlog-all`을 읽고, 잘리면 `prime`으로 물러나 **잘림 배너**를 단다. 보드 셈은 `loadTallies`, 아카이브는 `loadArchived`다(활성 표시는 `data/source.ts`의 `withArchive`/`activeIds`가 붙인다). 행은 도착하는 대로 보드에 나오고, `status` 셈은 늦게 같은 보드에만 적용된다. 새로 고침은 자기 셈이 올 때까지 이전 셈을 둔다. `loadBoard`는 `status` 읽기를 기다리지 않는다. 아카이브 읽기 실패는 보드 실패가 아니라 배너의 `archiveProblem` 줄로 따로 보인다. 잘린 목록(`show --all` 잘림)에서는 완료 칸에 서지 않은 아카이브 행(묶음은 구성원의 칸 기준)을 활성으로 본다. 활동 줄은 한 실행이 돌고 다른 실행이 확인을 기다리면 "실행 중"과 "확인 창에서 승인"을 함께 보여 준다. 호환 안내 배너(moai 올리기·데몬 카탈로그 업데이트·moai 설치)는 `main.ts`의 `CompatProbe` 하나에서 나온다. 숨은 탭에서도 갱신기가 다시 확인하고, 실행이 시작되면 `tool-missing`이 지워진다.
 - **키 소유는 라우터 한 곳이다.** 목록·칸반·위키·툴바가 따로 keydown을 처리하던 것을 정리해 `keys/router.ts`가 단일 키 주인이 되었다(`keys/wiring.ts`가 액션을 각 뷰에 나눠 준다). 입력창·IME 중에는 라우터가 물러나고, 포커스된 버튼·체크박스에서는 `Enter`/`Space`가 컨트롤의 것이다. 도움말이 열린 동안 라우터는 조용하다.
+- **문구는 모두 i18n에서 나온다**(`se-ti70`, `se-bz5y.m35`). 패널의 모든 라벨이 en·ko·ja·zh 표에서 풀린다. 키 표 id의 라벨은 `copy.table`, 위키는 `copy.wiki`, 영어는 moai TUI의 `tui.*` 문구를 따른다. 영어 패널에 한국어가 남지 않는다. `SPC v a`는 메뉴에서 짧은 라벨이고 전체 문구는 도움말에 있다. 검색 범위 select의 마지막 줄은 노트를 검색하지 않는다고 말한다.
+- **호환 배너 문구**(`se-xee6`, `se-ka0w`, `se-93p3`). 사람 결정에 따라 `unread`는 compat `ORDER`에서 빠졌다. 0.16도 `unread`를 찍고 키는 안 읽음 0이면 없어서 부재를 "기능 없음"으로 읽을 수 없다. 0.16은 마일스톤·에픽 셈과 아카이브 쪽 나누기를 이미 갖고 있어(README 호환 절) **배너가 아예 없다**. 보드를 대체로 읽은 이유는 배너가 따로 말한다: `shell.backlogFailed`(backlog 읽기가 거부·실패해 빠졌을 때)와 `shell.primeOnly`(카탈로그에 `show --all`이 없어 잡은 것과 준비된 것만 남았을 때).
 - **한글 입력 소스.** 글자 키가 `ㅓ`나 `Process`로 오면 `event.code`(`KeyA`~`KeyZ`, `Digit0`~`Digit9`)의 US 배열 글자로 읽는다(`router.ts` `codeKey`). **실기 확인은 아직 남았다**(`se-0g4a.zrf`).
 - **툴바는 한 번만 만든다.** 데이터가 바뀔 때 다시 그리지 않고 값만 갱신하므로 입력 중인 IME 조합이 끊기지 않는다(`view/toolbar.ts`).
 - **스토어 어휘.** 칸 이름은 `status`(`statuses`), 사람 이름은 `names`, 아카이브 표시는 `showArchived`다. `showArchived`는 **참이면 아카이브 행을 보인다**(기본 거짓). 위키 탭 상태(trail·검색·선택)는 탭을 바꿔도 저장·복원된다.
@@ -96,6 +98,7 @@
 - sandbox에 `allow-same-origin`이 없으면 프레임 origin이 opaque라서 `localStorage` 접근이 `SecurityError`를 낸다. 그래서 백엔드는 getter로 받고, 읽기·쓰기가 하나라도 던지면 **그 세션 동안만 메모리에 둔다**. 저장 실패는 패널을 멈추지 않고 기본값으로 돌아갈 뿐이다.
 - `storage.read`/`storage.write` 권한은 쓰지 않는다. 액션 시그니처가 이 저장소에 없기 때문이다. 순서(localStorage → `storage.*` → 세션)는 설계와 같지만 가운데 단계는 비어 있다.
 - 읽은 값은 `normalizeMemory`가 모두 정리한다. 모르는 탭이나 범위를 벗어난 비율은 기본값으로 떨어지고, 값이 하나도 없어도 기본(탭 칸반, 상세 표시, 아래, 비율 기본값)으로 뜬다.
+- 기본 정렬은 `State.defaultSort`다(내장 순서에서 시작해 `D`와 `remember()`가 저장한 값으로 바뀐다). 정렬을 비우면 이 값으로 돌아가고 경로줄의 "sort …"도 이 값과 견준다(`se-ka0w`가 store·툴바 정렬 설정을 맞췄고, 경로줄 `crumbs.ts`는 `se-1t2r`이 남았다).
 - 검색·필터·정렬·열·보기 설정과 기본 정렬(`D`)은 `memory.ts`의 `SettingsStorage` 이음새로 **세션 수준**에서 기억한다(`se-cv7w.lca`, `se-5air`). 정렬이 기본값이면 질의에는 `sort: null`로 남겨, 사용자가 고른 정렬만 기억한다. 저장소가 던지면 값을 잊을 뿐 패널은 멈추지 않는다. Desktop 조사(2.0.9절) 결과 프레임 origin이 opaque라 `localStorage`가 던질 것으로 보이므로 위 기억은 **세션 동안만** 유지된다. 영속은 SDK 설정 저장 API가 오면 같은 키로 잇는다(`se-c9mu`, 상류 요청서 4절).
 
 ### 2.0.6 읽음, 아카이브, 보드 셈
@@ -103,7 +106,7 @@
 - **안 읽음 판정은 패널이 계산하지 않는다.** CLI가 `show --json` 행과 `show <id> --json`에 `"unread": true`를 찍어 준다. 안 읽음이 아니면 키 자체가 없고 `false`는 나오지 않는다. 패널은 `row.unread === true`만 본다. 사람을 모르거나 읽음 표를 못 읽으면 어느 행에도 키가 없고 NEW는 꺼진다. 상류 `moai-cqwy`의 동작이고 moai 0.17.0에서 **확인됐다**.
 - **아카이브 행은 NEW가 되지 않는다.** `isUnread`는 `archived: true`가 붙은 행을 건너뛴다. `moai read`가 활성 행만 풀기 때문에, 아카이브에서만 온 행의 NEW는 지울 방법이 없기 때문이다(`se-fvou`). `withArchive`(`loadArchived({ active })`도 같은 규칙)는 지금 가진 활성 행에 없는 id만 `archived: true`로 표시한다. moai 0.17.0은 `show --archived` 행 가운데 `show --all`이 아카이브로 숨기는 행에 같은 뜻의 `archived: true`를 스스로 찍는다. 패널은 moai가 찍은 행은 그대로 두고, 안 찍힌 행은 예전처럼 활성 행에 없으면 붙인다 — 아카이브를 읽은 뒤 시계가 아카이브해 다시 읽은 활성 목록에서 빠진 행(아카이브를 읽을 때는 활성이라 안 찍혔다)과 옛 moai 때문이다(`se-ydco`). 그래서 상류에는 "아카이브 읽음" 요청을 하지 않았다.
 - **읽음 키.** `r`(커서의 행), `SPC m a`(모두), `SPC m g`(커서 그룹)가 각각 `read`, `read-all`, `read-group`을 부르고, 쓰고 나면 다시 읽는다. 그룹이 없는 자리("마일스톤 없음")에서는 `SPC m g`가 안내 문구만 보인다. 쓰고 나면 열린 상세도 다시 읽어 NEW가 목록·칸반·뱃지와 함께 풀린다. 목록이 잘려(prime) 아카이브 행을 보이는 중이면 아카이브 답도 다시 읽는다.
-- **NEW 칩과 탭 뱃지**(`se-ehdi.zcx`). 목록 행·칸반 카드·상세 머리에 `NEW` 칩이 붙고, 칸반·목록 탭에는 안 읽은 수 뱃지가 붙는다. 뱃지 수는 **프로젝트 전체** 합이라 두 탭이 같은 수를 보이고 `SPC m a`가 쓰는 수와 같다. 보기 토글·다른 장소·에픽(칸반)·쌍둥이 id로 가려진 행도 센다. 탭이 좁아 라벨이 숨으면 `aria-label`이 `<라벨> <수>`가 된다. 옛 moai처럼 `unread`가 없으면 호환 배너가 "Upgrade moai (NEW marks)"를 말한다.
+- **NEW 칩과 탭 뱃지**(`se-ehdi.zcx`). 목록 행·칸반 카드·상세 머리에 `NEW` 칩이 붙고, 칸반·목록 탭에는 안 읽은 수 뱃지가 붙는다. 뱃지 수는 **프로젝트 전체** 합이라 두 탭이 같은 수를 보이고 `SPC m a`가 쓰는 수와 같다. 보기 토글·다른 장소·에픽(칸반)·쌍둥이 id로 가려진 행도 센다. 탭이 좁아 라벨이 숨으면 `aria-label`이 `<라벨> <수>`가 된다. `unread` 키가 없는 것은 안 읽음 0과 구별되지 않으므로(0.16도 `unread`를 찍는다) 호환 배너는 NEW 표시를 말하지 않는다(`se-xee6`).
 - **읽음 쓰기**는 `read <id>`, `read --all`, `read -e <group>`이다. 결과 JSON은 `{read, missing, held, problems, at}`이고, 없는 id나 그룹이 있어도 나머지를 쓰고 0이 아닌 코드로 끝나지만 그 답은 그대로 넘긴다. 쓰기 후에는 늘 다시 읽는다.
 - **설계와 다른 점.** 설계 4.9절은 "화면에 그린 행의 `updated_at`을 적는다"고 했지만, CLI는 값을 받지 않고 행의 **현재** `updated_at`을 적는다. 그린 뒤 바뀐 행도 새 버전으로 읽음 처리된다. 결과에 id별 `updated_at`이 없어 낡은 그림을 쓰기 결과로는 알 수 없다. 패널은 쓰기 뒤 다시 읽은 행과 그린 행을 비교(`staleAgainst`)할 수 있을 뿐이다. 상류에 값 지정(`read --seen`)을 요청하는 일은 moai 0.17.0에도 들어오지 않았고 backlog(`se-a5wl`)에 그대로 있다.
 - **미룸·마일스톤·아카이브 파생값.** moai 0.17.0은 행에 `derived_milestone`, `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`를 해당할 때만 찍는다. 인덱스(`index.ts` 선반·`archiveCandidate`)와 질의 렌즈(`query.ts`)는 키가 있으면 그 값을 쓰고, 없으면 `nav.rs` 규칙대로 직접 계산한다. 키가 없는 것은 "아님"이 아니라 "모름"으로 읽는다(옛 moai에는 키가 아예 없다). 실제 0.17 출력에서 두 길의 답이 같은지는 `tests/fixtures/moai/*-v017.json`으로 시험한다(`se-ydco`).
@@ -115,18 +118,23 @@
 - 렌더러(`view/markdown.ts`)는 제목·문단·중첩 목록·코드·인용·표·가로줄·강조·링크에 더해 HTML 엔티티, 참조 링크, 취소선, 작업 목록을 지원한다. raw HTML은 모두 이스케이프하고 `href` 없는 링크는 남기지 않는다. 강조 파싱은 선형 시간이다(리뷰에서 지수 시간 백트래킹을 고쳤다).
 - 위키 뷰(`view/wiki.ts`)는 목록·본문 2단, 검색(제목·본문), 역링크, 링크 순환(Tab), 되감기 trail, GitHub 앵커, 이슈 id 점프를 한다. 본문 이슈 id는 `wiki ls`의 `issues[]`로 링크가 된다.
 - 라이브 프로필 로더(`loadWikiListing`, `loadWikiPage`)는 Moai가 낸 JSON을 가공하지 않고 넘기고, 뷰가 해석한다.
-- **셸에 붙었다**(`se-jj42`). 위키 탭은 `PANES`에 등록되어 `loadWikiListing`/`loadWikiPage`로 라이브 페이지를 읽는다. 탭을 바꿔도 trail·검색·선택이 저장·복원되고, 처음 목록 읽기가 실패하면 탭을 다시 보일 때 다시 읽는다. 키는 라우터가 `wiki.handleKey`를 `standaloneKeys: false`로 불러 처리한다. 위키 본문 문구는 한국어 고정이다(`se-ti70`).
+- **셸에 붙었다**(`se-jj42`). 위키 탭은 `PANES`에 등록되어 `loadWikiListing`/`loadWikiPage`로 라이브 페이지를 읽는다. 탭을 바꿔도 trail·검색·선택이 저장·복원되고, 처음 목록 읽기가 실패하면 탭을 다시 보일 때 다시 읽는다. 키는 라우터가 `wiki.handleKey`를 `standaloneKeys: false`로 불러 처리한다. 위키 문구는 `copy.wiki`에서 en·ko·ja·zh로 나온다(`se-ti70`).
 
 ### 2.0.8 아직 열려 있는 것 (2026-10-14)
 
-`se-h5c7`(키 소유 잔여)와 `se-gq4i`(포커스 힌트 위치)는 `d30fd6c`로 끝났다.
+`se-h5c7`(키 소유 잔여)와 `se-gq4i`(포커스 힌트 위치)는 `d30fd6c`로 끝났다. i18n(`se-bz5y.m35`, `se-ti70`)과 E8 리뷰 `se-bz5y.v5b`도 `19c43c5`로 머지됐다.
 
 | 이슈 | 내용 |
 |---|---|
-| (E8) | i18n `se-bz5y.m35`, 위키·도움말·메뉴·키 표 라벨 번역 `se-ti70` |
+| `se-1t2r` | 경로줄이 `D`로 저장한 기본 정렬이 아니라 내장 순서와 견주어 "sort …"를 계속 보인다(`view/crumbs.ts`). 진행 중 |
+| `se-5y3p` | unread 호환 잔여: `view/shell.ts` 주석, `data/compat.ts`의 `observeRows`. 문서 쪽은 이 위키 갱신으로 끝난다 |
+| `se-kd3u` | 영어 which-key 라벨이 SPC 메뉴 칸보다 넓다. 짧은 메뉴 라벨과 `helpLabel`을 네 언어로. 진행 중 |
+| `se-s3vv` | 검색 범위 select가 "Notes are not searched" 줄 너비까지 커진다. `.m-select`에 `max-width`. 진행 중 |
 | `se-c9mu` | SDK 설정 저장 API가 오면 `memory.ts` 백엔드를 이어 설정을 영속(workspace·global) |
 
-2.0 밖(사람 결정 2026-10-14): `se-qxeh` note 검색 범위 되살리기는 2.0 뒤로 미뤘다. 2.0은 노트를 검색하지 않고 낸다. 호환 배너 "Upgrade moai (NEW marks)"(0.16)는 그대로 둔다. SDK에는 설정 저장 API를 요청했다(상류 요청서 4절).
+2.0 밖(사람 결정 2026-10-14): `se-qxeh` note 검색 범위 되살리기는 2.0 뒤로 **미뤘다**(deferred). 2.0은 노트를 검색하지 않고 낸다. SDK에는 설정 저장 API를 요청했다(상류 요청서 4절, `se-dnas`).
+
+**E0의 남은 실기 확인**(에픽 `se-0g4a` 3/7): 데몬 카탈로그에 새 프로필 7개를 더하는 일(`se-0g4a.anz`, happy-cli 쪽), Desktop `localStorage`(`se-0g4a.y91`)와 iframe 키 도달·포커스(`se-0g4a.zrf`) 스파이크, 동시 실행과 출력 한도 실측의 리뷰(`se-0g4a.fjl`)다. 데몬 카탈로그가 갱신되기 전에는 호환 배너가 해당 기능이 꺼졌다고 말한다.
 
 끝난 것: E4 `se-cv7w`(`997aed0`, `se-5air` 정렬 편집기 `D` 저장·`se-cv7w.lca` 세션 수준 영속·epic-end 리뷰 `se-cv7w.4xy`), `se-mzlx`(칸반 j/k·검색 시 제자리 갱신), `se-ehdi.zcx`(NEW 칩·탭 뱃지), `se-q0u4`(`SPC v a`는 "모두 보이기 (아카이브 제외)"로 두고 아카이브는 `SPC v o`), `se-4fci`(창 포커스를 잃어도 필터 제안이 닫히지 않고, `prompt.up/down`은 위키 밖에서 키를 쓴 것으로 보고하지 않음), `se-p314`(상세가 compat 배너가 이미 말한 거부를 되풀이하지 않음), `se-mt96`·`se-haiw`(보드 읽기 degrade, not fail: `show-all`이 없으면 `prime`(+backlog), `backlog-all`이 없으면 backlog 없이 목록, 둘 다 없으면 `prime`. 카탈로그 줄이 없는 것을 이름으로 말한다).
 
