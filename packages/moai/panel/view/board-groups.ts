@@ -37,6 +37,11 @@ export interface BoardModel {
   lanes: BoardLane[]
   /** Cards drawn, across all lanes. */
   total: number
+  /**
+   * The cursor's card is drawn only because it has the cursor (its column hidden, the filter or the archive age
+   * would drop it): once the cursor leaves it, the card goes, so a cursor move cannot be drawn in place.
+   */
+  pinned: boolean
 }
 
 export interface BoardLook {
@@ -105,17 +110,21 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
   const match = look.match ?? (() => true)
   // A hidden column goes, and so does a row the list would archive; a card that has the cursor keeps its place.
   // The list's filter and search drop a card first; a search on (`reveal`) lifts the hiding, as in the list.
-  const shown = (at: number) => {
-    if (at === cursorAt) return true
+  const passes = (at: number) => {
     if (!match(at)) return false
     if (look.reveal) return true
     if (hides(columnOf(index, at))) return false
     // Cards are work and open thoughts: a group is never a card, so no members to date it by.
     return view.showArchived === true || !archiveCandidate(index.rows[at]!, now, ARCHIVE_DAYS)
   }
+  const shown = (at: number) => at === cursorAt || passes(at)
   const kept = cards.filter(shown)
   const found = look.reveal ? new Set(kept.map((at) => columnOf(index, at))) : null
   const keys = all.filter((key) => !hides(key) || key === cursorColumn || found?.has(key))
+  // What only the cursor keeps: its card, or (the cursor on a group, say) the hidden column it stands in.
+  const pinned =
+    (cursorAt !== undefined && kept.includes(cursorAt) && !passes(cursorAt)) ||
+    (cursorColumn !== undefined && hides(cursorColumn) && !found?.has(cursorColumn))
 
   const compare = look.sort ? sortCompare(look.sort) : displayOrder
   const order = (a: number, b: number) => compare(index.rows[a]!, index.rows[b]!)
@@ -125,7 +134,7 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
     columns: keys.map((key) => ({ key, cards: members.filter((m) => columnOf(index, m) === key).sort(order) })),
   })
 
-  if (path.length) return { keys, lanes: kept.length ? [make(null, kept)] : [], total: kept.length }
+  if (path.length) return { keys, lanes: kept.length ? [make(null, kept)] : [], total: kept.length, pinned }
 
   const bySeg = new Map<Seg | null, number[]>()
   for (const at of kept) {
@@ -144,5 +153,5 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
     const home = seg !== null && seg.startsWith('m:') && seg !== NO_MILESTONE ? index.find(seg.slice(2)) : undefined
     return make(seg, bySeg.get(seg)!, home)
   })
-  return { keys, lanes, total: kept.length }
+  return { keys, lanes, total: kept.length, pinned }
 }

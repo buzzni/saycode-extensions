@@ -11,6 +11,7 @@
 
 import { pathKey, priorityOf, type IssueIndex, type Keep, type Order, type Path } from "../data/index.ts"
 import { sortEdit, sees, type SortKey } from "../data/query.ts"
+import { isUnread } from "../data/read.ts"
 import type { State } from "../store.ts"
 import { button, el, emptyState, icon } from "./components.ts"
 import { segLabel } from "./crumbs.ts"
@@ -18,6 +19,7 @@ import {
   columnSet, firstKey, folderOf, HEAD_SORT, hiddenUnder, hidesAnything, listLines, moveKey, narrow, parentLine, segKey, shortDate, SHOW_ALL,
   sortOrder, statusGlyph, statusOf, twigText, windowRange, revealOffset, type ColumnSet, type ListLine, type RightColumn,
 } from "./list-model.ts"
+import { newChip } from "./unread.ts"
 import { highlight } from "./toolbar.ts"
 import type { MountPane, PaneView } from "./types.ts"
 
@@ -200,6 +202,8 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     const title = cell("m-row-title")
     const twig = line.kind === "up" ? "" : twigText(line.twig)
     if (twig) title.append(el(doc, "span", { class: "moai-twig", "aria-hidden": "true" }, twig))
+    // NEW stands after the twig and before the name (design §4.1); the title cell stays one line, so the row keeps its height.
+    if (row && isUnread(row)) title.append(newChip(doc), " ")
     const name = line.kind === "up" ? copy.up : line.kind === "bucket" ? segLabel(line.seg, index, copy) : String(row!.title ?? row!.id)
     title.append(...(line.kind === "row" ? painted(name, "title") : [name]), folder ? "/" : "")
     if (revealed) title.append(" ", el(doc, "span", { class: "m-chip moai-hidden-mark" }, words.hiddenMark))

@@ -474,3 +474,15 @@ test('narrow: a day in the filter is the reader\'s own day, not a UTC one', () =
     else process.env.TZ = zone
   }
 })
+
+test('list view: NEW before the name on unread rows only; archived rows and a source that says nothing show none (se-ehdi.zcx)', () => {
+  const rows = ROWS.map((row) => (row.id === 'se-e1.b' ? { ...row, unread: true } : row.id === 'se-e1.c' ? { ...row, unread: true, archived: true } : row))
+  const { lines } = mount(rows, { state: { path: EPIC, view: { ...initialState().view, showArchived: true } } })
+  const chip = (id) => lines().find((line) => line.dataset.key === id).querySelector('.m-chip-new')
+  assert.equal(chip('se-e1.b').textContent, 'NEW')
+  assert.match(lines().find((line) => line.dataset.key === 'se-e1.b').querySelector('.m-row-title').textContent, /^NEW Board$/)
+  assert.equal(chip('se-e1.a'), null, 'a read row')
+  assert.equal(chip('se-e1.c'), null, 'an archive row is never NEW (moai read cannot clear it)')
+  const none = mount(ROWS, { state: { path: EPIC } })
+  assert.equal(none.root.querySelector('.m-chip-new'), null, 'no row carries unread: NEW is off')
+})

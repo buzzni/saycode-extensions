@@ -6,11 +6,13 @@
  * within a column, h/l to the next column, Enter to show the card — and the cards listen for none.
  */
 import { isDone, type IssueIndex, type Row } from '../data/index.js'
+import { isUnread } from '../data/read.js'
 import type { State } from '../store.js'
 import { BACKLOG, DEFERRED, groupBoard, type BoardLane, type BoardModel } from './board-groups.ts'
 import { segLabel } from './crumbs.ts'
 import { narrow, segKey, statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
+import { newChip } from './unread.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
 /** The same letters as the TUI, so a state is never told by colour alone. */
@@ -49,7 +51,10 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
       const [d, w] = index.tally(index.dirPath(at))
       if (w) first.append(' ', el(doc, 'span', { class: 'm-count' }, `${d}/${w}`))
     }
-    const lines: Node[] = [first, el(doc, 'div', { class: 'm-card-title' }, row.title ?? row.id)]
+    const title = el(doc, 'div', { class: 'm-card-title' })
+    if (isUnread(row)) title.append(newChip(doc), ' ')
+    title.append(row.title ?? row.id)
+    const lines: Node[] = [first, title]
     const extras: Node[] = []
     if (state.columns.assignee && row.assignee) extras.push(chip(doc, { label: String(row.assignee) }))
     if (state.columns.epic) {
@@ -115,7 +120,31 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
   const pane = el(doc, 'div', { class: 'm-board-pane', 'aria-label': ctx.copy.board.label })
   root.replaceChildren(pane)
   let cursor: string | null = null
-  let drawn: { state: State; index: IssueIndex; model: BoardModel } | null = null
+  let drawn: { state: State; index: IssueIndex; model: BoardModel; key: string } | null = null
+  let narrowed: { index: IssueIndex; key: string; value: ReturnType<typeof narrow> } | null = null
+
+  /**
+   * Only the cursor moved (the cards, their order and the columns are what they were): move the selection mark and
+   * the tab stop between cards instead of drawing the board again. False when that cannot be told from the DOM:
+   * a new cursor with no card drawn (it may add a column), or a card drawn only because the cursor was on it.
+   */
+  function inPlace(state: State, index: IssueIndex, drawKey: string): boolean {
+    if (!drawn || drawn.index !== index || drawn.key !== drawKey || drawn.model.pinned || !drawn.model.total) return false
+    const cards = [...pane.querySelectorAll<HTMLElement>('.m-card')]
+    const target = state.cursor === null ? undefined : cards.find((node) => node.dataset.id === state.cursor)
+    if (state.cursor !== null && !target) return false
+    for (const node of cards) {
+      const selected = String(node === target)
+      if (node.getAttribute('aria-selected') !== selected) node.setAttribute('aria-selected', selected)
+    }
+    const stop = target ?? cards[0]
+    for (const node of cards) {
+      const want = node === stop ? '0' : '-1'
+      if (node.getAttribute('tabindex') !== want) node.setAttribute('tabindex', want)
+    }
+    drawn.state = state
+    return true
+  }
 
   /**
    * A key-table action (keys/wiring.ts): moves stay inside the cursor's column — one run from the top lane to the
@@ -196,13 +225,19 @@ export const mountBoard: MountPane = (root, ctx): PaneView => {
       const active = doc.activeElement as HTMLElement | null
       const key = active && pane.contains(active) ? active.dataset?.focus : undefined
       if (index) {
-        // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
-        const narrowed = narrow(state, index)
-        const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: narrowed.match, reveal: narrowed.searching })
-        drawn = { state, index, model }
-        pane.replaceChildren(...draw(ctx, state, index, model))
+        // What the cards are drawn from. The cursor is not in it: a cursor move changes two cards' marks, not the board.
+        const drawKey = JSON.stringify([state.path, state.view, state.sort, state.search.text, state.search.scope, state.filter.applied, state.columns])
+        if (!inPlace(state, index, drawKey)) {
+          // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
+          if (!narrowed || narrowed.index !== index || narrowed.key !== drawKey) narrowed = { index, key: drawKey, value: narrow(state, index) }
+          const found = narrowed.value
+          const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: found.match, reveal: found.searching })
+          drawn = { state, index, model, key: drawKey }
+          pane.replaceChildren(...draw(ctx, state, index, model))
+        }
       } else {
         drawn = null
+        narrowed = null
         pane.replaceChildren()
       }
       if (key !== undefined) {

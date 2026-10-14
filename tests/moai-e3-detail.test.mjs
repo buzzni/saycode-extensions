@@ -280,3 +280,42 @@ test('roll-up: a milestone or epic counts as the list does, with the `moai statu
   // The done members the index does not hold count as done: the statuses add up to the total.
   assert.deepEqual(rollup.byStatus, [['todo', 1], ['in_progress', 1], ['done', 4]])
 })
+
+test('pane: a search keystroke repaints the id and title only; the body and sections stay (se-mzlx)', () => {
+  const { root, view } = mount()
+  const row = { ...ROWS[3], body: 'some **body**' }
+  const state = stateWith({ value: { id: row.id, row } })
+  view.render(state, index)
+  const body = root.querySelector('.moai-detail-body')
+  const journal = root.querySelector('details[data-fold=journal]')
+  const title = root.querySelector('.moai-detail-title')
+  assert.ok(body && journal)
+  assert.equal(title.querySelector('mark'), null)
+  view.render({ ...state, search: { text: 'Boa', scope: 'all', open: true } }, index)
+  assert.ok(title.querySelector('mark'), 'the hit is painted')
+  assert.equal(root.querySelector('.moai-detail-body'), body)
+  assert.equal(root.querySelector('details[data-fold=journal]'), journal)
+  assert.equal(root.querySelector('.moai-detail-title'), title)
+  view.render({ ...state, search: { text: 'Boar', scope: 'all', open: true } }, index)
+  assert.equal(title.querySelector('mark').textContent, 'Boar')
+  view.render({ ...state, search: { text: '', scope: 'all', open: false } }, index)
+  assert.equal(title.querySelector('mark'), null)
+  assert.equal(root.querySelector('.moai-detail-body'), body)
+})
+
+test('pane: NEW first among the chips for an unread row; not for a read or archived one (se-ehdi.zcx)', () => {
+  const { root, view } = mount()
+  const chips = () => root.querySelector('.moai-detail-chips')
+  const row = { ...ROWS[3], unread: true }
+  view.render(stateWith({ value: { id: row.id, row } }), index)
+  assert.equal(chips().firstChild.textContent, 'NEW')
+  view.render(stateWith({ value: { id: ROWS[3].id, row: ROWS[3] } }), index)
+  assert.equal(chips().querySelector('.m-chip-new'), null)
+  // The list's own row says it is unread; the archive tag is only there too.
+  const listed = new IssueIndex(ROWS.map((one) => (one.id === 'se-e1.b' ? { ...one, unread: true } : one)))
+  view.render(stateWith({ value: { id: ROWS[3].id, row: ROWS[3] } }), listed)
+  assert.equal(chips().firstChild.textContent, 'NEW', 'the row is looked up in the list when show did not carry it')
+  const archived = new IssueIndex(ROWS.map((one) => (one.id === 'se-e1.b' ? { ...one, unread: true, archived: true } : one)))
+  view.render(stateWith({ value: { id: row.id, row } }), archived)
+  assert.equal(chips().querySelector('.m-chip-new'), null)
+})

@@ -439,3 +439,22 @@ test('shell: every refusal has its words in every language; a cancel that was re
   assert.deepEqual(reaped.parts, [en.cancelled])
   assert.deepEqual(describe({ kind: 'cancelled', mayContinue: true }, en, doc).parts, [`${en.cancelled} ${en.mayContinue}`])
 })
+
+test('unread: unreadBadges counts the rows the CLI marked unread, archive rows never; null when none (se-ehdi.zcx)', async () => {
+  const { unreadBadges, newChip } = await panelModule('view/unread.ts')
+  const { createTabs } = await panelModule('view/tabs.ts')
+  const rows = [{ id: 'a', unread: true }, { id: 'b' }, { id: 'c', unread: true }, { id: 'd', unread: true, archived: true }]
+  assert.deepEqual(unreadBadges(rows), { board: 2, list: 2 })
+  assert.deepEqual(unreadBadges([{ id: 'a' }]), { board: null, list: null }, 'a source that says nothing: no badge')
+  assert.deepEqual(unreadBadges([]), { board: null, list: null })
+  const doc = new JSDOM('<!doctype html><body></body>').window.document
+  const chip = newChip(doc)
+  assert.equal(chip.textContent, 'NEW')
+  assert.ok(chip.classList.contains('m-chip-new'))
+  // The tab badge the shell sets from it.
+  const tabs = createTabs(doc, { selected: 'list', onSelect() {} })
+  tabs.setBadge('list', unreadBadges(rows).list)
+  assert.equal(tabs.el.querySelector('#m-tab-list .m-chip-new').textContent, '2')
+  tabs.setBadge('list', unreadBadges([]).list)
+  assert.equal(tabs.el.querySelector('.m-chip-new'), null)
+})
