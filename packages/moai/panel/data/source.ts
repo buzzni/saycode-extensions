@@ -38,7 +38,14 @@ export function rowsFromPrime(output: unknown): Loaded<Rows> {
   for (const item of [...items(output.picked), ...items(output.others), ...items(output.ready)]) {
     if (seen.has(item.id)) continue
     seen.add(item.id)
-    rows.push({ ...item, kind: typeof item.kind === 'string' ? item.kind : 'issue' })
+    const row: Row = { ...item, kind: typeof item.kind === 'string' ? item.kind : 'issue' }
+    // prime lists work rows only, never the epics and milestones they name (`epic`, `derived_epic`), so such a
+    // reference cannot be placed here: kept, the index would file every member of an epic under (lost). The
+    // rows stand without them until loadRows reads `show --all`, which carries the groups too.
+    delete row.epic
+    delete row.derived_epic
+    delete row.milestone
+    rows.push(row)
   }
   return { ok: true, value: { rows, more: (Number(output.rest) || 0) + (Number(output.others_rest) || 0) } }
 }

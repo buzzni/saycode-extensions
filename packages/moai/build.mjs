@@ -3,6 +3,7 @@
 // esbuild and the stylesheets under panel/style/ are inlined into panel/index.html (media-preview does the same).
 import { build } from 'esbuild'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 const root = new URL('./', import.meta.url)
 const PANEL_LIMIT = 512 * 1024
@@ -24,7 +25,8 @@ async function styles() {
 }
 
 const result = await build({
-  entryPoints: [new URL('panel/main.ts', root).pathname],
+  // A file path, not URL.pathname: that stays percent-encoded, so a checkout under a path with a space or Hangul fails.
+  entryPoints: [fileURLToPath(new URL('panel/main.ts', root))],
   bundle: true,
   format: 'iife',
   platform: 'browser',

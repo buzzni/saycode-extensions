@@ -7,9 +7,12 @@
  */
 import type { Outcome } from './data/client.js'
 import { pathKey, type Path, type Row } from './data/index.js'
+// The split owns the layout rules (the 640px rule, the ratio bounds and defaults); the store keeps the choices.
+import { effectivePosition, type DetailPosition } from './view/responsive.js'
+import { DEFAULT_RATIO, normalizeRatio } from './view/split.js'
 
+export type { DetailPosition }
 export type Tab = 'board' | 'list' | 'wiki'
-export type DetailPosition = 'left' | 'bottom'
 export type Focus = 'list' | 'detail'
 export type SortField = 'priority' | 'created' | 'updated' | 'column' | 'assignee' | 'title'
 export type ColumnName = 'id' | 'priority' | 'counts' | 'header' | 'tags' | 'epic' | 'assignee' | 'created' | 'updated'
@@ -84,12 +87,6 @@ export const COLUMN_DEFAULTS: Record<ColumnName, boolean> = {
   tags: false, epic: false, assignee: false, created: false, updated: false,
 }
 
-export const RATIO_DEFAULT: Record<DetailPosition, number> = { left: 0.45, bottom: 0.3 }
-export const RATIO_MIN = 0.15
-export const RATIO_MAX = 0.85
-/** Below this panel width the detail can only stand at the bottom. */
-export const LEFT_MIN_WIDTH = 640
-
 export const DEFAULT_SORT: SortKey[] = [{ field: 'priority', descending: false }]
 
 const idle = <T>(): Loadable<T> => ({ value: null, loading: false, problem: null })
@@ -101,7 +98,7 @@ export function initialState(): State {
     cursor: null,
     focus: 'list',
     expanded: [],
-    detail: { visible: true, position: 'bottom', ratio: { ...RATIO_DEFAULT } },
+    detail: { visible: true, position: 'bottom', ratio: { ...DEFAULT_RATIO } },
     view: { hiddenStatuses: [], hideDeferred: true, hideBacklog: false, showArchived: false },
     columns: { ...COLUMN_DEFAULTS },
     columnsKnown: Object.keys(COLUMN_DEFAULTS) as ColumnName[],
@@ -121,7 +118,8 @@ export type Action =
   | { type: 'toggle-expanded'; path: Path }
   | { type: 'detail-visible'; visible: boolean }
   | { type: 'detail-position'; position: DetailPosition }
-  | { type: 'detail-ratio'; ratio: number }
+  /** `position` is the one resized — the split reports the position it shows, which a narrow panel forces to the bottom. */
+  | { type: 'detail-ratio'; ratio: number; position?: DetailPosition }
   | { type: 'view'; view: Partial<ViewSettings> }
   | { type: 'column'; column: ColumnName; on: boolean }
   | { type: 'sort'; sort: SortKey[] }
@@ -135,12 +133,8 @@ export type Action =
   | { type: 'detail-failed'; id: string; problem: Outcome }
   | { type: 'detail-closed' }
 
-export const clampRatio = (ratio: number): number =>
-  Number.isFinite(ratio) ? Math.min(RATIO_MAX, Math.max(RATIO_MIN, ratio)) : RATIO_DEFAULT.bottom
-
 /** Where the detail actually stands at this panel width: a narrow panel forces the bottom. */
-export const detailPosition = (detail: DetailSettings, width: number): DetailPosition =>
-  width < LEFT_MIN_WIDTH ? 'bottom' : detail.position
+export const detailPosition = (detail: DetailSettings, width: number): DetailPosition => effectivePosition(width, detail.position)
 
 /**
  * After a reload the cursor stays on the same id. When that row is gone it moves to the nearest row that
@@ -179,7 +173,8 @@ export function reduce(state: State, action: Action): State {
     case 'detail-position':
       return { ...state, detail: { ...state.detail, position: action.position } }
     case 'detail-ratio': {
-      const ratio = { ...state.detail.ratio, [state.detail.position]: clampRatio(action.ratio) }
+      const position = action.position ?? state.detail.position
+      const ratio = { ...state.detail.ratio, [position]: normalizeRatio(action.ratio, position) }
       return { ...state, detail: { ...state.detail, ratio } }
     }
     case 'view':

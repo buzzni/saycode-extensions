@@ -27,9 +27,12 @@ export interface Activity {
 
 export interface InterimView {
   render(state: State, index: IssueIndex | null, activity: Activity, refreshedAt: string | null): void
+  /** The activity line and Cancel alone: they are all that follows the request queue, so nothing else redraws for it. */
+  activity(current: Activity): void
   /** One line under the add field: the added task, or why nothing was added. */
   say(text: string, problem?: boolean): void
-  explain(outcome: Outcome | null): void
+  /** Why an add did nothing, on that same line. The banners belong to the list and the detail and redraw with them. */
+  refuse(outcome: Outcome): void
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -47,6 +50,9 @@ function button(className: string, text: string, onClick: () => void): HTMLButto
 }
 
 const STYLE = `
+/* tokens.css stops the body scrolling because the shell's panes scroll themselves. This view is one long column,
+   so the page scrolls until the shell replaces it; otherwise rows and the detail below the fold are out of reach. */
+body { overflow: auto; }
 .moai { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; }
 .moai-bar, .moai-add { display: flex; align-items: center; gap: 8px; }
 .moai-bar .moai-activity { flex: 1; min-width: 0; color: var(--muted); }
@@ -56,12 +62,15 @@ const STYLE = `
 .moai .moai-primary { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
 .moai-banner { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
 .moai-banner.danger { color: var(--danger); border-color: var(--danger); }
+.moai-result { margin: 0; }
+/* Nothing to say: no empty box. */
+.moai-banner:empty, .moai-result:empty { display: none; }
 .moai-crumbs { display: flex; flex-wrap: wrap; gap: 2px; }
 .moai-crumbs button { border: 0; height: 22px; padding: 0 4px; color: var(--accent); }
 .moai-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 6px; }
 .moai-list li + li { border-top: 1px solid var(--border); }
 .moai-list button { display: flex; gap: 8px; width: 100%; height: auto; min-height: 30px; text-align: left; border: 0; border-radius: 0; }
-.moai-list button[aria-selected="true"] { background: var(--surface); }
+.moai-list button[aria-selected="true"] { background: var(--selected); }
 .moai-list .moai-id, .moai-list .moai-count, .moai-list .moai-priority { color: var(--muted); font-variant-numeric: tabular-nums; }
 .moai-list .moai-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .moai-empty, .moai-more { margin: 0; color: var(--muted); }
@@ -124,32 +133,51 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(language)
   }
 
-  function explain(outcome: Outcome | null) {
-    notice.replaceChildren()
-    error.textContent = ''
-    if (!outcome) return
-    const say = (text: string, info: boolean) => (info ? notice.replaceChildren(text) : (error.textContent = text))
+  /** What an outcome tells the user, and whether it is information (a choice, a retry) rather than an error. */
+  function describe(outcome: Outcome): { parts: (string | Node)[]; info: boolean } | null {
     switch (outcome.kind) {
       case 'refused':
-        return say(copy.refused[outcome.code], INFO_REFUSALS.has(outcome.code))
-      case 'not-initialized': {
-        const command = node('code', '', 'moai init')
-        notice.append(copy.notInitialized[0], command, copy.notInitialized[1])
-        return
-      }
+        return { parts: [copy.refused[outcome.code]], info: INFO_REFUSALS.has(outcome.code) }
+      case 'not-initialized':
+        return { parts: [copy.notInitialized[0], node('code', '', 'moai init'), copy.notInitialized[1]], info: true }
       case 'moai-error':
-        return say(copy.moaiError(outcome.message), false)
+        return { parts: [copy.moaiError(outcome.message)], info: false }
       case 'cancelled':
-        return say(outcome.mayContinue ? `${copy.cancelled} ${copy.mayContinue}` : copy.cancelled, true)
+        return { parts: [outcome.mayContinue ? `${copy.cancelled} ${copy.mayContinue}` : copy.cancelled], info: true }
       case 'unreadable':
-        return say(copy.unreadable, false)
+        return { parts: [copy.unreadable], info: false }
       case 'not-started':
-        return say(copy.notStarted, false)
+        return { parts: [copy.notStarted], info: false }
       case 'failed':
-        return say(copy.failed, false)
+        return { parts: [copy.failed], info: false }
       case 'passed':
-        return
+        return null
     }
+  }
+
+  function explain(outcome: Outcome | null) {
+    notice.replaceChildren()
+    error.replaceChildren()
+    const said = outcome ? describe(outcome) : null
+    if (said) (said.info ? notice : error).append(...said.parts)
+  }
+
+  /** Puts new children in place, keeping the keyboard focus on the element that stands for the same thing. */
+  function rebuild(container: HTMLElement, children: Node[]) {
+    const active = document.activeElement
+    const key = active instanceof HTMLElement && container.contains(active) ? active.dataset.focus : undefined
+    container.replaceChildren(...children)
+    if (key === undefined) return
+    for (const element of container.querySelectorAll<HTMLElement>('[data-focus]')) {
+      if (element.dataset.focus !== key) continue
+      element.focus({ preventScroll: true })
+      return
+    }
+  }
+
+  function showActivity(current: Activity) {
+    activity.textContent = current.phase === 'starting' ? copy.starting : current.phase === 'running' ? copy.running : ''
+    cancel.hidden = !current.cancellable
   }
 
   function segLabel(index: IssueIndex, seg: string): string {
@@ -159,12 +187,18 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
     return at === undefined ? seg.slice(2) : String(index.rows[at]!.title ?? seg.slice(2))
   }
 
+  /** `button`, with the key that brings the focus back to it after a redraw. */
+  const focusable = (key: string, element: HTMLButtonElement) => {
+    element.dataset.focus = key
+    return element
+  }
+
   function renderList(state: State, index: IssueIndex) {
     const path = state.path
-    crumbs.replaceChildren(
-      button('', copy.root, () => intents.enter([])),
-      ...path.map((seg, n) => button('', segLabel(index, seg), () => intents.enter(path.slice(0, n + 1)))),
-    )
+    rebuild(crumbs, [
+      focusable('crumb:', button('', copy.root, () => intents.enter([]))),
+      ...path.map((seg, n) => focusable(`crumb:${n}`, button('', segLabel(index, seg), () => intents.enter(path.slice(0, n + 1))))),
+    ])
     const hidden = new Set(state.view.hiddenStatuses)
     const keep = (at: number) => {
       const row = index.rows[at]!
@@ -174,19 +208,19 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
     const items: HTMLLIElement[] = []
     if (path.length) {
       const up = node('li')
-      up.append(button('moai-up', copy.up, () => intents.enter(path.slice(0, -1))))
+      up.append(focusable('up', button('moai-up', copy.up, () => intents.enter(path.slice(0, -1)))))
       items.push(up)
     }
     for (const entry of index.entries(path, keep)) {
       const item = node('li')
       if (entry.dir && entry.at === undefined) {
-        item.append(button('moai-row moai-bucket', `▸ ${segLabel(index, entry.seg)}/`, () => intents.enter([...path, entry.seg])))
+        item.append(focusable(`seg:${entry.seg}`, button('moai-row moai-bucket', `▸ ${segLabel(index, entry.seg)}/`, () => intents.enter([...path, entry.seg]))))
         items.push(item)
         continue
       }
       const at = entry.at!
       const row = index.rows[at]!
-      const line = node('button', 'moai-row')
+      const line = focusable(`row:${row.id}`, node('button', 'moai-row'))
       line.type = 'button'
       line.dataset.id = row.id
       line.setAttribute('aria-selected', String(state.cursor === row.id))
@@ -201,8 +235,9 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
       item.append(line)
       items.push(item)
     }
-    list.replaceChildren(...items)
-    if (!items.length || (items.length === 1 && path.length)) list.append(node('li', 'moai-empty', copy.empty))
+    if (!items.length || (items.length === 1 && path.length)) items.push(node('li', 'moai-empty', copy.empty))
+    // Every read and every choice redraws the list; the row that had the keyboard keeps it.
+    rebuild(list, items)
   }
 
   function journalText(entry: Record<string, unknown>): string {
@@ -236,7 +271,7 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
     ).filter(([, value]) => value)
     const meta = node('dl')
     for (const [label, value] of fields) meta.append(node('dt', '', label), node('dd', '', value))
-    const close = button('moai-close', copy.closeDetail, () => intents.closeDetail())
+    const close = focusable('close', button('moai-close', copy.closeDetail, () => intents.closeDetail()))
     const parts: Node[] = [close, node('h2', '', String(row.title ?? row.id)), meta]
     if (typeof row.body === 'string' && row.body) parts.push(node('p', 'moai-body', row.body))
     const children = (Array.isArray(row.children) ? row.children : []).filter((child): child is Row => typeof child?.id === 'string')
@@ -251,7 +286,7 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
       journal.append(item)
     }
     parts.push(node('h3', '', copy.journal), journal)
-    detail.replaceChildren(...parts)
+    rebuild(detail, parts)
   }
 
   return {
@@ -260,8 +295,7 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
       refresh.title = refreshedAt ? copy.refreshedAt(refreshedAt) : copy.refresh
       refresh.setAttribute('aria-label', refresh.title)
       refresh.disabled = state.board.loading
-      activity.textContent = current.phase === 'starting' ? copy.starting : current.phase === 'running' ? copy.running : ''
-      cancel.hidden = !current.cancellable
+      showActivity(current)
       if (index) renderList(state, index)
       const more = state.board.value?.more ?? 0
       footer.textContent = more > 0 ? copy.more(more) : ''
@@ -269,10 +303,15 @@ export function mountInterim(root: HTMLElement, copy: Copy, language: string, in
       explain(state.shown.problem ?? state.board.problem)
       renderDetail(state)
     },
+    activity: showActivity,
     say(text, problem = false) {
       result.textContent = text
       result.className = problem ? 'moai-result moai-banner danger' : 'moai-result'
     },
-    explain,
+    refuse(outcome) {
+      const said = describe(outcome)
+      result.replaceChildren(...(said?.parts ?? []))
+      result.className = said && !said.info ? 'moai-result moai-banner danger' : 'moai-result moai-banner'
+    },
   }
 }

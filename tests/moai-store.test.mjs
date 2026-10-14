@@ -3,7 +3,9 @@ import { test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { COLUMN_DEFAULTS, LEFT_MIN_WIDTH, RATIO_MAX, RATIO_MIN, clampRatio, createStore, detailPosition, initialState, keepCursor, reduce } = await panelModule('store.ts')
+const { COLUMN_DEFAULTS, createStore, detailPosition, initialState, keepCursor, reduce } = await panelModule('store.ts')
+const { FORCE_BOTTOM_BELOW } = await panelModule('view/responsive.ts')
+const { MAX_RATIO, MIN_RATIO } = await panelModule('view/split.ts')
 
 test('the panel starts on the list with the TUI defaults', () => {
   const state = initialState()
@@ -26,17 +28,21 @@ test('an action that changes nothing keeps the same state, so nothing re-renders
 
 test('the detail ratio is kept per position and clamped to 15–85%', () => {
   let state = reduce(initialState(), { type: 'detail-ratio', ratio: 0.95 })
-  assert.equal(state.detail.ratio.bottom, RATIO_MAX)
+  assert.equal(state.detail.ratio.bottom, MAX_RATIO)
   state = reduce(state, { type: 'detail-position', position: 'left' })
   state = reduce(state, { type: 'detail-ratio', ratio: 0.01 })
-  assert.deepEqual(state.detail.ratio, { left: RATIO_MIN, bottom: RATIO_MAX })
-  assert.equal(clampRatio(Number.NaN), 0.3)
+  assert.deepEqual(state.detail.ratio, { left: MIN_RATIO, bottom: MAX_RATIO })
+  // An unusable ratio falls back to that position's own default.
+  assert.equal(reduce(state, { type: 'detail-ratio', ratio: Number.NaN }).detail.ratio.left, 0.45)
+  // A narrow panel shows the bottom whatever was chosen; the split says so, and that ratio is the one that moves.
+  state = reduce(state, { type: 'detail-ratio', ratio: 0.5, position: 'bottom' })
+  assert.deepEqual(state.detail.ratio, { left: MIN_RATIO, bottom: 0.5 })
 })
 
 test('below 640px the detail stands at the bottom whatever was chosen', () => {
   const detail = { visible: true, position: 'left', ratio: { left: 0.45, bottom: 0.3 } }
-  assert.equal(detailPosition(detail, LEFT_MIN_WIDTH - 1), 'bottom')
-  assert.equal(detailPosition(detail, LEFT_MIN_WIDTH), 'left')
+  assert.equal(detailPosition(detail, FORCE_BOTTOM_BELOW - 1), 'bottom')
+  assert.equal(detailPosition(detail, FORCE_BOTTOM_BELOW), 'left')
 })
 
 test('hiding the detail moves the focus back to the list', () => {

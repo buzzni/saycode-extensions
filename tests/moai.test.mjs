@@ -87,6 +87,22 @@ test('Moai extension forwards approved run, status, and cancel calls', async () 
   ])
 })
 
+test('a refused start comes back as a result with its code, so the panel can explain it', async () => {
+  // The panel bridge carries only an error message, so the command returns the refusal instead of throwing it.
+  let failure
+  const host = createTestHost('buzzni.moai', { async invokeCapability() { throw failure } })
+  await host.activate(extension)
+  failure = Object.assign(new Error('capability.invoke machine.run/start failed: declined'), { code: 'declined' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), { action: 'start', state: 'refused', code: 'declined' })
+  failure = Object.assign(new Error('busy'), { code: 'workspace-busy' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.add', 'Ship it']), { action: 'start', state: 'refused', code: 'workspace-busy' })
+  // Unknown or missing codes stay failures, as before.
+  failure = Object.assign(new Error('later'), { code: 'something-new' })
+  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /later/)
+  failure = new Error('capability failed')
+  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /capability failed/)
+})
+
 
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const panelWindows = []
@@ -197,6 +213,9 @@ test('the packed panel is one file: inline script and style only, under the 512 
   assert.equal(packed.panelHtml.match(/<script>/g).length, 1)
   // Rows and titles are user text: the panel writes them with textContent, never as markup.
   assert.doesNotMatch(packed.panelHtml, /innerHTML|insertAdjacentHTML|outerHTML|electron|ipcRenderer/)
+  // The sandboxed panel cannot submit forms; the host draws the title; init stays a user action, never a chat request.
+  assert.doesNotMatch(packed.panelHtml, /<form|'submit'|<h1/)
+  assert.doesNotMatch(packed.panelHtml, /\bAI\b|chat|채팅|チャット|聊天/i)
 })
 
 test('opening the board reads the list once, draws it by priority and shows when it was read', async () => {
@@ -328,4 +347,78 @@ test('Refresh reads the list again and keeps the cursor on the same task', async
 test('a truncated list says how many more tasks there are', async () => {
   const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': JSON.stringify({ ...JSON.parse(PRIME), rest: 3, others_rest: 2 }) }))
   assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
+})
+
+test('an empty banner takes no room, and the page scrolls to rows and details below the fold', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
+  for (const selector of ['.moai-notice', '.moai-error', '.moai-result']) {
+    assert.equal(panel.window.getComputedStyle(panel.$(selector)).display, 'none', selector)
+  }
+  // tokens.css stops the body scrolling for the shell's own panes; this one-column view needs the page to scroll.
+  assert.equal(panel.window.getComputedStyle(panel.window.document.body).overflow, 'auto')
+})
+
+test('why an add did nothing stays on its own line while the list and the detail redraw', async () => {
+  const answer = stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY })
+  answer.start = (args) => (args[0] === 'buzzni.moai.add' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer)
+  panel.$('.moai-add input').value = 'Ship it'
+  panel.$('.moai-add-button').click()
+  await flush()
+  const declined = 'The run did not start: the confirmation was declined.'
+  assert.equal(panel.$('.moai-result').textContent, declined)
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.$('.moai-refresh').click()
+  await flush()
+  assert.equal(panel.$('.moai-result').textContent, declined)
+  assert.equal(panel.$('.moai-add input').value, 'Ship it')
+})
+
+test('a title typed while an add runs stays in the field', async () => {
+  let finishing = false
+  const panel = await runPanel(stdoutFor({
+    'buzzni.moai.prime': PRIME,
+    'buzzni.moai.add': (title) => (finishing ? JSON.stringify({ id: 'mgd-new1', title, status: 'todo' }) : null),
+  }))
+  panel.$('.moai-add input').value = 'First'
+  panel.pressEnter(false)
+  await flush()
+  panel.$('.moai-add input').value = 'Second'
+  finishing = true
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-result').textContent, 'Added: First (mgd-new1)')
+  assert.equal(panel.$('.moai-add input').value, 'Second')
+})
+
+test('a detail asked for a task the next read no longer lists closes instead of staying on Loading', async () => {
+  const prime = JSON.parse(PRIME)
+  let listed = PRIME
+  let holding = false
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': () => (holding ? null : listed), 'buzzni.moai.show': SHOW_MOVED }))
+  // A read runs, and a task is chosen meanwhile: its detail waits behind that read.
+  holding = true
+  panel.$('.moai-refresh').click()
+  await flush()
+  panel.row('mgd-ogym').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail').textContent, 'Loading…')
+  // The read no longer lists the task, so the cursor moves to its neighbour before the detail answers.
+  listed = JSON.stringify({ ...prime, picked: prime.picked.filter((row) => row.id !== 'mgd-ogym') })
+  holding = false
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr'])
+  assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
+  assert.equal(panel.$('.moai-detail').hidden, true)
+})
+
+test('the row with the keyboard focus keeps it when the list redraws', async () => {
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY }))
+  panel.row('mgd-hmcr').focus()
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail').hidden, false)
+  assert.equal(panel.window.document.activeElement, panel.row('mgd-hmcr'))
 })

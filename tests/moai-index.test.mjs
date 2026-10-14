@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { panelModule } from './moai-panel-modules.mjs'
 
 const { IssueIndex, LOST, NO_MILESTONE, archiveCandidate, parentOf, pathKey, percent } = await panelModule('data/index.ts')
+const { rowsFromPrime } = await panelModule('data/source.ts')
 const tree = JSON.parse(await readFile(new URL('./fixtures/moai/tree-v016.json', import.meta.url), 'utf8'))
 const rows = [...tree.rows, ...tree.backlog]
 const index = new IssueIndex(rows)
@@ -155,6 +156,21 @@ test('a later row of another kind takes the id and the earlier one goes to the l
   assert.deepEqual(local.homeOf(0), [LOST])
   assert.deepEqual(local.homeOf(1), [])
   assert.equal(local.find('d-1'), 1)
+})
+
+test('prime rows that name an epic prime does not list stand in the plan, not in the lost bucket', () => {
+  // Moai v0.8.0 prime prints `epic` and `derived_epic` on a member, but never the epic row itself.
+  const loaded = rowsFromPrime({
+    picked: [{ id: 'p-1', title: 'Held', status: 'in_progress', priority: 1, epic: 'p-epic' }],
+    ready: [
+      { id: 'p-2', title: 'Ready', status: 'todo', priority: 2, derived_epic: 'p-epic' },
+      { id: 'p-2.a', title: 'Child', status: 'todo', priority: 2, derived_epic: 'p-epic' },
+    ],
+    others: [], rest: 0, others_rest: 0,
+  })
+  const local = new IssueIndex(loaded.value.rows)
+  assert.deepEqual(local.entries([]).map((entry) => (entry.at === undefined ? entry.seg : local.rows[entry.at].id)), ['p-2', 'p-1'])
+  assert.deepEqual(local.homeOf(local.find('p-2.a')), ['i:p-2'])
 })
 
 test('helpers: id parents and archive candidates', () => {

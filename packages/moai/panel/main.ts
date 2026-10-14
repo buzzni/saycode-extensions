@@ -49,12 +49,17 @@ async function loadBoard(): Promise<void> {
 const refresher = createRefresher({ load: loadBoard, isVisible: () => document.visibilityState !== 'hidden' })
 document.addEventListener('visibilitychange', () => refresher.visibilityChanged())
 
+let choice = 0
 async function choose(id: string) {
+  const mine = ++choice
   store.dispatch({ type: 'cursor', id })
   store.dispatch({ type: 'detail-loading', id })
   const loaded = await loadDetail(client, id)
-  // A later choice wins; an answer for a row no longer under the cursor is dropped.
-  if (store.getState().cursor !== id) return
+  // A later choice wins: its own answer settles the detail.
+  if (mine !== choice) return
+  // A reload moved the cursor off this row (the row was gone). Nothing else will answer for the detail, so it
+  // closes instead of staying on "Loading…".
+  if (store.getState().cursor !== id) return store.dispatch({ type: 'detail-closed' })
   if (loaded.ok) store.dispatch({ type: 'detail-loaded', data: { id, row: loaded.value } })
   else store.dispatch({ type: 'detail-failed', id, problem: loaded.outcome })
 }
@@ -68,13 +73,11 @@ async function add(text: string) {
   view.say('')
   try {
     const added = await addTask(client, title)
-    if (!added.ok) {
-      view.explain(added.outcome)
-      return
-    }
+    if (!added.ok) return view.refuse(added.outcome)
     view.say(copy.added({ id: added.value.id, title: typeof added.value.title === 'string' ? added.value.title : title }))
+    // The field stays editable while an add runs: clear it only if it still holds what was sent.
     const input = root.querySelector('input')
-    if (input) input.value = ''
+    if (input?.value === text) input.value = ''
     await refresher.refresh()
   } finally {
     adding = false
@@ -110,7 +113,8 @@ const render = () => {
   view.render(state, indexOf(state), activity(), loadedAt === undefined ? null : refreshTime(loadedAt, language))
 }
 store.subscribe(render)
-client.subscribe(render)
+// The request queue changes only the activity line and Cancel; redrawing the list for it would be wasted work.
+client.subscribe(() => view.activity(activity()))
 render()
 
 void (async () => {
