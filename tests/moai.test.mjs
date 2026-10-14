@@ -828,18 +828,18 @@ test('while one run goes and another waits for its confirmation, the line still 
   assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine…')
 })
 
-const STATUS_ASSUMED = await fixture('status-statuses-assumed.json')
+const STATUS_V017 = await fixture('status-v017.json')
 const compatLine = (panel) => [...panel.$('.moai-compat').children].map((line) => line.textContent)
 
 test('compatibility: a whole new setup shows no banner', async () => {
-  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_ASSUMED }))
+  const panel = await runPanel(board({ 'buzzni.moai.status': STATUS_V017 }))
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   assert.deepEqual(compatLine(panel), [])
   assert.equal(panel.window.getComputedStyle(panel.$('.moai-compat')).display, 'none')
 })
 
 test('compatibility: a profile the daemon catalog lacks asks to update the catalog', async () => {
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
@@ -853,7 +853,7 @@ const STATUS_NO_TALLIES = JSON.stringify({ counts: { done: 0, in_progress: 1, re
 
 test('compatibility: a backlog refusal that lands after the load ended still reaches the banner, with no read again', async () => {
   let refuse
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => {
     if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
     if (args[0] === 'buzzni.moai.backlog-all') return new Promise((resolve) => { refuse = () => resolve({ action: 'start', state: 'refused', code: 'unsupported-daemon' }) })
@@ -893,7 +893,7 @@ test('compatibility: moai missing on the machine asks to install it, told by tha
 })
 
 test('compatibility: a refusal the banner does not tell still shows as the board\'s error', async () => {
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-platform' } : null)
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), [])
@@ -901,7 +901,7 @@ test('compatibility: a refusal the banner does not tell still shows as the board
 })
 
 test('compatibility: beside a catalog line, a refusal of another kind still shows as the board\'s error', async () => {
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => {
     if (args[0] === 'buzzni.moai.backlog-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
     if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-platform' }
@@ -945,7 +945,7 @@ test('a refresh keeps the counts the board showed while its own status read wait
 
 test('compatibility: moai installed while the panel is open takes the install line away', async () => {
   let missing = true
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = () => (missing ? { action: 'start', state: 'refused', code: 'tool-missing' } : null)
   const panel = await runPanel(answer)
   assert.deepEqual(compatLine(panel), ['Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.'])
@@ -959,7 +959,7 @@ test('compatibility: moai installed while the panel is open takes the install li
 
 test('compatibility: a new report that leaves the sentences as they were does not write them again', async () => {
   let approve
-  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  const answer = board({ 'buzzni.moai.status': STATUS_V017 })
   answer.start = (args) => {
     if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
     if (args[0] === 'buzzni.moai.status') return new Promise((resolve) => { approve = () => resolve(null) })

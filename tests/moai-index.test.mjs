@@ -4,7 +4,7 @@ import { test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { IssueIndex, LOST, NO_MILESTONE, archiveCandidate, parentOf, pathKey, percent } = await panelModule('data/index.ts')
+const { IssueIndex, LOST, NO_MILESTONE, archiveCandidate, isGroup, parentOf, pathKey, percent } = await panelModule('data/index.ts')
 const { rowsFromPrime } = await panelModule('data/source.ts')
 const tree = JSON.parse(await readFile(new URL('./fixtures/moai/tree-v016.json', import.meta.url), 'utf8'))
 const rows = [...tree.rows, ...tree.backlog]
@@ -182,9 +182,9 @@ test('helpers: id parents and archive candidates', () => {
   assert.equal(archiveCandidate({ id: 'a', status: 'todo', status_since: '2026-01-01T00:00:00Z' }, now, 30), false)
 })
 
-// ASSUMED upstream fields (derived_milestone, derived_deferred, archive_candidate): not in any released moai.
-// Present, the index uses them; absent, it derives the same values itself.
-test('assumed upstream derived_milestone wins when present, own derivation otherwise', () => {
+// moai 0.17's own derivations (derived_milestone, shelved_by, archived), each printed only when it holds.
+// Present, the index uses them; absent, it derives the same values itself (an older moai reads the same).
+test('moai derived_milestone wins when present, own derivation otherwise', () => {
   const idx = new IssueIndex([
     { id: 'm1', kind: 'milestone' },
     { id: 'e1', kind: 'epic', milestone: 'm1' },
@@ -193,39 +193,58 @@ test('assumed upstream derived_milestone wins when present, own derivation other
     { id: 'c', kind: 'issue', epic: 'e1', derived_milestone: null },
   ])
   assert.equal(idx.milestoneOf(idx.find('a')), 'm1', 'absent: fallback derivation')
-  assert.equal(idx.milestoneOf(idx.find('b')), 'elsewhere', 'string: upstream value')
+  assert.equal(idx.milestoneOf(idx.find('b')), 'elsewhere', 'string: moai value')
   assert.equal(idx.milestoneOf(idx.find('c')), undefined, 'null: no milestone')
 })
 
-test('assumed upstream derived_deferred wins when present, own derivation otherwise', () => {
+test('moai shelved_by names the shelf when present, own derivation otherwise', () => {
   const idx = new IssueIndex([
     { id: 'p', kind: 'issue', deferred_at: '2026-10-01T00:00:00Z' },
     { id: 'p.kid', kind: 'issue' },
     { id: 'free', kind: 'issue' },
-    { id: 'told-yes', kind: 'issue', derived_deferred: true },
-    { id: 'p.told-no', kind: 'issue', derived_deferred: false },
+    { id: 'told', kind: 'issue', shelved_by: 'm-gone' },
+    { id: 'p.named', kind: 'issue', shelved_by: 'p' },
   ])
   assert.equal(idx.isDeferred(idx.find('p.kid')), true, 'absent: inherited from parent')
   assert.equal(idx.isDeferred(idx.find('free')), false)
-  assert.equal(idx.isDeferred(idx.find('told-yes')), true, 'true: upstream value')
-  assert.equal(idx.isDeferred(idx.find('p.told-no')), false, 'false beats own derivation')
-  // The shelf itself reads the field, so what hides deferred rows (shelvedAt, deferredRoot) agrees.
-  assert.equal(idx.shelvedAt(idx.find('p.told-no')), undefined)
-  assert.equal(idx.deferredRoot('p.told-no'), undefined)
-  assert.equal(idx.shelvedAt(idx.find('told-yes')), 'told-yes', 'no shelf the walk can find: the row itself')
-  assert.equal(idx.deferredRoot('told-yes'), 'told-yes')
+  // The shelf itself reads the field, so what hides deferred rows (shelvedAt, deferredRoot) agrees, and a shelf
+  // that is not among the loaded rows is named all the same.
+  assert.equal(idx.shelvedAt(idx.find('told')), 'm-gone')
+  assert.equal(idx.deferredRoot('told'), 'm-gone')
+  assert.equal(idx.shelvedAt(idx.find('p.named')), 'p')
   assert.equal(idx.shelvedAt(idx.find('p.kid')), 'p')
   // Also when no row in the set is put off by its own field.
-  const lone = new IssueIndex([{ id: 'a', kind: 'issue', derived_deferred: true }, { id: 'b', kind: 'issue' }])
-  assert.deepEqual([lone.shelvedAt(0), lone.shelvedAt(1)], ['a', undefined])
+  const lone = new IssueIndex([{ id: 'a', kind: 'issue', shelved_by: 'e9' }, { id: 'b', kind: 'issue' }])
+  assert.deepEqual([lone.shelvedAt(0), lone.shelvedAt(1)], ['e9', undefined])
 })
 
-test('assumed upstream archive_candidate wins when present, own derivation otherwise', () => {
+test('real 0.17 output: shelved_by and derived_milestone agree with what the index derives without them', async () => {
+  const real = JSON.parse(await readFile(new URL('./fixtures/moai/show-all-v017.json', import.meta.url), 'utf8'))
+  assert.ok(real.some((row) => row.shelved_by && row.shelved_by !== row.id), 'a row put off by a group above')
+  assert.ok(real.some((row) => row.shelved_by === row.id), 'a row put off by itself')
+  const told = new IssueIndex(real)
+  const own = new IssueIndex(real.map(({ shelved_by: _s, derived_milestone: _m, ...row }) => row))
+  real.forEach((row, at) => {
+    assert.equal(told.shelvedAt(at), row.shelved_by, row.id)
+    assert.equal(own.shelvedAt(at), row.shelved_by, `${row.id} derived`)
+    assert.equal(own.milestoneOf(at), told.milestoneOf(at), `${row.id} milestone`)
+  })
+})
+
+test('archived: true is an archive row whatever the clock reads, own derivation otherwise', async () => {
   const now = new Date('2026-10-14T00:00:00Z')
   const old = { id: 'a', status: 'done', status_since: '2026-09-01T00:00:00Z' }
   assert.equal(archiveCandidate(old, now, 30), true)
-  assert.equal(archiveCandidate({ ...old, archive_candidate: false }, now, 30), false)
-  assert.equal(archiveCandidate({ id: 'b', status: 'todo', archive_candidate: true }, now, 30), true)
+  assert.equal(archiveCandidate({ id: 'b', status: 'done', status_since: '2026-10-13T00:00:00Z', archived: true }, now, 30), true)
+  assert.equal(archiveCandidate({ id: 'c', status: 'done', status_since: '2026-10-13T00:00:00Z' }, now, 30), false)
+  // Real 0.17 (archive_days = 30, captured 2026-10-14): the clock read here marks the row moai marks.
+  const real = JSON.parse(await readFile(new URL('./fixtures/moai/show-archived-v017.json', import.meta.url), 'utf8'))
+  const at = new Date('2026-10-14T12:10:00Z')
+  for (const row of real) {
+    const { archived: _a, ...bare } = row
+    assert.equal(archiveCandidate(row, at, 30), row.archived === true, row.id)
+    if (!isGroup(row)) assert.equal(archiveCandidate(bare, at, 30), row.archived === true, `${row.id} derived`)
+  }
 })
 
 test('without the field, archiveCandidate follows report::archived: off at 0 days, whole days, a group by its members', () => {

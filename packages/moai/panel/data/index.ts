@@ -39,16 +39,20 @@ export interface Row {
   blocked_by?: string[]
   /** CLI's unread verdict: `true` or absent (see read.ts). */
   unread?: boolean
-  // ASSUMED upstream fields (not in any released moai): the CLI's own derivations. When present they win where
-  // the panel decides the same thing (deferral in the index's shelf and in query.ts, the milestone in
+  // The CLI's own derivations (moai 0.17.0 `show --json`), each printed only when it holds. When present they win
+  // where the panel decides the same thing (deferral in the index's shelf and in query.ts, the milestone in
   // IssueIndex.milestoneOf and query.ts, the archive in archiveCandidate and query.ts); when absent the panel
-  // derives the values itself. The tree's placement (IssueIndex.homeOf) keeps the index's own rule either way.
-  /** The milestone the row stands on (null: none). */
+  // derives the values itself, so an older moai reads the same. The tree's placement (IssueIndex.homeOf) keeps
+  // the index's own rule either way.
+  /** The milestone the row stands on (absent, or null or empty: none). */
   derived_milestone?: string | null
-  /** Deferral inherited from itself, its parents, epic or milestone. */
-  derived_deferred?: boolean
-  /** Done and older than the CLI's `archive_days`. */
-  archive_candidate?: boolean
+  /** The nearest row that took this one out of the plan: its own id when deferred itself, else a group above. */
+  shelved_by?: string
+  /**
+   * `true` on a row `show --all` hides as the archive (moai prints it on `show --archived` rows). source.ts
+   * markArchived tags the archive-only rows the same way when an older moai leaves the key out.
+   */
+  archived?: boolean
   [field: string]: unknown
 }
 
@@ -409,12 +413,11 @@ export class IssueIndex {
   private shelve(): (string | undefined)[] {
     const walk = this.rows.some(isPutOff)
     return this.rows.map((row) => {
-      // ASSUMED upstream `derived_deferred` wins when the row carries it: false clears the shelf, true keeps the
-      // one the walk finds, or names the row itself when the walk finds none (its shelf may not be loaded).
-      const given = row.derived_deferred
-      if (given === false) return undefined
-      const found = walk ? this.shelfOf(row) : undefined
-      return given === true ? (found ?? row.id) : found
+      // moai 0.17 `shelved_by` names the shelf when the row carries it (that shelf may not be loaded here); its
+      // absence says nothing an older moai would not, so the walk decides then.
+      const given = row.shelved_by
+      if (typeof given === 'string' && given !== '') return given
+      return walk ? this.shelfOf(row) : undefined
     })
   }
 
@@ -481,9 +484,10 @@ export class IssueIndex {
   }
 
   /**
-   * The milestone a row stands under: the ASSUMED upstream `derived_milestone` when the row carries it (null or
-   * empty: none), else read from its place (not its own field). The place itself ({@link homeOf}) always
-   * follows the index's own rule, so the two can differ when upstream knows better.
+   * The milestone a row stands under: moai's `derived_milestone` when the row carries it (null or empty: none),
+   * else read from its place (not its own field) — moai 0.17 leaves the key out on a row under none, where the
+   * place reads none too. The place itself ({@link homeOf}) always follows the index's own rule, so the two can
+   * differ when moai knows better.
    */
   milestoneOf(at: number): string | undefined {
     const given = this.rows[at]?.derived_milestone
@@ -500,7 +504,7 @@ export class IssueIndex {
 
   /**
    * The row that took this row out of the plan (itself, or an ancestor, epic or milestone); undefined if planned.
-   * The ASSUMED upstream `derived_deferred` decides when the row carries it (see {@link shelve}).
+   * moai's `shelved_by` names it when the row carries it (see {@link shelve}).
    */
   shelvedAt(at: number): string | undefined {
     return this.shelved[at]
@@ -599,7 +603,8 @@ export class IssueIndex {
 
 /**
  * Standing in the done column for `archiveDays` whole days or more — what moai hides as archived
- * (`report::archived`). Off when `archiveDays` is 0.
+ * (`report::archived`). A row that says `archived: true` (moai 0.17 on `show --archived`, or source.ts
+ * markArchived) is one whatever the clock reads; otherwise it is derived here, off when `archiveDays` is 0.
  *
  * The column is the one the row STANDS in: a group's is read from its members (`derived_status`), not the
  * `status` written on it. And since when is the day it got there: for a group that is the latest
@@ -608,8 +613,7 @@ export class IssueIndex {
  * deferred member was set aside when that is later; that case is not read here.)
  */
 export function archiveCandidate(row: Row, now: Date, archiveDays: number, members: readonly Row[] = []): boolean {
-  // ASSUMED upstream `archive_candidate` (computed with the CLI's own archive_days) wins when present.
-  if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
+  if (row.archived === true) return true
   if (!(archiveDays > 0)) return false
   const group = isGroup(row)
   if (!standsDone(row)) return false
