@@ -2,9 +2,21 @@
 
 This first-party extension uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for these 13 fixed profiles, each `moai --json -C <workspace> …`. It needs Desktop
-engine 1.2.0 or later and a machine with the `moai` CLI 0.16 or later (the version the panel's index was checked
-against; `show --archived --after`, `read --all` and `wiki` are in it):
+run, status, and cancel commands for these 13 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
+
+## Compatibility
+
+The extension and `moai` keep independent version numbers. Extension 2.0.0 needs:
+
+| Needs | Version | Notes |
+|---|---|---|
+| Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
+| `moai` CLI | 0.17.0 or later (**assumed**) | with the upstream read and JSON improvements: `unread` in `show --json`, the configured status order, `show --archived` paging. The number is a placeholder until the upstream release is fixed (se-0g4a) |
+| Happy daemon catalog | all 13 profiles | `status`, `prime`, `show`, `add`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
+
+Release order: the `moai` upstream release and the daemon catalog update ship before extension 2.0.0.
+
+## Profiles
 
 | Profile | Runs | For | Writes |
 |---|---|---|---|
