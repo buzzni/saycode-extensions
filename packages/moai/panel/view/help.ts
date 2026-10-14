@@ -1,7 +1,8 @@
 // Shortcut help overlay (opened by the 'help' action: ? and SPC ?) and the small kbd hints used next to toolbar
-// controls and in the 보기 menu shortcut column.
+// controls and in the 보기 menu shortcut column. Its words are the i18n catalogue's `table` group.
 
 import { isEditableTarget } from "../keys/router.ts"
+import { COPY, TABLE, type KeyTableCopy } from "../i18n/index.ts"
 import { helpSections, keyLabel, type KeyContext, type Mode, type Platform } from "../keys/table.ts"
 import { el, iconButton, kbd } from "./components.ts"
 
@@ -14,8 +15,8 @@ export function kbdHint(doc: Document, notation: string | ReadonlyArray<string>)
 }
 
 /** "클릭하면 키보드를 쓸 수 있습니다" (keybindings.md 1): shown while the panel has no keyboard focus. `text` is the
- *  i18n catalogue's (copy.keys.focusHint). */
-export function focusHint(doc: Document, text = "클릭하면 키보드를 쓸 수 있습니다"): HTMLElement {
+ *  i18n catalogue's (copy.keys.focusHint); Korean when not given. */
+export function focusHint(doc: Document, text = COPY.ko.keys.focusHint): HTMLElement {
   return el(doc, "div", { class: "m-focus-hint", role: "status" }, text)
 }
 
@@ -23,6 +24,8 @@ export interface HelpProps {
   platform: Platform
   /** Called after the overlay closed itself (Esc or the close button). */
   onClose?: () => void
+  /** The words (copy.table); Korean when not given. */
+  words?: KeyTableCopy
 }
 
 export interface HelpView {
@@ -47,11 +50,12 @@ const ACTS_BEHIND: ReadonlySet<string> = new Set([
 const EDITS_INPUT: ReadonlySet<string> = new Set(["v", "x", "z", "y"])
 
 export function createHelp(doc: Document, props: HelpProps): HelpView {
+  const words = props.words ?? TABLE.ko
   const root = el(doc, "div", {
     class: "m-menu m-help",
     role: "dialog",
     "aria-modal": "true",
-    "aria-label": "단축키 도움말",
+    "aria-label": words.labels.help,
     tabindex: -1,
     hidden: true,
   })
@@ -104,10 +108,10 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
       returnTo = doc.activeElement
       doc.addEventListener("keydown", guard, true)
     }
-    const head = el(doc, "div", { class: "m-help-head" }, el(doc, "strong", {}, "단축키"))
-    head.append(iconButton(doc, { icon: "x", label: "닫기", onClick: close }))
+    const head = el(doc, "div", { class: "m-help-head" }, el(doc, "strong", {}, words.helpTitle))
+    head.append(iconButton(doc, { icon: "x", label: words.close, onClick: close }))
     const body = el(doc, "div", { class: "m-help-body" })
-    for (const section of helpSections(mode, ctx, props.platform)) {
+    for (const section of helpSections(mode, ctx, props.platform, words)) {
       const list = el(doc, "div", { class: "m-help-section", role: "group", "aria-label": section.title })
       list.append(el(doc, "h3", { class: "m-help-title" }, section.title))
       for (const row of section.rows) {

@@ -10,6 +10,7 @@ const fixtures = new URL('./fixtures/moai-wiki/', import.meta.url)
 const wiki = await import(new URL('view/wiki.ts', panel))
 const wikiSource = await readFile(new URL('view/wiki.ts', panel), 'utf8')
 const wikiCss = await readFile(new URL('style/wiki.css', panel), 'utf8')
+const { COPY } = await import(new URL('i18n/index.ts', panel))
 const fixture = async (name) => JSON.parse(await readFile(new URL(name, fixtures), 'utf8'))
 const ls = await fixture('wiki-ls.json')
 const shows = {
@@ -605,4 +606,17 @@ test('wiki: no innerHTML or followable href; css uses tokens only', () => {
   assert.doesNotMatch(wikiCss.replace(/\/\*[^]*?\*\//g, ''), /#[0-9a-fA-F]{3,8}\b/, 'colours come from tokens')
   // The narrow rule in wiki.css stacks the list over the page.
   assert.match(wikiCss, /data-position="bottom"\] \.m-split-detail \{[^}]*order: 0/)
+})
+
+test('wiki: the view, its warnings and its parse errors speak the words they are given (se-ti70)', () => {
+  for (const lang of ['en', 'ja', 'zh']) {
+    const words = COPY[lang].wiki
+    const { view } = makeView({ words })
+    assert.equal(view.el.querySelector('.m-wiki-search input').placeholder, words.searchPlaceholder)
+    view.setPages([], 'docs')
+    assert.ok(view.el.querySelector('.m-wiki-list-note').textContent.includes(words.noPages))
+    assert.deepEqual(wiki.pageWarnings({ conflict: true, bytes: 2e6 }, words).map((w) => w.label), [words.conflict, words.large])
+    assert.equal(wiki.parseWikiLs({ dir: 'docs' }, words).error, words.listNoPages)
+    assert.doesNotMatch(view.el.textContent, /[가-힣]/, `${lang}: no Korean left`)
+  }
 })

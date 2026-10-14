@@ -4,6 +4,7 @@
 // shell carry that state across tab switches. Keys go through handleKey(); a keydown listener on the root
 // calls it too unless props.standaloneKeys is false. All text goes in through textContent.
 
+import { COPY, type WikiCopy } from "../i18n/index.ts"
 import { banner, button, chip, el, emptyState, listRow, searchBox, type ChipTone } from "./components.ts"
 import { githubAnchor, renderMarkdown, type LinkTarget } from "./markdown.ts"
 import { FORCE_BOTTOM_BELOW } from "./responsive.ts"
@@ -72,12 +73,15 @@ const HOMES = ["readme", "index"]
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined)
 
-function decodeJson(input: unknown): Parsed<unknown> {
+/** The words when a caller passes none. */
+const DEFAULT_WORDS: WikiCopy = COPY.ko.wiki
+
+function decodeJson(input: unknown, words: WikiCopy): Parsed<unknown> {
   if (typeof input !== "string") return { ok: true, value: input }
   try {
     return { ok: true, value: JSON.parse(input) }
   } catch (error) {
-    return { ok: false, error: `위키 응답을 읽지 못했습니다: ${(error as Error).message}` }
+    return { ok: false, error: words.badJson((error as Error).message) }
   }
 }
 
@@ -126,16 +130,16 @@ export function normalizePage(value: unknown): WikiPage | null {
 }
 
 /** `moai wiki ls --json` (text or parsed): `{dir, pages, skipped?}`, or `{dir, error}` when the folder cannot be used. */
-export function parseWikiLs(input: unknown): Parsed<WikiListing> {
-  const decoded = decodeJson(input)
+export function parseWikiLs(input: unknown, words: WikiCopy = DEFAULT_WORDS): Parsed<WikiListing> {
+  const decoded = decodeJson(input, words)
   if (!decoded.ok) return decoded
   const json = decoded.value
-  if (!isObject(json)) return { ok: false, error: "위키 목록 응답의 꼴이 맞지 않습니다." }
+  if (!isObject(json)) return { ok: false, error: words.listShape }
   const dir = str(json.dir) ?? ""
   if (json.error !== undefined && !Array.isArray(json.pages)) {
-    return { ok: false, error: problem(json.error)?.said ?? "위키 폴더를 읽지 못했습니다." }
+    return { ok: false, error: problem(json.error)?.said ?? words.folderFailed }
   }
-  if (!Array.isArray(json.pages)) return { ok: false, error: "위키 목록 응답에 pages가 없습니다." }
+  if (!Array.isArray(json.pages)) return { ok: false, error: words.listNoPages }
   const pages = json.pages.map(normalizePage).filter((p): p is WikiPage => p !== null)
   const skipped: WikiSkipped[] = Array.isArray(json.skipped)
     ? json.skipped.filter(isObject).map((s) => ({ path: str(s.path) ?? "", kind: str(s.kind) ?? "", said: str(s.said) ?? "" }))
@@ -144,15 +148,15 @@ export function parseWikiLs(input: unknown): Parsed<WikiListing> {
 }
 
 /** `moai wiki show <slug> --json` (text or parsed): the page fields plus `body`. */
-export function parseWikiShow(input: unknown): Parsed<WikiPage> {
-  const decoded = decodeJson(input)
+export function parseWikiShow(input: unknown, words: WikiCopy = DEFAULT_WORDS): Parsed<WikiPage> {
+  const decoded = decodeJson(input, words)
   if (!decoded.ok) return decoded
   const json = decoded.value
   if (isObject(json) && json.error !== undefined && !str(json.slug)) {
-    return { ok: false, error: problem(json.error)?.said ?? "위키 페이지를 읽지 못했습니다." }
+    return { ok: false, error: problem(json.error)?.said ?? words.pageFailed }
   }
   const page = normalizePage(json)
-  return page ? { ok: true, value: page } : { ok: false, error: "위키 페이지 응답의 꼴이 맞지 않습니다." }
+  return page ? { ok: true, value: page } : { ok: false, error: words.pageShape }
 }
 
 // ---- Ordering, warnings, search ----
@@ -207,12 +211,12 @@ export interface PageWarning {
 }
 
 /** Warning chips for a page: git conflict markers, an unreadable body, more than 1 MB. */
-export function pageWarnings(page: Pick<WikiPage, "conflict" | "error" | "bytes">): PageWarning[] {
+export function pageWarnings(page: Pick<WikiPage, "conflict" | "error" | "bytes">, words: WikiCopy = DEFAULT_WORDS): PageWarning[] {
   const out: PageWarning[] = []
-  if (page.conflict) out.push({ kind: "conflict", label: "충돌", tone: "danger", detail: "git 충돌 표시가 남아 있습니다." })
+  if (page.conflict) out.push({ kind: "conflict", label: words.conflict, tone: "danger", detail: words.conflictDetail })
   const large = (page.bytes ?? 0) > TOO_LARGE || page.error?.kind === "too_large"
-  if (page.error && page.error.kind !== "too_large") out.push({ kind: "error", label: "못 읽음", tone: "danger", detail: page.error.said })
-  if (large) out.push({ kind: "large", label: "1MB 초과", tone: "warn", detail: page.error?.kind === "too_large" ? page.error.said : "1MB가 넘어 본문을 읽지 않습니다." })
+  if (page.error && page.error.kind !== "too_large") out.push({ kind: "error", label: words.unread, tone: "danger", detail: page.error.said })
+  if (large) out.push({ kind: "large", label: words.large, tone: "warn", detail: page.error?.kind === "too_large" ? page.error.said : words.largeDetail })
   return out
 }
 
@@ -365,6 +369,8 @@ export interface WikiViewProps {
   standaloneKeys?: boolean
   /** How long a heading reached by an anchor stays highlighted, in ms. */
   flashMs?: number
+  /** The words (copy.wiki); Korean when not given. */
+  words?: WikiCopy
 }
 
 export interface WikiView {
@@ -421,6 +427,7 @@ const folderOf = (slug: string): string => (slug.includes("/") ? slug.slice(0, s
 
 export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   const flashMs = props.flashMs ?? DEFAULT_FLASH_MS
+  const words = props.words ?? DEFAULT_WORDS
   let pages: WikiPage[] = []
   let dir = ""
   let listError: string | null = null
@@ -443,29 +450,29 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   let flashTimer: ReturnType<typeof setTimeout> | null = null
 
   // -- skeleton --
-  const search = searchBox(doc, { placeholder: "위키 검색", label: "위키 제목과 본문 검색", hint: "/" })
+  const search = searchBox(doc, { placeholder: words.searchPlaceholder, label: words.searchLabel, hint: "/" })
   search.el.classList.add("m-wiki-search")
   const toolbar = el(doc, "div", { class: "m-toolbar m-wiki-toolbar" }, search.el)
 
-  const listBox = el(doc, "div", { class: "m-wiki-list", role: "listbox", "aria-label": "위키 페이지" })
+  const listBox = el(doc, "div", { class: "m-wiki-list", role: "listbox", "aria-label": words.pagesLabel })
   const listNote = el(doc, "div", { class: "m-wiki-list-note" })
   const listPane = el(doc, "div", { class: "m-wiki-pages" }, listNote, listBox)
 
   const titleEl = el(doc, "h2", { class: "m-wiki-title" })
   const pathEl = el(doc, "div", { class: "m-wiki-path" })
-  const backButton = button(doc, { label: "되감기", icon: "corner-left-up", variant: "ghost", small: true, onClick: () => void back() })
-  const rawButton = button(doc, { label: "원문", variant: "ghost", small: true, onClick: () => toggleRaw() })
+  const backButton = button(doc, { label: words.back, icon: "corner-left-up", variant: "ghost", small: true, onClick: () => void back() })
+  const rawButton = button(doc, { label: words.raw, variant: "ghost", small: true, onClick: () => toggleRaw() })
   rawButton.setAttribute("aria-pressed", "false")
-  rawButton.title = "원문·렌더링 (SPC v r)"
+  rawButton.title = words.rawTitle
   const head = el(doc, "div", { class: "m-wiki-head" }, el(doc, "div", { class: "m-wiki-heading" }, titleEl, pathEl), el(doc, "div", { class: "m-wiki-actions" }, backButton, rawButton))
   const status = el(doc, "div", { class: "m-wiki-status", role: "status", "aria-live": "polite" })
-  const scroller = el(doc, "div", { class: "m-wiki-scroll", tabindex: 0, "aria-label": "위키 본문" })
+  const scroller = el(doc, "div", { class: "m-wiki-scroll", tabindex: 0, "aria-label": words.bodyLabel })
   const bodyPane = el(doc, "div", { class: "m-wiki-body" }, head, status, scroller)
 
   const split = createSplit(doc, {
     position: "left",
     ratios: { left: props.ratio === undefined ? DEFAULT_LIST_SHARE : normalizeRatio(props.ratio, "left") },
-    labels: { resizer: "위키 목록 폭 조절" },
+    labels: { resizer: words.resizer },
     onRatio: (position, ratio) => {
       if (position === "left") props.onRatio?.(ratio)
     },
@@ -500,22 +507,22 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       return
     }
     if (listLoading && !pages.length) {
-      listNote.append(emptyState(doc, { icon: "book-open", title: "위키를 불러오는 중입니다" }))
+      listNote.append(emptyState(doc, { icon: "book-open", title: words.loadingList }))
       return
     }
     if (!pages.length) {
-      listNote.append(emptyState(doc, { icon: "book-open", title: "위키 페이지가 없습니다", hint: dir ? `${dir} 폴더에 .md 파일을 두면 여기에 섭니다.` : undefined }))
+      listNote.append(emptyState(doc, { icon: "book-open", title: words.noPages, hint: dir ? words.noPagesHint(dir) : undefined }))
       return
     }
     const shown = visiblePages()
     if (!shown.length) {
-      listNote.append(emptyState(doc, { icon: "search", title: "찾는 페이지가 없습니다", hint: "Esc로 검색을 지웁니다." }))
+      listNote.append(emptyState(doc, { icon: "search", title: words.noMatch, hint: words.noMatchHint }))
       return
     }
     if (!cursor || !shown.some((p) => p.slug === cursor)) cursor = shown.some((p) => p.slug === current) ? current : shown[0]!.slug
     for (const entry of shown) {
       const cells: Node[] = [el(doc, "span", { class: "m-row-title", title: entry.title }, entry.title)]
-      for (const warning of pageWarnings(entry)) {
+      for (const warning of pageWarnings(entry, words)) {
         const node = chip(doc, { label: warning.label, tone: warning.tone })
         node.title = warning.detail
         cells.push(node)
@@ -564,10 +571,10 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   }
 
   function backlinksSection(source: WikiPage): HTMLElement {
-    const section = el(doc, "section", { class: "m-wiki-backlinks", "aria-label": "역링크" })
-    section.append(el(doc, "div", { class: "m-wiki-backlinks-title" }, `역링크 ${source.linked_from.length}`))
+    const section = el(doc, "section", { class: "m-wiki-backlinks", "aria-label": words.backlinksLabel })
+    section.append(el(doc, "div", { class: "m-wiki-backlinks-title" }, words.backlinks(source.linked_from.length)))
     if (!source.linked_from.length) {
-      section.append(el(doc, "div", { class: "m-wiki-backlinks-none" }, "이 페이지를 가리키는 문서가 없습니다."))
+      section.append(el(doc, "div", { class: "m-wiki-backlinks-none" }, words.noBacklinks))
     } else {
       const list = el(doc, "ul", { class: "m-wiki-backlinks-list" })
       for (const slug of source.linked_from) {
@@ -576,7 +583,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       }
       section.append(list)
     }
-    if (source.linked_from_partial) section.append(el(doc, "div", { class: "m-wiki-backlinks-none" }, "읽지 못한 페이지가 있어 덜 셌을 수 있습니다."))
+    if (source.linked_from_partial) section.append(el(doc, "div", { class: "m-wiki-backlinks-none" }, words.backlinksPartial))
     return section
   }
 
@@ -604,11 +611,11 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     backButton.disabled = trail.length === 0
     rawButton.setAttribute("aria-pressed", String(raw))
     if (!current) {
-      scroller.append(emptyState(doc, { icon: "book-open", title: "페이지를 고르세요", hint: "목록에서 Enter로 엽니다." }))
+      scroller.append(emptyState(doc, { icon: "book-open", title: words.choosePage, hint: words.choosePageHint }))
       return
     }
     if (pageLoading) {
-      scroller.append(emptyState(doc, { icon: "book-open", title: "페이지를 불러오는 중입니다" }))
+      scroller.append(emptyState(doc, { icon: "book-open", title: words.loadingPage }))
       return
     }
     if (pageError) {
@@ -616,9 +623,9 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       return
     }
     if (!page) return
-    if (page.conflict) scroller.append(banner(doc, "warn", "이 페이지에 git 충돌 표시가 남아 있습니다."))
+    if (page.conflict) scroller.append(banner(doc, "warn", words.pageConflict))
     if (typeof page.body !== "string") {
-      scroller.append(banner(doc, page.error?.kind === "too_large" ? "warn" : "danger", page.error?.said ?? "본문을 읽지 못했습니다."))
+      scroller.append(banner(doc, page.error?.kind === "too_large" ? "warn" : "danger", page.error?.said ?? words.bodyFailed))
     } else if (raw) {
       scroller.append(el(doc, "pre", { class: "m-wiki-raw" }, page.body))
     } else {
@@ -638,7 +645,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
           if (node && !headingNodes.has(heading.anchor)) headingNodes.set(heading.anchor, node)
         }
       } catch (error) {
-        scroller.append(banner(doc, "warn", `렌더링하지 못해 원문을 보여 줍니다: ${(error as Error).message}`))
+        scroller.append(banner(doc, "warn", words.renderFailed((error as Error).message)))
         scroller.append(el(doc, "pre", { class: "m-wiki-raw" }, page.body))
       }
     }
@@ -666,7 +673,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     const heading = headingFor(anchor)
     if (!heading) {
       // The raw view has no heading elements; saying the heading is missing would be wrong there.
-      setStatus(raw ? `원문 보기에서는 '${anchor}' 제목으로 가지 않습니다.` : `이 페이지에 '${anchor}' 제목이 없습니다.`)
+      setStatus(raw ? words.rawNoAnchor(anchor) : words.noAnchor(anchor))
       return false
     }
     const top = heading.getBoundingClientRect().top - scroller.getBoundingClientRect().top
@@ -702,7 +709,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     pane = "body"
     root.dataset.pane = pane
     paintSelection()
-    if (!links.length) setStatus("이 페이지에는 링크가 없습니다.")
+    if (!links.length) setStatus(words.noLinks)
   }
 
   function clearLinkSelection(): boolean {
@@ -731,7 +738,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
         return
       case "external":
         // Shown, never opened: the panel CSP blocks navigation and the renderer gives links no href.
-        setStatus(`위키 밖 주소는 열지 않습니다: ${target.href}`)
+        setStatus(words.outside(target.href))
         return
       case "wiki":
         if (target.slug === current && page) {
@@ -763,11 +770,11 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
     let next: WikiPage | null = null
     let error: string | null = null
     try {
-      const parsed = parseWikiShow(await props.loadPage(slug))
+      const parsed = parseWikiShow(await props.loadPage(slug), words)
       if (parsed.ok) next = parsed.value
       else error = parsed.error
     } catch (reason) {
-      error = `페이지를 불러오지 못했습니다: ${reason instanceof Error ? reason.message : String(reason)}`
+      error = words.loadFailed(reason instanceof Error ? reason.message : String(reason))
     }
     if (token !== request) return // a later open won; this answer is stale
     pageLoading = false
@@ -783,7 +790,7 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
   async function back(): Promise<boolean> {
     const popped = popTrail(trail)
     if (!popped) {
-      setStatus("되감을 페이지가 없습니다.")
+      setStatus(words.nothingBack)
       return false
     }
     trail = popped.trail
@@ -938,7 +945,8 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       case "move.pageUp": {
         const sign = action.endsWith("Down") ? 1 : -1
         const half = action.startsWith("move.half")
-        // In the page list the cursor moves by a page of rows (as the issue list does); in the page, the page scrolls.
+        // In the page list the cursor moves by half a page or a page of rows — on C-d / C-u too, where the issue
+        // list leaves its cursor and scrolls (the wiki's help says so: wiki.halfDown); in the page, the page scrolls.
         if (pane === "list") moveCursor(sign * (half ? Math.max(1, Math.floor(listPageRows() / 2)) : listPageRows()))
         else scrollBy(sign * (half ? page / 2 : page))
         return true
@@ -1135,6 +1143,7 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
   let failed = false
   let retry = false
   const view = createWikiView(doc, {
+    words: copy.wiki,
     loadPage: (slug) => source.page(slug),
     standaloneKeys: false,
     // An issue id in a page: the list tab, at the place the row is listed, with the row chosen.
@@ -1151,7 +1160,7 @@ export const mountWiki: MountPane = (root, ctx): PaneView => {
     failed = false
     view.setLoading(true)
     try {
-      const parsed = parseWikiLs(await source!.list())
+      const parsed = parseWikiLs(await source!.list(), copy.wiki)
       if (parsed.ok) view.setPages(parsed.value.pages, parsed.value.dir)
       else view.setError(copy.shell.wikiListFailed(parsed.error))
     } catch (reason) {

@@ -315,6 +315,11 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
     scopeLabel: t.scope,
     hint: "/",
   })
+  // No scope searches notes (rows carry none, se-thyl): the select says so in a line of its own that cannot be chosen.
+  if (box.select) {
+    box.select.append(el(doc, "option", { value: "", disabled: true, "data-scope-note": "notes" }, t.notesUnsearched))
+    box.select.title = t.notesUnsearched
+  }
   box.select?.addEventListener("change", () => dispatch({ type: "scope-set", scope: box.select!.value as GrepScope }))
   const reportSearch = () => dispatch({ type: "search-text", text: box.input.value })
   box.input.addEventListener("input", reportSearch)
@@ -480,8 +485,8 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
           }
           pop.append(rowEl)
         }
-        // i18n pass: toolbar.sortDefaultSessionNote. Said plainly until a settings storage keeps the default.
-        pop.append(el(doc, "div", { class: "m-sort-note", "data-sort-note": "default" }, "D: 기본 정렬로 저장 — 이 세션에서만 유지됩니다."))
+        // Said plainly until a settings storage keeps the default.
+        pop.append(el(doc, "div", { class: "m-sort-note", "data-sort-note": "default" }, t.sortDefaultSessionNote))
         sortWrap.append(pop)
         sortPop = pop
       }

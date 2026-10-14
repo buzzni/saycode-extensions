@@ -84,9 +84,6 @@ export interface ReadMarks {
   group(id: string): Promise<Outcome | null>
 }
 
-// i18n pass: keys.sortDefaultSaved / keys.sortDefaultSavedSession (Korean literals until then).
-const SORT_DEFAULT_SAVED = "기본 정렬로 저장했습니다."
-const SORT_DEFAULT_SAVED_SESSION = "기본 정렬로 저장했습니다. 설정 저장소가 생기기 전까지는 이 세션에서만 유지됩니다."
 
 export interface KeyWiringOptions {
   document: Document
@@ -478,7 +475,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     "sorter.apply": () => closeSorter(true),
     "sorter.default": () => {
       defaults.set(store.getState().sort)
-      say(defaults.persistent ? SORT_DEFAULT_SAVED : SORT_DEFAULT_SAVED_SESSION)
+      say(defaults.persistent ? copy.keys.sortDefaultSaved : copy.keys.sortDefaultSavedSession)
       // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
       closeSorter(true)
     },
@@ -493,7 +490,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   }
 
   // ── router, menu, help, focus hint ──
-  const menu: MenuView = createMenu(doc, { press: (key) => void router.press(key) })
+  const menu: MenuView = createMenu(doc, { press: (key) => void router.press(key), words: copy.table })
   const redraw = () => {
     const path = router.state().menu
     // A closed menu draws nothing from the context: it is not built (every row read for the status columns) on every
@@ -512,7 +509,7 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     },
     onChange: redraw,
   })
-  const help = createHelp(doc, { platform })
+  const help = createHelp(doc, { platform, words: copy.table })
   const hint = focusHint(doc, copy.keys.focusHint)
   hint.addEventListener("click", () => doc.body.focus({ preventScroll: true }))
   doc.body.append(menu.el, help.el, hint)

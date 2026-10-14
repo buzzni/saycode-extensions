@@ -7,7 +7,8 @@ import { JSDOM } from 'jsdom'
 const panel = new URL('../packages/moai/panel/', import.meta.url)
 const table = await import(new URL('keys/table.ts', panel))
 const routerModule = await import(new URL('keys/router.ts', panel))
-const { KEY_TABLE, MENU_CONTROLS, LAYERS, menuLayer, helpSections, keyLabel, bindingKeys, tokens } = table
+const { KEY_TABLE, MENU_CONTROLS, LAYERS, menuLayer, helpSections, keyLabel, bindingKeys, tokens, say } = table
+const { TABLE, copyFor } = await import(new URL('i18n/index.ts', panel))
 const { createKeyRouter, attachKeyRouter, keyToken, isEditableTarget, detectPlatform } = routerModule
 
 const browse = (extra = {}) => ({ mode: 'browse', tab: 'list', focus: 'list', detail: true, detailAt: 'bottom', ...extra })
@@ -46,11 +47,17 @@ test('table: no key sequence is bound twice, or is both an action and a prefix, 
   }
 })
 
-test('table: every binding has an action id, a Korean label and a key; menu bindings start with SPC', () => {
+test('table: every binding has an action id, words in all four languages and a key; menu bindings start with SPC', () => {
+  const ctx = { mode: 'browse', columns: ['todo'] }
   for (const [mode, bindings] of Object.entries(KEY_TABLE)) {
     for (const b of bindings) {
       assert.match(b.action, /^[a-zA-Z.]+$/, `${mode}: action id`)
-      assert.ok(typeof b.label === 'string' && b.label.length > 0, `${mode}/${b.action}: label`)
+      for (const [lang, words] of Object.entries(TABLE)) {
+        for (const label of [b.label, b.helpLabel].filter(Boolean)) {
+          const said = say(label, ctx, words)
+          assert.ok(typeof said === 'string' && said.length > 0, `${mode}/${b.action}: ${lang} label`)
+        }
+      }
       assert.ok(allKeys([b], 'mac').length > 0, `${mode}/${b.action}: at least one key`)
       if (mode === 'menu') {
         for (const k of b.keys) assert.equal(tokens(k)[0], 'SPC', `${k} is under SPC`)
@@ -58,9 +65,33 @@ test('table: every binding has an action id, a Korean label and a key; menu bind
       }
     }
   }
+  for (const c of MENU_CONTROLS) for (const words of Object.values(TABLE)) assert.ok(say(c.label, ctx, words), c.action)
   // Every menu layer has a title.
   const prefixes = new Set(KEY_TABLE.menu.flatMap((b) => b.keys.map((k) => tokens(k).slice(0, -1).join(' '))).filter((p) => p !== 'SPC'))
   for (const p of prefixes) assert.ok(LAYERS.some((l) => l.prefix === p), `layer ${p} has a title`)
+  for (const words of Object.values(TABLE)) for (const l of LAYERS) assert.ok(words.layers[l.id], `layer ${l.prefix} has words`)
+})
+
+test('table: the menu and help speak the words they are given; Korean when none', () => {
+  const en = TABLE.en
+  const root = menuLayer(['SPC'], browse(), en)
+  assert.equal(root.title, 'Menu')
+  assert.equal(root.items.find((i) => i.key === 'v').label, '+View')
+  const view = Object.fromEntries(menuLayer('SPC v', browse({ hidden: { deferred: true } }), en).items.map((i) => [i.key, i]))
+  assert.equal(view.l.label, 'Deferred')
+  assert.equal(view.l.state.label, '[hidden]')
+  const sort = Object.fromEntries(menuLayer('SPC s', browse(), TABLE.ja).items.map((i) => [i.key, i]))
+  assert.equal(sort.P.label, '優先度 (末尾に追加)')
+  const help = helpSections('browse', browse(), 'other', TABLE.zh)
+  assert.equal(help[0].title, '移动')
+  assert.equal(help[0].rows[0].label, '下移一行')
+  assert.equal(menuLayer(['SPC'], browse()).title, '메뉴')
+})
+
+test('table: C-d / C-u say the cursor stays in browse, not in the wiki, whose list moves its cursor (9w2 #12)', () => {
+  const half = (mode) => helpSections(mode, { mode }, 'other').flatMap((s) => s.rows).find((r) => r.action === 'move.halfDown').label
+  assert.match(half('browse'), /커서 그대로/)
+  assert.doesNotMatch(half('wiki'), /커서/)
 })
 
 test('table: 제외 keys are absent (0-9, SPC q, SPC g s, SPC v w, SPC c w, SPC o t/m, SPC p, Ctrl-C)', () => {
@@ -579,7 +610,7 @@ test('menu: a layer shows a breadcrumb, state labels and the footer controls; hi
   assert.equal(l.getAttribute('role'), 'menuitemcheckbox')
   assert.ok(l.hasAttribute('aria-checked'))
   const footer = m.view.el.querySelector('.m-wk-footer').textContent
-  for (const c of MENU_CONTROLS) assert.ok(footer.includes(c.label), c.label)
+  for (const c of MENU_CONTROLS) assert.ok(footer.includes(TABLE.ko.labels[c.label]), c.label)
   assert.ok(footer.includes('Esc') && footer.includes('Bksp'))
   // Wiki mode has no browse-only view toggles: the item is not drawn.
   const w = menuSetup(browse({ mode: 'wiki', tab: 'wiki' }))
@@ -829,5 +860,19 @@ test('help: while open, a paste, cut, undo or redo into an input behind it is st
 test('table: SPC v a says the archive stays out, as SHOW_ALL leaves it (se-q0u4)', () => {
   const item = menuLayer(['SPC', 'v'], browse()).items.find((one) => one.key === 'a')
   assert.equal(item.action, 'view.all')
-  assert.match(item.label, /아카이브 제외/)
+  assert.match(item.label, /아카이브 빼고/)
+  const row = helpSections('browse', browse(), 'other').flatMap((s) => s.rows).find((r) => r.action === 'view.all')
+  assert.match(row.label, /아카이브 제외/)
+  // The list note's button runs the same SHOW_ALL and says the same (9w2 #13).
+  for (const lang of ['en', 'ko', 'ja', 'zh']) assert.ok(TABLE[lang].labels['view.allHelp'].includes(copyFor(lang).list.showAll.split(' ')[0]), lang)
+})
+
+test('menu: the menu label fits its cell — SPC v a in every language, and the whole label is the title', () => {
+  // About 126px are left for a label in a which-key cell at 13px: count a wide character as 13px, a narrow one as 7.
+  const width = (text) => [...text].reduce((sum, ch) => sum + (/[\u1100-\uffff]/.test(ch) ? 13 : 7), 0)
+  for (const [lang, words] of Object.entries(TABLE)) assert.ok(width(words.labels['view.all']) <= 126, `${lang}: ${words.labels['view.all']}`)
+  const m = menuSetup()
+  m.router.press('SPC'); m.router.press('v')
+  const label = m.item('a').querySelector('.m-wk-label')
+  assert.equal(label.title, label.textContent)
 })

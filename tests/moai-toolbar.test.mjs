@@ -115,7 +115,12 @@ test('render: chips, error, scope, hidden note, hints, sort popover', () => {
   assert.deepEqual(plain.hidden, {}, 'without the view nothing counts as hidden: a done row is not hidden by itself')
   assert.equal(plain.el.querySelector('.m-hidden-note').hidden, true)
   // The scope select offers no note scope: the rows carry no notes, so it would find nothing and say nothing.
-  assert.deepEqual([...plain.el.querySelectorAll('select option')].map((o) => o.value), ['all', 'id', 'title', 'tag', 'body'])
+  assert.deepEqual([...plain.el.querySelectorAll('select option:not([disabled])')].map((o) => o.value), ['all', 'id', 'title', 'tag', 'body'])
+  // It says so where the scope is chosen: a line in the select that cannot be chosen, and the select's title (se-thyl).
+  const note = plain.el.querySelector('select option[data-scope-note]')
+  assert.equal(note.disabled, true)
+  assert.equal(note.textContent, 'Notes are not searched')
+  assert.equal(plain.el.querySelector('select').title, 'Notes are not searched')
   const view = tb.renderToolbar({ ...base, searchText: 'o' }, { doc, rows, lang: 'en', hiddenBy }, handlers)
   assert.equal(view.el.querySelectorAll('.m-chip').length, 2)
   assert.equal(view.searchInput.value, 'o')

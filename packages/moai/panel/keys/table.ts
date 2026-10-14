@@ -15,9 +15,13 @@
 //                                   'layer' goes one level down) and a state label ([보임]/[숨김], [오름]/[내림], …).
 //   helpSections(mode, ctx, platform) → grouped rows { label, keys } for the help overlay; `available` marks rows
 //                                   that do something right now.
+// Labels are ids (KeyLabel) or functions of the words: both resolve through the i18n catalogue's `table` group
+// (KeyTableCopy), passed as `words` — Korean when a caller passes none.
 //   keyLabel(notation)            → how to print a key or sequence in a <kbd> ('C-d' → 'Ctrl-d', 'g g' → 'gg', 'Up' → '↑').
 //   MENU_CONTROLS                 → Esc / SPC / Backspace inside the menu, for the menu's footer hint.
 // Clicking a menu item is the router's press(item.key) — the same path as pressing it.
+
+import { TABLE, type KeyTableCopy } from "../i18n/index.ts"
 
 export type Platform = "mac" | "other"
 
@@ -65,41 +69,36 @@ export interface KeyContext {
 export type StateId =
   | "shown" | "hidden" | "asc" | "desc" | "left" | "bottom" | "raw" | "rendered" | "list" | "board" | "wiki"
 
-export const STATE_LABELS: Readonly<Record<StateId, string>> = {
-  shown: "[보임]",
-  hidden: "[숨김]",
-  asc: "[↑ 오름]",
-  desc: "[↓ 내림]",
-  left: "[왼쪽]",
-  bottom: "[아래]",
-  raw: "[원문]",
-  rendered: "[렌더링]",
-  list: "[목록]",
-  board: "[칸반]",
-  wiki: "[위키]",
-}
+/** The words when a caller passes none. */
+const DEFAULT_WORDS: KeyTableCopy = TABLE.ko
 
 export type HelpGroupId =
   | "move" | "enter" | "focus" | "tab" | "search" | "read" | "other"
   | "view" | "sort" | "cell" | "option" | "menu" | "prompt" | "sorter" | "wiki"
 
-export const HELP_GROUPS: ReadonlyArray<{ id: HelpGroupId; title: string }> = [
-  { id: "move", title: "이동" },
-  { id: "enter", title: "드나들기·펼침" },
-  { id: "wiki", title: "위키" },
-  { id: "focus", title: "패널 포커스" },
-  { id: "tab", title: "화면 전환" },
-  { id: "search", title: "검색·필터" },
-  { id: "read", title: "읽음" },
-  { id: "view", title: "보기 (SPC v)" },
-  { id: "sort", title: "정렬 (SPC s)" },
-  { id: "cell", title: "열 (SPC c)" },
-  { id: "option", title: "옵션 (SPC o)" },
-  { id: "other", title: "기타" },
-  { id: "menu", title: "SPC 메뉴 안에서" },
-  { id: "prompt", title: "검색·필터 입력" },
-  { id: "sorter", title: "정렬 편집" },
+/** The help overlay's group order; the titles are the words' `groups`. */
+export const HELP_GROUPS: ReadonlyArray<HelpGroupId> = [
+  "move", "enter", "wiki", "focus", "tab", "search", "read", "view", "sort", "cell", "option", "other", "menu", "prompt", "sorter",
 ]
+
+/** A binding's words, by id in the catalogue's `labels`. */
+export type KeyLabel =
+  | "move.down" | "move.up" | "move.top" | "move.bottom" | "move.halfDown" | "move.halfUp" | "move.pageDown" | "move.pageUp"
+  | "wiki.halfDown" | "wiki.halfUp"
+  | "focus.next" | "focus.prev" | "focus.left" | "focus.right" | "focus.up" | "focus.down"
+  | "enter" | "leave" | "expand" | "collapse" | "expandAll" | "search" | "clear" | "read" | "help"
+  | "filter" | "add" | "tab.list" | "tab.board" | "tab.wiki"
+  | "view.deferred" | "view.backlog" | "view.archived" | "view.all" | "view.allHelp" | "view.detail" | "view.raw"
+  | "sort.edit" | "read.all" | "read.group" | "option.detailAt" | "menu.close" | "menu.up"
+  | "prompt.apply" | "prompt.cancel" | "prompt.next" | "prompt.prev" | "prompt.up" | "prompt.down" | "prompt.clear" | "prompt.deleteWord"
+  | "sorter.down" | "sorter.up" | "sorter.lower" | "sorter.raise" | "sorter.toggle" | "sorter.flip" | "sorter.apply" | "sorter.default" | "sorter.cancel"
+  | "wiki.enter" | "wiki.back" | "wiki.page" | "wiki.nextLink" | "wiki.prevLink" | "wiki.search" | "wiki.clear"
+
+/** A label id, or words built from the catalogue and the context (status column names, a sort field's name). */
+export type Label = KeyLabel | ((words: KeyTableCopy, ctx: KeyContext) => string)
+
+/** The SPC layers by their key after SPC. */
+export type LayerId = "g" | "v" | "s" | "c" | "m" | "o" | "w"
 
 export interface Binding {
   /** Action id the router dispatches (with `args`). The store performs it. */
@@ -109,10 +108,8 @@ export interface Binding {
   keys: ReadonlyArray<string>
   /** Extra sequences only on macOS (Ctrl-w: Linux/Windows lose it to the host's tab-close). */
   macKeys?: ReadonlyArray<string>
-  /** Korean label for the help overlay and the menu. */
-  label: string
-  /** Label that depends on the context (status column names). Falls back to `label`. */
-  labelFor?: (ctx: KeyContext) => string
+  /** Label for the help overlay and the menu. */
+  label: Label
   group: HelpGroupId
   /** Menu items only: 'toggle' keeps the SPC menu open after running, 'action' (default) closes it. */
   kind?: "toggle" | "action"
@@ -129,14 +126,16 @@ export interface Binding {
   help?: boolean
   /** Keys printed in the help overlay instead of `keys`. */
   helpKeys?: ReadonlyArray<string>
-  /** Label printed in the help overlay instead of `label` / `labelFor` (a row that stands for several bindings). */
-  helpLabel?: string
+  /** Label printed in the help overlay instead of `label` (a row that stands for several bindings, a menu label
+   *  shortened to fit the menu's cell). */
+  helpLabel?: Label
 }
 
 export interface Layer {
   /** Full prefix, e.g. 'SPC v'. */
   prefix: string
-  title: string
+  /** Its title is the words' `layers[id]`. */
+  id: LayerId
   /** State shown on the layer's entry in the parent layer (SPC g shows the current tab). */
   state?: (ctx: KeyContext) => StateId | null
 }
@@ -164,38 +163,38 @@ function focusWhen(side: "next" | "prev" | "left" | "right" | "up" | "down"): (c
 // ---------------------------------------------------------------- browse (list / board / detail)
 
 const MOTION: ReadonlyArray<Binding> = [
-  { action: "move.down", keys: ["j", "Down"], label: "한 줄 아래", group: "move", motion: true },
-  { action: "move.up", keys: ["k", "Up"], label: "한 줄 위", group: "move", motion: true },
-  { action: "move.top", keys: ["g g", "Home"], label: "맨 위", group: "move", motion: true },
-  { action: "move.bottom", keys: ["G", "End"], label: "맨 아래", group: "move", motion: true },
-  { action: "move.halfDown", keys: ["C-d"], label: "반 페이지 아래로 (커서 그대로)", group: "move", motion: true, verdict: "확인" },
-  { action: "move.halfUp", keys: ["C-u"], label: "반 페이지 위로 (커서 그대로)", group: "move", motion: true, verdict: "확인" },
-  { action: "move.pageDown", keys: ["C-f", "PageDown"], label: "한 페이지 아래로", group: "move", motion: true, verdict: "확인" },
-  { action: "move.pageUp", keys: ["C-b", "PageUp"], label: "한 페이지 위로", group: "move", motion: true, verdict: "확인" },
+  { action: "move.down", keys: ["j", "Down"], label: "move.down", group: "move", motion: true },
+  { action: "move.up", keys: ["k", "Up"], label: "move.up", group: "move", motion: true },
+  { action: "move.top", keys: ["g g", "Home"], label: "move.top", group: "move", motion: true },
+  { action: "move.bottom", keys: ["G", "End"], label: "move.bottom", group: "move", motion: true },
+  { action: "move.halfDown", keys: ["C-d"], label: "move.halfDown", group: "move", motion: true, verdict: "확인" },
+  { action: "move.halfUp", keys: ["C-u"], label: "move.halfUp", group: "move", motion: true, verdict: "확인" },
+  { action: "move.pageDown", keys: ["C-f", "PageDown"], label: "move.pageDown", group: "move", motion: true, verdict: "확인" },
+  { action: "move.pageUp", keys: ["C-b", "PageUp"], label: "move.pageUp", group: "move", motion: true, verdict: "확인" },
 ]
 
 /** Ctrl-w window moves (vim). macOS only — keybindings.md §3.3 대체; SPC w is the key everywhere. */
 const CTRL_W: ReadonlyArray<Binding> = [
-  { action: "focus.next", keys: [], macKeys: ["C-w w", "C-w C-w"], label: "다음 패널", group: "focus", when: focusWhen("next"), verdict: "대체" },
-  { action: "focus.prev", keys: [], macKeys: ["C-w W"], label: "이전 패널", group: "focus", when: focusWhen("prev"), verdict: "대체" },
-  { action: "focus.left", keys: [], macKeys: ["C-w h", "C-w C-h"], label: "왼쪽 패널", group: "focus", when: focusWhen("left"), verdict: "대체" },
-  { action: "focus.right", keys: [], macKeys: ["C-w l", "C-w C-l"], label: "오른쪽 패널", group: "focus", when: focusWhen("right"), verdict: "대체" },
-  { action: "focus.up", keys: [], macKeys: ["C-w k", "C-w C-k"], label: "위 패널", group: "focus", when: focusWhen("up"), verdict: "대체" },
-  { action: "focus.down", keys: [], macKeys: ["C-w j", "C-w C-j"], label: "아래 패널", group: "focus", when: focusWhen("down"), verdict: "대체" },
+  { action: "focus.next", keys: [], macKeys: ["C-w w", "C-w C-w"], label: "focus.next", group: "focus", when: focusWhen("next"), verdict: "대체" },
+  { action: "focus.prev", keys: [], macKeys: ["C-w W"], label: "focus.prev", group: "focus", when: focusWhen("prev"), verdict: "대체" },
+  { action: "focus.left", keys: [], macKeys: ["C-w h", "C-w C-h"], label: "focus.left", group: "focus", when: focusWhen("left"), verdict: "대체" },
+  { action: "focus.right", keys: [], macKeys: ["C-w l", "C-w C-l"], label: "focus.right", group: "focus", when: focusWhen("right"), verdict: "대체" },
+  { action: "focus.up", keys: [], macKeys: ["C-w k", "C-w C-k"], label: "focus.up", group: "focus", when: focusWhen("up"), verdict: "대체" },
+  { action: "focus.down", keys: [], macKeys: ["C-w j", "C-w C-j"], label: "focus.down", group: "focus", when: focusWhen("down"), verdict: "대체" },
 ]
 
 const BROWSE: ReadonlyArray<Binding> = [
   ...MOTION,
-  { action: "enter", keys: ["Enter"], label: "들어가기 (잎 행이면 상세로)", group: "enter", when: listFocus },
-  { action: "leave", keys: ["Backspace"], label: "한 층 나가기", group: "enter", when: listFocus },
-  { action: "expand", keys: ["l", "Right"], label: "펼침 (칸반: 오른쪽 칸)", group: "enter", motion: true, when: listFocus },
-  { action: "collapse", keys: ["h", "Left"], label: "접음 (칸반: 왼쪽 칸)", group: "enter", motion: true, when: listFocus },
-  { action: "expandAll", keys: ["Tab"], label: "그룹 밑을 모두 펼침·접음", group: "enter", when: (c) => listFocus(c) && c.tab !== "board" },
+  { action: "enter", keys: ["Enter"], label: "enter", group: "enter", when: listFocus },
+  { action: "leave", keys: ["Backspace"], label: "leave", group: "enter", when: listFocus },
+  { action: "expand", keys: ["l", "Right"], label: "expand", group: "enter", motion: true, when: listFocus },
+  { action: "collapse", keys: ["h", "Left"], label: "collapse", group: "enter", motion: true, when: listFocus },
+  { action: "expandAll", keys: ["Tab"], label: "expandAll", group: "enter", when: (c) => listFocus(c) && c.tab !== "board" },
   ...CTRL_W,
-  { action: "search.open", keys: ["/"], label: "검색", group: "search" },
-  { action: "clear", keys: ["Esc"], label: "걸린 검색·필터 해제", group: "search" },
-  { action: "read", keys: ["r"], label: "커서 행 읽음", group: "read", when: (c) => c.readable !== false },
-  { action: "help", keys: ["?"], label: "단축키 도움말", group: "other", verdict: "추가" },
+  { action: "search.open", keys: ["/"], label: "search", group: "search" },
+  { action: "clear", keys: ["Esc"], label: "clear", group: "search" },
+  { action: "read", keys: ["r"], label: "read", group: "read", when: (c) => c.readable !== false },
+  { action: "help", keys: ["?"], label: "help", group: "other", verdict: "추가" },
 ]
 
 // ---------------------------------------------------------------- SPC menu (browse and wiki)
@@ -203,33 +202,32 @@ const BROWSE: ReadonlyArray<Binding> = [
 const BOTH = ["browse", "wiki"] as const
 const BROWSE_ONLY = ["browse"] as const
 
-const SORTS: ReadonlyArray<[string, SortField, string]> = [
-  ["p", "priority", "우선순위"],
-  ["c", "created", "생성일"],
-  ["u", "updated", "수정일"],
-  ["s", "status", "상태"],
-  ["a", "assignee", "담당자"],
-  ["t", "title", "제목"],
+const SORTS: ReadonlyArray<[string, SortField]> = [
+  ["p", "priority"],
+  ["c", "created"],
+  ["u", "updated"],
+  ["s", "status"],
+  ["a", "assignee"],
+  ["t", "title"],
 ]
 
-const CELLS: ReadonlyArray<[string, CellField, string]> = [
-  ["i", "id", "id"],
-  ["p", "priority", "우선순위"],
-  ["a", "assignee", "담당자"],
-  ["c", "created", "생성일"],
-  ["u", "updated", "수정일"],
-  ["n", "counts", "셈 (n/n)"],
-  ["t", "tags", "태그"],
-  ["e", "epic", "에픽"],
-  ["h", "names", "이름줄"],
+const CELLS: ReadonlyArray<[string, CellField]> = [
+  ["i", "id"],
+  ["p", "priority"],
+  ["a", "assignee"],
+  ["c", "created"],
+  ["u", "updated"],
+  ["n", "counts"],
+  ["t", "tags"],
+  ["e", "epic"],
+  ["h", "names"],
 ]
 
 const columnBindings: Binding[] = Array.from({ length: 9 }, (_, i): Binding => ({
   action: "view.column",
   args: { index: i },
   keys: [`SPC v ${i + 1}`],
-  label: `${i + 1}번째 칸`,
-  labelFor: (c) => c.columns?.[i] ?? `${i + 1}번째 칸`,
+  label: (w, c) => c.columns?.[i] ?? w.column(i + 1),
   group: "view",
   kind: "toggle",
   modes: BROWSE_ONLY,
@@ -238,15 +236,15 @@ const columnBindings: Binding[] = Array.from({ length: 9 }, (_, i): Binding => (
   help: i === 0,
   helpKeys: i === 0 ? ["SPC v 1~9"] : undefined,
   // The one help row stands for all nine: not the first column's name.
-  helpLabel: i === 0 ? "1~9번째 칸" : undefined,
+  helpLabel: i === 0 ? (w) => w.columns : undefined,
 }))
 
-const sortBindings: Binding[] = SORTS.flatMap(([key, field, word]): Binding[] => [
+const sortBindings: Binding[] = SORTS.flatMap(([key, field]): Binding[] => [
   {
     action: "sort.set",
     args: { field },
     keys: [`SPC s ${key}`],
-    label: word,
+    label: (w) => w.sortFields[field],
     group: "sort",
     kind: "toggle",
     modes: BROWSE_ONLY,
@@ -260,7 +258,7 @@ const sortBindings: Binding[] = SORTS.flatMap(([key, field, word]): Binding[] =>
     action: "sort.add",
     args: { field },
     keys: [`SPC s ${key.toUpperCase()}`],
-    label: `${word} (끝에 추가)`,
+    label: (w) => w.sortAdd(w.sortFields[field]),
     group: "sort",
     kind: "toggle",
     modes: BROWSE_ONLY,
@@ -271,18 +269,18 @@ const sortBindings: Binding[] = SORTS.flatMap(([key, field, word]): Binding[] =>
   },
 ])
 
-const cellBindings: Binding[] = CELLS.map(([key, field, word]): Binding => ({
+const cellBindings: Binding[] = CELLS.map(([key, field]): Binding => ({
   action: "cell.toggle",
   args: { field },
   keys: [`SPC c ${key}`],
-  label: word,
+  label: (w) => w.cellFields[field],
   group: "cell",
   kind: "toggle",
   modes: BROWSE_ONLY,
   state: (c) => shown(c.cells?.[field] === false),
 }))
 
-const focusMenu = (action: string, key: string, label: string, side: Parameters<typeof focusWhen>[0]): Binding => ({
+const focusMenu = (action: string, key: string, label: KeyLabel, side: Parameters<typeof focusWhen>[0]): Binding => ({
   action,
   keys: [`SPC w ${key}`],
   label,
@@ -295,22 +293,22 @@ const focusMenu = (action: string, key: string, label: string, side: Parameters<
 
 /** Every SPC binding. Order is menu order (like keys.rs: the table's order is the menu's order). */
 const MENU: ReadonlyArray<Binding> = [
-  { action: "search.open", keys: ["SPC /"], label: "검색", group: "search", modes: BROWSE_ONLY, help: false },
-  { action: "filter.open", keys: ["SPC f"], label: "필터", group: "search", modes: BROWSE_ONLY },
-  { action: "add.open", keys: ["SPC n"], label: "할 일 추가", group: "other", modes: BROWSE_ONLY, verdict: "변경" },
-  { action: "tab.list", keys: ["SPC g l"], label: "목록", group: "tab", modes: BOTH },
-  { action: "tab.board", keys: ["SPC g b"], label: "칸반", group: "tab", modes: BOTH },
-  { action: "tab.wiki", keys: ["SPC g w"], label: "위키", group: "tab", modes: BOTH },
-  { action: "view.deferred", keys: ["SPC v l"], label: "미룸", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.deferred) },
-  { action: "view.backlog", keys: ["SPC v b"], label: "backlog", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.backlog) },
-  { action: "view.archived", keys: ["SPC v o"], label: "아카이브", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.archived) },
-  { action: "view.all", keys: ["SPC v a"], label: "모두 보이기 (아카이브 제외)", group: "view", modes: BROWSE_ONLY },
+  { action: "search.open", keys: ["SPC /"], label: "search", group: "search", modes: BROWSE_ONLY, help: false },
+  { action: "filter.open", keys: ["SPC f"], label: "filter", group: "search", modes: BROWSE_ONLY },
+  { action: "add.open", keys: ["SPC n"], label: "add", group: "other", modes: BROWSE_ONLY, verdict: "변경" },
+  { action: "tab.list", keys: ["SPC g l"], label: "tab.list", group: "tab", modes: BOTH },
+  { action: "tab.board", keys: ["SPC g b"], label: "tab.board", group: "tab", modes: BOTH },
+  { action: "tab.wiki", keys: ["SPC g w"], label: "tab.wiki", group: "tab", modes: BOTH },
+  { action: "view.deferred", keys: ["SPC v l"], label: "view.deferred", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.deferred) },
+  { action: "view.backlog", keys: ["SPC v b"], label: "view.backlog", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.backlog) },
+  { action: "view.archived", keys: ["SPC v o"], label: "view.archived", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(c.hidden?.archived) },
+  { action: "view.all", keys: ["SPC v a"], label: "view.all", helpLabel: "view.allHelp", group: "view", modes: BROWSE_ONLY },
   ...columnBindings,
-  { action: "view.detail", keys: ["SPC v d"], label: "상세", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(!detailShown(c)) },
+  { action: "view.detail", keys: ["SPC v d"], label: "view.detail", group: "view", kind: "toggle", modes: BROWSE_ONLY, state: (c) => shown(!detailShown(c)) },
   {
     action: "view.raw",
     keys: ["SPC v r"],
-    label: "원문·렌더링",
+    label: "view.raw",
     group: "view",
     kind: "toggle",
     modes: BOTH,
@@ -319,14 +317,14 @@ const MENU: ReadonlyArray<Binding> = [
     state: (c) => (c.raw ? "raw" : "rendered"),
   },
   ...sortBindings,
-  { action: "sort.edit", keys: ["SPC s e"], label: "정렬 편집…", group: "sort", modes: BROWSE_ONLY },
+  { action: "sort.edit", keys: ["SPC s e"], label: "sort.edit", group: "sort", modes: BROWSE_ONLY },
   ...cellBindings,
-  { action: "read.all", keys: ["SPC m a"], label: "모두 읽음", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
-  { action: "read.group", keys: ["SPC m g"], label: "그룹 읽음", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
+  { action: "read.all", keys: ["SPC m a"], label: "read.all", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
+  { action: "read.group", keys: ["SPC m g"], label: "read.group", group: "read", modes: BROWSE_ONLY, when: (c) => c.readable !== false },
   {
     action: "option.detailAt",
     keys: ["SPC o d"],
-    label: "상세 위치 (왼쪽 ↔ 아래)",
+    label: "option.detailAt",
     group: "option",
     kind: "toggle",
     modes: BROWSE_ONLY,
@@ -334,69 +332,71 @@ const MENU: ReadonlyArray<Binding> = [
     state: (c) => detailAt(c),
     verdict: "변경",
   },
-  focusMenu("focus.next", "w", "다음 패널", "next"),
-  focusMenu("focus.prev", "W", "이전 패널", "prev"),
-  focusMenu("focus.left", "h", "왼쪽 패널", "left"),
-  focusMenu("focus.down", "j", "아래 패널", "down"),
-  focusMenu("focus.up", "k", "위 패널", "up"),
-  focusMenu("focus.right", "l", "오른쪽 패널", "right"),
-  { action: "help", keys: ["SPC ?"], label: "단축키 도움말", group: "other", modes: BOTH, verdict: "추가" },
+  focusMenu("focus.next", "w", "focus.next", "next"),
+  focusMenu("focus.prev", "W", "focus.prev", "prev"),
+  focusMenu("focus.left", "h", "focus.left", "left"),
+  focusMenu("focus.down", "j", "focus.down", "down"),
+  focusMenu("focus.up", "k", "focus.up", "up"),
+  focusMenu("focus.right", "l", "focus.right", "right"),
+  { action: "help", keys: ["SPC ?"], label: "help", group: "other", modes: BOTH, verdict: "추가" },
 ]
 
-export const ROOT_TITLE = "메뉴"
-
 export const LAYERS: ReadonlyArray<Layer> = [
-  { prefix: "SPC g", title: "이동", state: (c) => (c.mode === "wiki" ? "wiki" : c.tab === "board" ? "board" : c.tab ?? "list") },
-  { prefix: "SPC v", title: "보기" },
-  { prefix: "SPC s", title: "정렬" },
-  { prefix: "SPC c", title: "열" },
-  { prefix: "SPC m", title: "읽음" },
-  { prefix: "SPC o", title: "옵션" },
-  { prefix: "SPC w", title: "창" },
+  { prefix: "SPC g", id: "g", state: (c) => (c.mode === "wiki" ? "wiki" : c.tab === "board" ? "board" : c.tab ?? "list") },
+  { prefix: "SPC v", id: "v" },
+  { prefix: "SPC s", id: "s" },
+  { prefix: "SPC c", id: "c" },
+  { prefix: "SPC m", id: "m" },
+  { prefix: "SPC o", id: "o" },
+  { prefix: "SPC w", id: "w" },
 ]
 
 /** Keys the router handles itself while the SPC menu is open (menu.rs MENU + the opening key). */
 export const MENU_CONTROLS: ReadonlyArray<Binding> = [
-  { action: "menu.close", keys: ["Esc", "SPC"], label: "닫기", group: "menu" },
-  { action: "menu.up", keys: ["Backspace"], label: "한 층 위로", group: "menu" },
+  { action: "menu.close", keys: ["Esc", "SPC"], label: "menu.close", group: "menu" },
+  { action: "menu.up", keys: ["Backspace"], label: "menu.up", group: "menu" },
 ]
 
 // ---------------------------------------------------------------- prompt, sorter, wiki
 
 const PROMPT: ReadonlyArray<Binding> = [
-  { action: "prompt.apply", keys: ["Enter"], label: "적용 (필터 값 목록이 있으면 값 넣기)", group: "prompt" },
-  { action: "prompt.cancel", keys: ["Esc"], label: "취소하고 열기 전 커서로", group: "prompt" },
-  { action: "prompt.next", keys: ["Tab"], label: "검색 범위 순환 / 필터 자동완성", group: "prompt" },
-  { action: "prompt.prev", keys: ["S-Tab"], label: "검색 범위 거꾸로 / 필터 자동완성 거꾸로", group: "prompt" },
-  { action: "prompt.up", keys: ["Up"], label: "필터 값 후보 위", group: "prompt" },
-  { action: "prompt.down", keys: ["Down"], label: "필터 값 후보 아래", group: "prompt" },
-  { action: "prompt.clear", keys: ["C-u"], label: "입력 전체 지움", group: "prompt", verdict: "확인" },
-  { action: "prompt.deleteWord", keys: ["A-Backspace"], macKeys: ["C-w"], label: "단어 지움", group: "prompt", verdict: "대체" },
+  { action: "prompt.apply", keys: ["Enter"], label: "prompt.apply", group: "prompt" },
+  { action: "prompt.cancel", keys: ["Esc"], label: "prompt.cancel", group: "prompt" },
+  { action: "prompt.next", keys: ["Tab"], label: "prompt.next", group: "prompt" },
+  { action: "prompt.prev", keys: ["S-Tab"], label: "prompt.prev", group: "prompt" },
+  { action: "prompt.up", keys: ["Up"], label: "prompt.up", group: "prompt" },
+  { action: "prompt.down", keys: ["Down"], label: "prompt.down", group: "prompt" },
+  { action: "prompt.clear", keys: ["C-u"], label: "prompt.clear", group: "prompt", verdict: "확인" },
+  { action: "prompt.deleteWord", keys: ["A-Backspace"], macKeys: ["C-w"], label: "prompt.deleteWord", group: "prompt", verdict: "대체" },
 ]
 
 const SORTER: ReadonlyArray<Binding> = [
-  { action: "sorter.down", keys: ["j", "Down"], label: "아래로", group: "sorter" },
-  { action: "sorter.up", keys: ["k", "Up"], label: "위로", group: "sorter" },
-  { action: "sorter.lower", keys: ["J"], label: "순서 뒤로", group: "sorter" },
-  { action: "sorter.raise", keys: ["K"], label: "순서 앞으로", group: "sorter" },
-  { action: "sorter.toggle", keys: ["SPC"], label: "넣기·빼기", group: "sorter" },
-  { action: "sorter.flip", keys: ["d"], label: "방향 반전", group: "sorter" },
-  { action: "sorter.apply", keys: ["Enter"], label: "적용", group: "sorter" },
-  { action: "sorter.default", keys: ["D"], label: "기본값으로 저장", group: "sorter" },
-  { action: "sorter.cancel", keys: ["Esc"], label: "취소", group: "sorter" },
+  { action: "sorter.down", keys: ["j", "Down"], label: "sorter.down", group: "sorter" },
+  { action: "sorter.up", keys: ["k", "Up"], label: "sorter.up", group: "sorter" },
+  { action: "sorter.lower", keys: ["J"], label: "sorter.lower", group: "sorter" },
+  { action: "sorter.raise", keys: ["K"], label: "sorter.raise", group: "sorter" },
+  { action: "sorter.toggle", keys: ["SPC"], label: "sorter.toggle", group: "sorter" },
+  { action: "sorter.flip", keys: ["d"], label: "sorter.flip", group: "sorter" },
+  { action: "sorter.apply", keys: ["Enter"], label: "sorter.apply", group: "sorter" },
+  { action: "sorter.default", keys: ["D"], label: "sorter.default", group: "sorter" },
+  { action: "sorter.cancel", keys: ["Esc"], label: "sorter.cancel", group: "sorter" },
 ]
 
+/** The wiki's motions: its page list moves the cursor on C-d / C-u, so these do not say the cursor stays. */
+const WIKI_MOTION: ReadonlyArray<Binding> = MOTION.map((b) =>
+  b.action === "move.halfDown" ? { ...b, label: "wiki.halfDown" } : b.action === "move.halfUp" ? { ...b, label: "wiki.halfUp" } : b)
+
 const WIKI: ReadonlyArray<Binding> = [
-  ...MOTION,
-  { action: "wiki.enter", keys: ["Enter"], label: "페이지 열기 / 링크 선택·이동", group: "wiki" },
-  { action: "wiki.back", keys: ["Backspace", "h", "Left"], label: "건너온 길 되감기", group: "wiki" },
-  { action: "wiki.page", keys: ["l", "Right"], label: "목록에서 본문으로", group: "wiki", motion: true },
-  { action: "wiki.nextLink", keys: ["Tab"], label: "다음 링크", group: "wiki" },
-  { action: "wiki.prevLink", keys: ["S-Tab"], label: "이전 링크", group: "wiki" },
-  { action: "wiki.search", keys: ["/"], label: "제목·본문 검색", group: "search" },
-  { action: "wiki.clear", keys: ["Esc"], label: "링크 선택 해제 → 검색 해제", group: "wiki", verdict: "변경" },
+  ...WIKI_MOTION,
+  { action: "wiki.enter", keys: ["Enter"], label: "wiki.enter", group: "wiki" },
+  { action: "wiki.back", keys: ["Backspace", "h", "Left"], label: "wiki.back", group: "wiki" },
+  { action: "wiki.page", keys: ["l", "Right"], label: "wiki.page", group: "wiki", motion: true },
+  { action: "wiki.nextLink", keys: ["Tab"], label: "wiki.nextLink", group: "wiki" },
+  { action: "wiki.prevLink", keys: ["S-Tab"], label: "wiki.prevLink", group: "wiki" },
+  { action: "wiki.search", keys: ["/"], label: "wiki.search", group: "search" },
+  { action: "wiki.clear", keys: ["Esc"], label: "wiki.clear", group: "wiki", verdict: "변경" },
   ...CTRL_W.filter((b) => b.action !== "focus.up" && b.action !== "focus.down"),
-  { action: "help", keys: ["?"], label: "단축키 도움말", group: "other", verdict: "추가" },
+  { action: "help", keys: ["?"], label: "help", group: "other", verdict: "추가" },
 ]
 
 export const KEY_TABLE: KeyTable = {
@@ -424,13 +424,18 @@ export function isAvailable(binding: Binding, ctx: KeyContext): boolean {
   return binding.when ? binding.when(ctx) : true
 }
 
-export function labelOf(binding: Binding, ctx: KeyContext): string {
-  return binding.labelFor ? binding.labelFor(ctx) : binding.label
+/** A label's words: an id looked up in the catalogue, or a function of the catalogue and the context. */
+export function say(label: Label, ctx: KeyContext, words: KeyTableCopy = DEFAULT_WORDS): string {
+  return typeof label === "function" ? label(words, ctx) : words.labels[label]
 }
 
-export function stateOf(binding: Binding, ctx: KeyContext): { id: StateId; label: string } | null {
+export function labelOf(binding: Binding, ctx: KeyContext, words: KeyTableCopy = DEFAULT_WORDS): string {
+  return say(binding.label, ctx, words)
+}
+
+export function stateOf(binding: Binding, ctx: KeyContext, words: KeyTableCopy = DEFAULT_WORDS): { id: StateId; label: string } | null {
   const id = binding.state?.(ctx) ?? null
-  return id ? { id, label: STATE_LABELS[id] } : null
+  return id ? { id, label: words.states[id] } : null
 }
 
 /** Bindings the router looks at in a mode: its own table, plus the SPC menu for browse and wiki. */
@@ -473,7 +478,7 @@ export function live(bindings: ReadonlyArray<Binding>, prefix: ReadonlyArray<str
 export interface MenuItem {
   /** The key to press (or to pass to router.press on click). */
   key: string
-  /** Item label; a layer item reads '+보기'. */
+  /** Item label; a layer item reads '+보기' (the layer's title). */
   label: string
   kind: "toggle" | "action" | "layer"
   state: { id: StateId; label: string } | null
@@ -485,7 +490,7 @@ export interface MenuLayer {
   path: string[]
   /** 'SPC v' */
   prefix: string
-  /** '메뉴' at the root, the layer title below. */
+  /** The words' root title ('메뉴') at the root, the layer's title below. */
   title: string
   items: MenuItem[]
   /** The layer has a toggle: it stays open after a toggle, so the footer should say "Esc 닫기". */
@@ -496,11 +501,21 @@ export function layerOf(prefix: string): Layer | undefined {
   return LAYERS.find((l) => l.prefix === prefix)
 }
 
+function layerTitle(prefix: string, words: KeyTableCopy): string {
+  const layer = layerOf(prefix)
+  return layer ? words.layers[layer.id] : prefix
+}
+
 /**
  * The SPC menu layer at `path` (['SPC'] is the root) as it should be drawn now: only available items, in table order,
  * sub-layers only when something under them is available. Clicking an item = router.press(item.key).
  */
-export function menuLayer(path: ReadonlyArray<string> | string, ctx: KeyContext, table: KeyTable = KEY_TABLE): MenuLayer {
+export function menuLayer(
+  path: ReadonlyArray<string> | string,
+  ctx: KeyContext,
+  words: KeyTableCopy = DEFAULT_WORDS,
+  table: KeyTable = KEY_TABLE,
+): MenuLayer {
   const at = typeof path === "string" ? tokens(path) : [...path]
   const prefix = at.join(" ")
   const bindings = table.menu.filter((b) => isAvailable(b, ctx))
@@ -516,9 +531,9 @@ export function menuLayer(path: ReadonlyArray<string> | string, ctx: KeyContext,
       if (t.length === at.length + 1) {
         items.push({
           key: next,
-          label: labelOf(binding, ctx),
+          label: labelOf(binding, ctx, words),
           kind: binding.kind ?? "action",
-          state: stateOf(binding, ctx),
+          state: stateOf(binding, ctx, words),
           action: binding.action,
           args: binding.args,
         })
@@ -526,14 +541,14 @@ export function menuLayer(path: ReadonlyArray<string> | string, ctx: KeyContext,
         const sub = [...at, next].join(" ")
         const layer = layerOf(sub)
         const id = layer?.state?.(ctx) ?? null
-        items.push({ key: next, label: `+${layer?.title ?? "…"}`, kind: "layer", state: id ? { id, label: STATE_LABELS[id] } : null })
+        items.push({ key: next, label: `+${layer ? words.layers[layer.id] : "…"}`, kind: "layer", state: id ? { id, label: words.states[id] } : null })
       }
     }
   }
   return {
     path: at,
     prefix,
-    title: at.length <= 1 ? ROOT_TITLE : layerOf(prefix)?.title ?? prefix,
+    title: at.length <= 1 ? words.root : layerTitle(prefix, words),
     items,
     waits: items.some((i) => i.kind === "toggle"),
   }
@@ -556,14 +571,20 @@ export interface HelpSection {
 }
 
 /** The help overlay for a mode: rows grouped by HELP_GROUPS order, platform keys only, empty groups left out. */
-export function helpSections(mode: Mode, ctx: KeyContext, platform: Platform, table: KeyTable = KEY_TABLE): HelpSection[] {
+export function helpSections(
+  mode: Mode,
+  ctx: KeyContext,
+  platform: Platform,
+  words: KeyTableCopy = DEFAULT_WORDS,
+  table: KeyTable = KEY_TABLE,
+): HelpSection[] {
   const bindings = bindingsFor(mode, table)
   if (mode === "browse" || mode === "wiki") bindings.push(...MENU_CONTROLS)
   const sections: HelpSection[] = []
   for (const group of HELP_GROUPS) {
     const rows: HelpRow[] = []
     for (const binding of bindings) {
-      if (binding.group !== group.id || binding.help === false) continue
+      if (binding.group !== group || binding.help === false) continue
       const keys = binding.helpKeys ? [...binding.helpKeys] : bindingKeys(binding, platform)
       if (keys.length === 0) continue
       // One row per action: the SPC w and Ctrl-w forms of a focus move share a row.
@@ -574,9 +595,9 @@ export function helpSections(mode: Mode, ctx: KeyContext, platform: Platform, ta
         same.available ||= available
         continue
       }
-      rows.push({ action: binding.action, args: binding.args, label: binding.helpLabel ?? labelOf(binding, ctx), keys, available })
+      rows.push({ action: binding.action, args: binding.args, label: say(binding.helpLabel ?? binding.label, ctx, words), keys, available })
     }
-    if (rows.length > 0) sections.push({ id: group.id, title: group.title, rows })
+    if (rows.length > 0) sections.push({ id: group, title: words.groups[group], rows })
   }
   return sections
 }
