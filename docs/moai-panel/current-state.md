@@ -98,7 +98,7 @@
 - sandbox에 `allow-same-origin`이 없으면 프레임 origin이 opaque라서 `localStorage` 접근이 `SecurityError`를 낸다. 그래서 백엔드는 getter로 받고, 읽기·쓰기가 하나라도 던지면 **그 세션 동안만 메모리에 둔다**. 저장 실패는 패널을 멈추지 않고 기본값으로 돌아갈 뿐이다.
 - `storage.read`/`storage.write` 권한은 쓰지 않는다. 액션 시그니처가 이 저장소에 없기 때문이다. 순서(localStorage → `storage.*` → 세션)는 설계와 같지만 가운데 단계는 비어 있다.
 - 읽은 값은 `normalizeMemory`가 모두 정리한다. 모르는 탭이나 범위를 벗어난 비율은 기본값으로 떨어지고, 값이 하나도 없어도 기본(탭 칸반, 상세 표시, 아래, 비율 기본값)으로 뜬다.
-- 기본 정렬은 `State.defaultSort`다(내장 순서에서 시작해 `D`와 `remember()`가 저장한 값으로 바뀐다). 정렬을 비우면 이 값으로 돌아가고 경로줄의 "sort …"도 이 값과 견준다(`se-ka0w`가 store·툴바 정렬 설정을 맞췄고, 경로줄 `crumbs.ts`는 `se-1t2r`이 남았다).
+- 기본 정렬은 `State.defaultSort`다(내장 순서에서 시작해 `D`와 `remember()`가 저장한 값으로 바뀐다). 정렬을 비우면 이 값으로 돌아가고 경로줄의 "sort …"도 이 값과 견준다(`se-ka0w`가 store·툴바·경로줄 `crumbs.ts`의 정렬 설정을 맞췄다).
 - 검색·필터·정렬·열·보기 설정과 기본 정렬(`D`)은 `memory.ts`의 `SettingsStorage` 이음새로 **세션 수준**에서 기억한다(`se-cv7w.lca`, `se-5air`). 정렬이 기본값이면 질의에는 `sort: null`로 남겨, 사용자가 고른 정렬만 기억한다. 저장소가 던지면 값을 잊을 뿐 패널은 멈추지 않는다. Desktop 조사(2.0.9절) 결과 프레임 origin이 opaque라 `localStorage`가 던질 것으로 보이므로 위 기억은 **세션 동안만** 유지된다. 영속은 SDK 설정 저장 API가 오면 같은 키로 잇는다(`se-c9mu`, 상류 요청서 4절).
 
 ### 2.0.6 읽음, 아카이브, 보드 셈
@@ -122,17 +122,17 @@
 
 ### 2.0.8 아직 열려 있는 것 (2026-10-14)
 
-`se-h5c7`(키 소유 잔여)와 `se-gq4i`(포커스 힌트 위치)는 `d30fd6c`로 끝났다. i18n(`se-bz5y.m35`, `se-ti70`)과 E8 리뷰 `se-bz5y.v5b`도 `19c43c5`로 머지됐다.
+개발 에픽은 모두 끝났다. `se-h5c7`·`se-gq4i`(`d30fd6c`), i18n(`se-bz5y.m35`, `se-ti70`)과 E8 리뷰 `se-bz5y.v5b`(`19c43c5`)에 이어 `se-5y3p`(unread 호환 잔여, `observeRows` 제거 `5bbff76`)와 `se-kd3u`·`se-s3vv`(`6b70a0f`)도 끝났다. `se-1t2r`(경로줄 정렬 표시)은 `se-ka0w`(`2ebaa10`) 뒤로 경로줄이 `state.defaultSort`와 견주므로 이미 고쳐진 것으로 닫았다.
+
+남은 것:
 
 | 이슈 | 내용 |
 |---|---|
-| `se-1t2r` | 경로줄이 `D`로 저장한 기본 정렬이 아니라 내장 순서와 견주어 "sort …"를 계속 보인다(`view/crumbs.ts`). 진행 중 |
-| `se-5y3p` | unread 호환 잔여: `view/shell.ts` 주석, `data/compat.ts`의 `observeRows`. 문서 쪽은 이 위키 갱신으로 끝난다 |
-| `se-kd3u` | 영어 which-key 라벨이 SPC 메뉴 칸보다 넓다. 짧은 메뉴 라벨과 `helpLabel`을 네 언어로. 진행 중 |
-| `se-s3vv` | 검색 범위 select가 "Notes are not searched" 줄 너비까지 커진다. `.m-select`에 `max-width`. 진행 중 |
-| `se-c9mu` | SDK 설정 저장 API가 오면 `memory.ts` 백엔드를 이어 설정을 영속(workspace·global) |
-
-2.0 밖(사람 결정 2026-10-14): `se-qxeh` note 검색 범위 되살리기는 2.0 뒤로 **미뤘다**(deferred). 2.0은 노트를 검색하지 않고 낸다. SDK에는 설정 저장 API를 요청했다(상류 요청서 4절, `se-dnas`).
+| `se-0g4a.fjl`, `se-0g4a.zrf`, `se-0g4a.y91` | E0 실기 확인(동시 실행·출력 한도 실측 리뷰, iframe 키 도달·포커스, Desktop `localStorage`) |
+| `se-0g4a.anz` | 데몬 카탈로그에 새 프로필 7개 추가(happy-cli 쪽) |
+| `se-vpav` | Desktop 카탈로그·테스트 후속 |
+| `se-dnas` → `se-c9mu` | SDK 설정 저장 API 요청(상류 요청서 4절). 오면 `memory.ts` 백엔드를 이어 설정을 영속(workspace·global) |
+| `se-qxeh` | note 검색 범위 되살리기. 사람 결정(2026-10-14)으로 2.0 뒤로 **미뤘다**(deferred). 2.0은 노트를 검색하지 않고 낸다 |
 
 **E0의 남은 실기 확인**(에픽 `se-0g4a` 3/7): 데몬 카탈로그에 새 프로필 7개를 더하는 일(`se-0g4a.anz`, happy-cli 쪽), Desktop `localStorage`(`se-0g4a.y91`)와 iframe 키 도달·포커스(`se-0g4a.zrf`) 스파이크, 동시 실행과 출력 한도 실측의 리뷰(`se-0g4a.fjl`)다. 데몬 카탈로그가 갱신되기 전에는 호환 배너가 해당 기능이 꺼졌다고 말한다.
 
