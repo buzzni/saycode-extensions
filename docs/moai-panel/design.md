@@ -2,9 +2,9 @@
 
 [개편 계획](overview.md)의 결정을 구현 단위로 풀어 쓴 설계다. 원본 동작은 [moai TUI 분석](tui-analysis.md), 스타일 값은 [세이코드 룩앤필 가이드](look-and-feel.md), 키는 [단축키 매핑](keybindings.md)을 기준으로 한다.
 
-> **구현 후 표시.** 이 페이지는 구현 **전**의 설계이고 본문은 고치지 않았다. 구현이 설계와 달라진 곳과 아직 머지되지 않은 곳은 아래 "구현과 달라진 점"에 모았고, 본문에도 해당 절에 `※`로 가리켰다. 구현 결과 자체는 [현황 2.0절](current-state.md#20-구현-결과)이 기준이다.
+> **구현 후 표시.** 이 페이지는 구현 **전**의 설계이고 본문은 고치지 않았다. 구현이 설계와 달라진 곳과 아직 열려 있는 곳은 아래 "구현과 달라진 점"에 모았고, 본문에도 해당 절에 `※`로 가리켰다. 구현 결과 자체는 [현황 2.0절](current-state.md#20-구현-결과)이 기준이다.
 
-## 구현과 달라진 점 (2026-10-14, `milestone/se-9inv` `216ecb3` 기준)
+## 구현과 달라진 점 (2026-10-14, `milestone/se-9inv` 배선 묶음 `a7fe3df` 기준)
 
 | 설계 | 구현 | 상태 |
 |---|---|---|
@@ -14,32 +14,36 @@
 | 3.1 `backlog` 프로필 | `backlog-all`(`backlog show --all`). 데몬의 기존 `buzzni.moai.backlog`가 `backlog add`라서 id를 따로 잡았다 | 선언만, 데몬 확인 대기 |
 | 3.1 `show-archived` 한 개 | `show-archived`(첫 쪽)와 `show-archived-after`(다음 쪽) 두 개, 쪽당 200 고정 | 선언만, 데몬 확인 대기 |
 | 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 **가정**하고, 없으면 `counts` 키를 기본 순서에 맞춘다 | 가정(상류 요청) |
-| 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 코드는 머지됨, 라이브 확인 대기. `main.ts`는 묶음에서 바꾸는 중 |
+| 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 머지됨(`main.ts`가 `PANEL_CLIENT_OPTIONS` 사용), 라이브 확인 대기 |
 | 3.2 폴링 500ms | 그대로 | 머지됨 |
-| 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 로더는 머지됨, `main.ts`는 아직 `prime`만 읽음(묶음 `se-bco3`) |
-| 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`), 연결은 묶음(`se-poaz`) |
+| 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 머지됨(`se-bco3`). `main.ts`가 `loadAllRows`를 쓰고 잘림 배너를 단다 |
+| 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`, 연결 `se-poaz`) |
 | 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류가 행에 `derived_milestone`, `derived_deferred`, `archive_candidate`를 주는 것으로 **가정**하고, 있으면 그것을 우선한다. 없을 때만 `nav.rs` 규칙으로 계산한다 | 가정(상류 요청) |
-| 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 아직 없다 | 매처만 머지됨 |
+| 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 없고, `note` 범위는 조용히 아무것도 못 찾는다 | 매처만 머지됨. backlog `se-thyl` |
 | 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 가정(상류 `moai-cqwy`) |
 | 4.9 쓰는 값은 그린 행의 `updated_at` | CLI는 값을 받지 않고 **현재** `updated_at`을 쓴다. 쓰기 뒤 다시 읽어 `staleAgainst`로만 비교한다 | 달라짐. 상류 요청은 backlog `se-a5wl` |
 | 4.9 NEW 모든 행 | **아카이브에서만 온 행은 NEW를 그리지 않는다.** `moai read`가 활성 행만 풀기 때문이다 | 머지됨(`se-fvou`) |
-| 4.9 탭 뱃지·NEW 칩 | 판정과 쓰기 로직만 있고 칩과 뱃지는 없다 | 진행 중(`se-ehdi.zcx`) |
+| 4.9 탭 뱃지·NEW 칩 | 판정·쓰기와 읽음 키(`r`, `SPC m a`, `SPC m g`)는 이어졌고 칩과 뱃지는 아직 없다 | 열림(`se-ehdi.zcx`) |
 | 4.11 렌더러 지원 목록 | 엔티티·참조 링크·취소선·작업 목록이 더해졌다. 이미지는 여전히 지원하지 않는다 | 머지됨 |
 | 5 설정 영속화 범위 "탭: 프로젝트" | 기억은 키 `buzzni.moai.panel` 하나에 **전역**으로 둔다. 항목은 탭·상세 표시·위치·위치별 비율뿐이다 | 머지됨 |
 | 5 정렬·열·보기·위키 분할 기억 | 아직 기억하지 않는다 | 대기(`se-cv7w.lca` ← 스파이크 `se-0g4a.y91`) |
 
-### 아직 진행 중인 것
+### 배선 묶음이 머지된 뒤 (`a7fe3df`)
 
-한 워크트리(`.worktrees/se-pbqz`, 세션 `saycode-extensions-08`)가 **배선 묶음**을 들고 있고 epic-end 리뷰(`se-pbqz.y8z`)가 돈다. 머지 전까지 아래는 마일스톤에 없다.
+한 워크트리가 들고 있던 배선 묶음이 머지됐다(epic-end 리뷰 `se-pbqz.y8z` max, 15건 반영). 설계와 달라진 구현 결정은 이렇다.
 
-| 이슈 | 내용 |
+| 이슈 | 결과 |
 |---|---|
-| `se-jwl3` | 키 라우터·SPC 메뉴·도움말을 `main.ts`·`store.ts`에 잇기. 리뷰에서 넘어온 세 가지(SPC 메뉴 토글 뒤 메뉴 다시 그리기, 버튼에서 Enter가 클릭을 막는 문제, 도움말이 열린 동안 라우터 침묵)를 함께 처리한다 |
-| `se-pbqz.k84` | 한글 입력 소스에서 글자 키를 `event.code`로 읽기. 구현(`ab59484`)은 있고 실기 확인이 남았다 |
-| `se-cv7w.0qk` | `query.ts`·`toolbar.ts`를 스토어·목록·칸반에 잇기 |
-| `se-jj42` | 위키 탭을 셸에 잇기: 위키 상태 저장·복원, `wiki.handleKey`, 위키 안 `Tab`에서 빠져나오기, `SPC v r` |
-| `se-bco3` | `main.ts`를 `PANEL_CLIENT_OPTIONS`와 `loadAllRows`로 바꾸고 잘림 배너 |
-| `se-poaz` | `loadTallies`를 `IssueIndex`에, `loadArchived({active})`를 아카이브 읽는 곳에 |
+| `se-jwl3` | 키 라우터·SPC 메뉴·도움말·kbd 힌트를 `main.ts`·`store.ts`에 이었다. 키 주인은 라우터 한 곳이고, 입력창·IME 중에는 물러나며, 컨트롤의 `Enter`/`Space`는 컨트롤의 것이다 |
+| `se-pbqz.k84` | 한글 입력 소스는 `event.code`로 읽는다. **실기 확인 남음** |
+| `se-cv7w.0qk` | 툴바(검색·필터·정렬)를 스토어·목록·칸반에 이었다. 툴바는 한 번만 만들고 갱신해 IME 조합이 끊기지 않는다 |
+| `se-jj42` | 위키 탭을 셸에 이었다. 탭을 바꿔도 상태가 복원되고, 라우터가 `wiki.handleKey`를 부른다 |
+| `se-bco3`, `se-poaz` | `main.ts`가 `PANEL_CLIENT_OPTIONS`·`loadAllRows`·잘림 배너·`loadTallies`·`loadArchived({active})`를 쓴다 |
+| 스토어 어휘 | 칸 이름 `status`, 사람 이름 `names`, 아카이브 표시 `showArchived`(참이면 보임) |
+
+### 아직 열려 있는 것
+
+`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-lv9n`(보드 읽기 잔여), `se-mht7`(활동 줄 안내), `se-ehdi.zcx`(NEW 뱃지), 호환 안내 배너, i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-thyl`·`se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 

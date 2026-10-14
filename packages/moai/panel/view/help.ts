@@ -45,12 +45,32 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
   let returnTo: Element | null = null
   const close = (): void => {
     if (root.hidden) return
+    doc.removeEventListener("keydown", guard, true)
     root.hidden = true
     root.replaceChildren()
     const back = returnTo as HTMLElement | null
     returnTo = null
     if (back && back !== doc.body && back.isConnected) back.focus?.()
     props.onClose?.()
+  }
+  /**
+   * While the overlay is open nothing behind it takes a key: a key pressed with the focus outside it (a click behind
+   * it moved the focus) neither clicks a focused button nor types into an input — the focus comes back to the
+   * overlay, and Esc closes it. Tab inside it stays inside it. On the document in the capture phase, so it runs
+   * before any control's own keydown listener. Cmd/Meta combinations are the host's and go on.
+   */
+  function guard(event: KeyboardEvent): void {
+    if (root.hidden || event.metaKey) return
+    const target = event.target as Node | null
+    const inside = target !== null && root.contains(target)
+    if (inside && event.key !== "Tab") return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === "Escape" || event.key === "Esc") return close()
+    if (!inside) return root.focus?.()
+    // Tab: between the overlay itself and its close button, its only control.
+    const closeButton = root.querySelector<HTMLElement>(".m-help-head button")
+    ;(doc.activeElement === closeButton || !closeButton ? root : closeButton).focus?.()
   }
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape" || event.key === "Esc") {
@@ -60,7 +80,10 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
     }
   })
   const open = (mode: Mode, ctx: KeyContext): void => {
-    if (root.hidden) returnTo = doc.activeElement
+    if (root.hidden) {
+      returnTo = doc.activeElement
+      doc.addEventListener("keydown", guard, true)
+    }
     const head = el(doc, "div", { class: "m-help-head" }, el(doc, "strong", {}, "단축키"))
     head.append(iconButton(doc, { icon: "x", label: "닫기", onClick: close }))
     const body = el(doc, "div", { class: "m-help-body" })

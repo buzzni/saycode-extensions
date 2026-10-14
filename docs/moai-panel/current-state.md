@@ -2,33 +2,38 @@
 
 2026-10-14, Moai 확장 1.1.1과 SDK 0.7.0 기준으로 개편 전 상태를 정리한다. 개편 방향은 [개편 계획](overview.md)과 [설계](design.md)에 있다.
 
-> **읽는 법.** 아래 2.0 절은 마일스톤 브랜치 `milestone/se-9inv`에 **머지된 것**(`216ecb3` 기준)을 적는다. 1~7절은 개편 **전** 상태(1.1.1)의 기록이고, 바뀐 부분은 2.0 절이 우선한다. 아직 머지되지 않은 작업은 "진행 중"이라고 따로 표시한다.
+> **읽는 법.** 아래 2.0 절은 마일스톤 브랜치 `milestone/se-9inv`에 **머지된 것**(배선 묶음 `a7fe3df` 기준)을 적는다. 1~7절은 개편 **전** 상태(1.1.1)의 기록이고, 바뀐 부분은 2.0 절이 우선한다. 아직 머지되지 않은 작업은 2.0.8절에 모았다.
 
 ## 2.0 구현 결과
 
 ### 2.0.1 어디까지 왔나
 
 - 브랜치는 `milestone/se-9inv`(`.worktrees/milestone-se-9inv`)다. `main`에는 아직 들어가지 않았고 릴리스는 사람이 한다.
-- `packages/moai/extension.json`의 버전은 여전히 **1.1.1**이다. 2.0.0 올림과 릴리스 파일명 갱신은 E8(`se-bz5y`) 몫이라 아직 하지 않았다.
+- `packages/moai/extension.json`의 버전은 **2.0.0**이다(`4c290b3`). 릴리스 파일명과 README(호환 표·출시 순서)도 맞춰졌다. 확장과 moai 버전은 따로 간다(사람 결정).
+- 배선 묶음(`a7fe3df`, 리뷰 `se-pbqz.y8z` max, 15건 반영)이 머지되어 패널은 처음으로 **끝까지 이어져** 돈다. 패널 빌드 크기는 **270,357 B**(512 KiB 한도의 약 51%)다.
 - 에픽별 상태(2026-10-14 기준):
 
   | 에픽 | 머지된 것 | 남은 것 |
   |---|---|---|
-  | E1 `se-89fu` 기반 | 단일 HTML 빌드, 상태 스토어, 이슈 인덱스, 요청 큐, 자동 갱신(`191dcbe`), 새 프로필·전체 행·아카이브·위키 로더(`593d497`), 보드 셈과 아카이브 NEW(`216ecb3`) | `main.ts`를 새 데이터 계층으로 바꾸는 일(`se-bco3`, `se-poaz`) — **진행 중** |
-  | E2 `se-qwkz` 룩앤필·셸 | 토큰, 공용 컴포넌트, 탭 셸, 상세 위치, 좁은 폭, 셸 조립과 기억 | 없음 (완료) |
-  | E3 `se-c10x` 뷰 | 목록, 칸반, 상세, 열, 뷰 토글, 가상 스크롤(`0fb9e6a`) | 없음 (완료) |
-  | E4 `se-cv7w` 검색·필터·정렬 | `query.ts`, `toolbar.ts` 순수 로직과 뷰(`84741b6`) | 스토어·목록에 잇기(`se-cv7w.0qk`) **진행 중**, 설정 영속화(`se-cv7w.lca`) 대기 |
-  | E5 `se-pbqz` 단축키 | 키 표, 키 라우터, SPC 메뉴, 도움말(`4d8ae65`) | 패널에 잇기(`se-jwl3`), 한글 입력 소스(`se-pbqz.k84`) — **진행 중** |
-  | E6 `se-ehdi` 읽음 | `data/read.ts` 판정과 쓰기(`593d497`), 아카이브 행 NEW 끔(`216ecb3`) | NEW 뱃지와 읽음 키(`se-ehdi.zcx`) |
-  | E7 `se-rhu3` 위키 | 마크다운 렌더러, 위키 뷰, 검색·역링크·링크 따라가기, 라이브 프로필 로더(`4cae158`, `51bb880`, `593d497`) | 위키 탭을 셸에 잇기(`se-jj42`) — **진행 중** |
-  | E8 `se-bz5y` 출시 | 사용자 문서 `packages/moai/PANEL.md`와 `README.md` 패널 절(`c5d1b58`) | 버전 2.0.0, 릴리스, i18n 정리, 이 위키 갱신 |
+  | E1 `se-89fu` 기반 | 단일 HTML 빌드, 스토어, 이슈 인덱스, 요청 큐, 자동 갱신, 숨은 탭 갱신 멈춤(`02777e8`), 새 프로필 로더, 보드 셈, `main.ts` 전환(`se-bco3`, `se-poaz`) | 보드 읽기 잔여 `se-lv9n`, 활동 줄 안내 `se-mht7` |
+  | E2 `se-qwkz` 룩앤필·셸 | 토큰, 공용 컴포넌트, 탭 셸, 상세 위치, 좁은 폭 | 없음 (완료) |
+  | E3 `se-c10x` 뷰 | 목록, 칸반, 상세, 열, 뷰 토글, 가상 스크롤 | 없음 (완료) |
+  | E4 `se-cv7w` 검색·필터·정렬 | `query.ts`, `toolbar.ts`, 스토어·목록·칸반 연결(`se-cv7w.0qk`) | 설정 영속화 `se-cv7w.lca`(스파이크 `se-0g4a.y91` 결과로는 세션 동안만 가능) |
+  | E5 `se-pbqz` 단축키 | 키 표·라우터·SPC 메뉴·도움말, 패널 연결(`se-jwl3`), 한글 입력 소스(`se-pbqz.k84`), 키 소유 잔여(`se-h5c7`), 포커스 힌트 위치(`se-gq4i`) | 성능 `se-mzlx` |
+  | E6 `se-ehdi` 읽음 | 판정·쓰기, 읽음 키 `r` / `SPC m a` / `SPC m g`, 아카이브 행 NEW 끔 | NEW 뱃지 `se-ehdi.zcx` |
+  | E7 `se-rhu3` 위키 | 렌더러, 위키 뷰, 검색·역링크·링크 따라가기, 라이브 프로필, 셸의 위키 탭(`se-jj42`) | 없음 (완료). 위키 문구 번역은 backlog `se-ti70` |
+  | E8 `se-bz5y` 출시 | 사용자 문서 `PANEL.md`, 2.0.0, README 호환 표, 크기·pack 점검, 호환 점검 데이터 쪽(`se-93p3`), 이 위키 | i18n `se-bz5y.m35`, 호환 안내 배너 |
 
-- **지금 머지된 패널이 실제로 하는 일.** 탭 바(칸반·목록·위키), 경로줄, 칸반·목록·상세 뷰, 분할과 리사이저, 상세 위치 토글, 마지막 탭·상세 설정 기억까지는 마일스톤 브랜치에서 돈다. 그러나 `panel/main.ts`는 아직 **`prime`만 읽는** `loadRows`를 쓰고, 키 라우터·툴바·위키 본문·읽음 키는 `main.ts`에 이어져 있지 않다. 위키 탭은 `PANES`에 등록되지 않아 자리표시자를 보여 준다(`panel/view/panes.ts`).
-- **진행 중인 배선 묶음.** 위 "남은 것" 중 `se-jwl3`, `se-pbqz.k84`, `se-cv7w.0qk`, `se-jj42`, `se-bco3`, `se-poaz`는 한 워크트리(`.worktrees/se-pbqz`, 브랜치 `worktree-se-pbqz`, 세션 `saycode-extensions-08`)에서 함께 작업 중이다. 커밋은 `ab59484`, `a8329a3`, `269e516`, `919d132`, `d446082`까지 쌓였고, 묶음 전체의 epic-end 리뷰 `se-pbqz.y8z`(max)가 돌고 있다. **리뷰와 머지가 끝나기 전에는 이 묶음이 마일스톤에 없다.** 이 절의 이후 내용 중 "묶음"이라고 적은 것은 이 브랜치의 동작이다.
+- **지금 머지된 패널이 하는 일.** 탭 바(칸반·목록·위키), 경로줄, 툴바(검색·필터·정렬·보기·열), 칸반·목록·상세 뷰, 분할과 리사이저, SPC 메뉴·`?` 도움말·kbd 힌트, 위키 탭, 읽음 키가 모두 `main.ts`에 이어져 있다. 시작 때 `PANEL_CLIENT_OPTIONS`(동시 3·`workspace-busy` 재시도)로 `loadAllRows`가 `show-all`과 `backlog-all`을 읽고, 잘리면 `prime`으로 물러나 **잘림 배너**를 단다. 보드 셈은 `loadTallies`, 아카이브는 `loadArchived({active})`다.
+- **키 소유는 라우터 한 곳이다.** 목록·칸반·위키·툴바가 따로 keydown을 처리하던 것을 정리해 `keys/router.ts`가 단일 키 주인이 되었다(`keys/wiring.ts`가 액션을 각 뷰에 나눠 준다). 입력창·IME 중에는 라우터가 물러나고, 포커스된 버튼·체크박스에서는 `Enter`/`Space`가 컨트롤의 것이다. 도움말이 열린 동안 라우터는 조용하다.
+- **한글 입력 소스.** 글자 키가 `ㅓ`나 `Process`로 오면 `event.code`(`KeyA`~`KeyZ`, `Digit0`~`Digit9`)의 US 배열 글자로 읽는다(`router.ts` `codeKey`). **실기 확인은 아직 남았다**(`se-0g4a.zrf`).
+- **툴바는 한 번만 만든다.** 데이터가 바뀔 때 다시 그리지 않고 값만 갱신하므로 입력 중인 IME 조합이 끊기지 않는다(`view/toolbar.ts`).
+- **스토어 어휘.** 칸 이름은 `status`(`statuses`), 사람 이름은 `names`, 아카이브 표시는 `showArchived`다. `showArchived`는 **참이면 아카이브 행을 보인다**(기본 거짓). 위키 탭 상태(trail·검색·선택)는 탭을 바꿔도 저장·복원된다.
+- **취소.** Cancel은 읽기와 이미 실행 중인 쓰기만 취소한다. 아직 시작 안 한 쓰기는 건드리지 않는다(리뷰 #7).
 
 ### 2.0.2 파일과 모듈
 
-`packages/moai/`가 `panel.html` 한 파일(530줄)에서 TS 모듈 약 40개로 바뀌었다. 패널 소스는 `panel/` 아래 약 9,600줄이고, 테스트는 `tests/moai-*.test.mjs` 20여 개다.
+`packages/moai/`가 `panel.html` 한 파일(530줄)에서 TS 모듈 약 40개로 바뀌었다. 패널 소스는 `panel/` 아래 약 11,400줄이고, 테스트는 `tests/moai-*.test.mjs` 20여 개다.
 
 | 경로 | 역할 |
 |---|---|
@@ -42,7 +47,7 @@
 | `panel/data/read.ts` | 읽음 판정과 쓰기 (설계의 `unread.ts`를 이 이름으로 만들었다) |
 | `panel/data/refresh.ts` | 60초 자동 갱신, 수동 갱신, 갱신 시각 |
 | `panel/data/memory.ts` | 마지막 탭·상세 표시·위치·위치별 비율 기억 |
-| `panel/keys/table.ts`, `router.ts` | 키 표(데이터)와 keydown → 시퀀스 → 액션 라우터 |
+| `panel/keys/table.ts`, `router.ts`, `wiring.ts` | 키 표(데이터), keydown → 시퀀스 → 액션 라우터(단일 키 주인), 라우터 액션을 뷰·스토어에 잇는 배선 |
 | `panel/view/` | `shell`, `tabs`, `crumbs`, `split`, `responsive`, `list`(+`list-model`), `board`(+`board-groups`), `detail`(+`detail-format`), `toolbar`, `menu`, `help`, `wiki`, `markdown`, `components`, `icons` |
 | `panel/i18n/` | en·ko·ja·zh 표 |
 
@@ -82,7 +87,7 @@
 - 우선순위: 상세 > 위키 > 목록 갱신. 같은 `profileId+params` 요청은 공유한다.
 - 출력 한도: 데몬이 stdout을 1 MiB에서 자르고 `truncated: true`를 단다(오류 코드가 아니다). 잘린 JSON은 파싱되지 않으므로 결과는 `unreadable` + `truncated`다. 목록은 이때 **`prime`으로 물러나** 일부만 보여 주고 배너로 알린다(`loadAllRows`).
 - 실측(`se-0g4a.fjl`, 2026-10-14): 이 저장소 64행은 `show --all` 35 KB, 가장 큰 moa-issue의 활성 24행은 44 KB로 한도의 4%다. moa-issue 아카이브 2,289행은 2.35 MB로 한도의 2.2배라 쪽 나누기가 필수이고, `-n 500`은 쪽당 최대 532 KB(여유 2배), `-n 200`은 약 200 KB(20%)다. 쪽 정렬은 `--sort id`로 고정해야 `--after`가 흔들리지 않는다.
-- 취소: 한 번에 하나만 보이던 Cancel 대신, 실행 중인 요청 중 첫 번째를 취소한다(묶음에서는 진행 중인 모두를 취소하도록 바꾸는 중).
+- 취소: 한 번에 하나만 취소하던 Cancel이 이제 **읽기와 실행 중인 쓰기 전부**(최대 3개)를 취소한다. 아직 시작하지 않은 쓰기는 취소하지 않는다(`se-pbqz.y8z` #7).
 
 ### 2.0.5 기억(memory): 프레임 localStorage, 전역
 
@@ -91,12 +96,13 @@
 - sandbox에 `allow-same-origin`이 없으면 프레임 origin이 opaque라서 `localStorage` 접근이 `SecurityError`를 낸다. 그래서 백엔드는 getter로 받고, 읽기·쓰기가 하나라도 던지면 **그 세션 동안만 메모리에 둔다**. 저장 실패는 패널을 멈추지 않고 기본값으로 돌아갈 뿐이다.
 - `storage.read`/`storage.write` 권한은 쓰지 않는다. 액션 시그니처가 이 저장소에 없기 때문이다. 순서(localStorage → `storage.*` → 세션)는 설계와 같지만 가운데 단계는 비어 있다.
 - 읽은 값은 `normalizeMemory`가 모두 정리한다. 모르는 탭이나 범위를 벗어난 비율은 기본값으로 떨어지고, 값이 하나도 없어도 기본(탭 칸반, 상세 표시, 아래, 비율 기본값)으로 뜬다.
-- 검색·필터·정렬·열·보기 설정은 **아직 기억하지 않는다.** `se-cv7w.lca`가 실기 스파이크 `se-0g4a.y91`을 기다린다.
+- 검색·필터·정렬·열·보기 설정은 **아직 기억하지 않는다.** `se-cv7w.lca`가 실기 스파이크 `se-0g4a.y91`을 기다린다. Desktop 조사(2.0.9절) 결과 프레임 origin이 opaque라 `localStorage`가 던질 것으로 보이므로, 위 기억은 **세션 동안만** 유지된다.
 
 ### 2.0.6 읽음, 아카이브, 보드 셈
 
 - **안 읽음 판정은 패널이 계산하지 않는다.** CLI가 `show --json` 행과 `show <id> --json`에 `"unread": true`를 찍어 준다. 안 읽음이 아니면 키 자체가 없고 `false`는 나오지 않는다. 패널은 `row.unread === true`만 본다. 사람을 모르거나 읽음 표를 못 읽으면 어느 행에도 키가 없고 NEW는 꺼진다. 이는 상류 `moai-cqwy`가 구현된 것으로 **가정**한 동작이다.
 - **아카이브 행은 NEW가 되지 않는다.** `isUnread`는 `archived: true`가 붙은 행을 건너뛴다. `moai read`가 활성 행만 풀기 때문에, 아카이브에서만 온 행의 NEW는 지울 방법이 없기 때문이다(`se-fvou`). `loadArchived({ active })`는 활성 행에 없는 id만 `archived: true`로 표시한다. 그래서 상류에는 "아카이브 읽음" 요청을 하지 않았다.
+- **읽음 키.** `r`(커서의 행), `SPC m a`(모두), `SPC m g`(커서 그룹)가 각각 `read`, `read-all`, `read-group`을 부르고, 쓰고 나면 다시 읽는다. 그룹이 없는 자리("마일스톤 없음")에서는 `SPC m g`가 안내 문구만 보인다. NEW 칩과 탭 뱃지는 아직 없다(`se-ehdi.zcx`).
 - **읽음 쓰기**는 `read <id>`, `read --all`, `read -e <group>`이다. 결과 JSON은 `{read, missing, held, problems, at}`이고, 없는 id나 그룹이 있어도 나머지를 쓰고 0이 아닌 코드로 끝나지만 그 답은 그대로 넘긴다. 쓰기 후에는 늘 다시 읽는다.
 - **설계와 다른 점.** 설계 4.9절은 "화면에 그린 행의 `updated_at`을 적는다"고 했지만, CLI는 값을 받지 않고 행의 **현재** `updated_at`을 적는다. 그린 뒤 바뀐 행도 새 버전으로 읽음 처리된다. 결과에 id별 `updated_at`이 없어 낡은 그림을 쓰기 결과로는 알 수 없다. 패널은 쓰기 뒤 다시 읽은 행과 그린 행을 비교(`staleAgainst`)할 수 있을 뿐이다. 상류에 값 지정을 요청하는 일은 backlog(`se-a5wl`)에 있다.
 - **보드 셈(n/n)은 `status --json`의 `milestones[]`·`epics[]`의 `done`·`total`을 쓴다.** 시간으로 아카이브된 행은 `show --all`에 없으므로, 행에서 세면 완료된 그룹이 줄어 보인다. `IssueIndex(rows, tallies)`가 셈을 받으면 `moai status`와 같은 값을 보여 준다(`se-tcd4`). 셈을 못 읽으면 행에서 센다. 같은 `status` 요청은 `loadStatuses`와 공유한다.
@@ -107,7 +113,34 @@
 - 렌더러(`view/markdown.ts`)는 제목·문단·중첩 목록·코드·인용·표·가로줄·강조·링크에 더해 HTML 엔티티, 참조 링크, 취소선, 작업 목록을 지원한다. raw HTML은 모두 이스케이프하고 `href` 없는 링크는 남기지 않는다. 강조 파싱은 선형 시간이다(리뷰에서 지수 시간 백트래킹을 고쳤다).
 - 위키 뷰(`view/wiki.ts`)는 목록·본문 2단, 검색(제목·본문), 역링크, 링크 순환(Tab), 되감기 trail, GitHub 앵커, 이슈 id 점프를 한다. 본문 이슈 id는 `wiki ls`의 `issues[]`로 링크가 된다.
 - 라이브 프로필 로더(`loadWikiListing`, `loadWikiPage`)는 Moai가 낸 JSON을 가공하지 않고 넘기고, 뷰가 해석한다.
-- **진행 중:** 위 모두가 셸의 위키 탭에 아직 안 붙어 있다. 상태 저장·복원(탭을 바꿔도 trail 유지), 키 라우터에서 `wiki.handleKey` 호출(`standaloneKeys: false`), 위키 안 Tab에서 빠져나오는 길, `SPC v r` 연결이 묶음(`se-jj42`)의 일이다.
+- **셸에 붙었다**(`se-jj42`). 위키 탭은 `PANES`에 등록되어 `loadWikiListing`/`loadWikiPage`로 라이브 페이지를 읽는다. 탭을 바꿔도 trail·검색·선택이 저장·복원되고, 처음 목록 읽기가 실패하면 탭을 다시 보일 때 다시 읽는다. 키는 라우터가 `wiki.handleKey`를 `standaloneKeys: false`로 불러 처리한다. 위키 본문 문구는 한국어 고정이다(`se-ti70`).
+
+### 2.0.8 아직 열려 있는 것 (2026-10-14)
+
+`se-h5c7`(키 소유 잔여)와 `se-gq4i`(포커스 힌트 위치)는 `d30fd6c`로 끝났다.
+
+| 이슈 | 내용 |
+|---|---|
+| `se-mzlx` | 칸반 `j`/`k`마다 보드 전체를 다시 그린다(1.5k~3k행에서 키당 145~335 ms). 검색 타자마다 상세도 다시 그린다 |
+| `se-lv9n` | 보드 읽기 잔여: 성공해도 `status` 셈을 기다린다(늦게 오는 셈 액션 필요), 아카이브 읽기 실패가 보드 실패로 보인다, 잘림 + 아카이브가 활성 행을 아카이브 전용으로 잘못 표시한다 |
+| `se-mht7` | 다른 실행이 도는 동안 활동 줄이 "확인 창에서 승인" 안내를 숨긴다 |
+| `se-ehdi.zcx` | NEW 뱃지: 목록 행·칸반 카드·상세, 안 읽음 수 탭 뱃지 |
+| (E8) | 호환 안내 배너(낮은 moai·카탈로그에 프로필이 없을 때. 데이터 쪽은 `compat.ts`에 있음), i18n `se-bz5y.m35`, 위키·도움말·메뉴·키 표 라벨 번역 `se-ti70` |
+| `se-cv7w.lca` | 검색·필터·정렬·열·보기 영속화 — 아래 2.0.9절의 저장소 사정으로 세션 한정 |
+
+릴리스 밖 backlog: `se-thyl`(`note` 검색 범위가 노트를 못 읽어 아무것도 못 찾고 말도 안 한다), `se-5air`(정렬 편집기 `D` 기본 정렬 저장처가 없다), `se-q0u4`(`SPC v a` 모두 보기가 아카이브를 숨긴 채 둔다 — "모두"가 아카이브를 포함할지 정해야 한다).
+
+실기 확인이 남은 것은 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)에 있다.
+
+### 2.0.9 Desktop 조사 결과 (`se-vpav`, 읽기 전용, 2026-10-14)
+
+`aplus-dev-studio-desktop`을 읽기만 한 결과다. 이 저장소에 바꿀 곳은 없다.
+
+- **`catalog.v1.json` 고정.** `build/official-extensions/catalog.v1.json`이 `buzzni.moai` 1.1.1, 릴리스 태그(이 저장소의 `v0.11.8`), 번들된 `buzzni.moai-1.1.1.saycode-extension.base64`, sha256을 박아 둔다. 태그는 확장 버전에서 나오지 않고 이 저장소의 릴리스 태그다. 번들은 부트스트랩용이고 서명된 원격 카탈로그에 같은 id가 있으면 그쪽이 이긴다.
+- **설치기 테스트.** `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개(`status`·`prime`·`show`·`add`)의 다이제스트 `toEqual` 표를 가진다. 2.0.0에는 13개 전부로 바꿔야 한다. 업데이트는 숫자 `x.y.z` 비교이고 실행 중에는 거부되며, 1.1.1 → 2.0.0은 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동 교체).
+- **apiVersion.** 2.0.0 매니페스트(`apiVersion 3`, `engines ^1.2.0`)는 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. API 4 기능(파일 미리보기 등)을 쓰면 그때 올라간다.
+- **불투명 origin → `localStorage`는 세션 한정.** 패널 iframe은 `sandbox="allow-scripts"`만 가져 origin이 opaque다. Chromium 규칙상 `localStorage` 접근이 `SecurityError`를 낼 것으로 보인다(코드와 sandbox 플래그에서 추정, 실행은 안 함). 패널 기억은 이미 메모리 폴백이라 **마지막 탭·상세 위치는 세션 동안만** 남는다. 스파이크 `se-0g4a.y91`은 "localStorage 불가, 세션 한정"으로 닫을 수 있다(Desktop이 `allow-same-origin`이나 저장 API를 주지 않는 한).
+- **가시성 신호 없음.** 열린 도구 탭은 모두 마운트된 채 `display:none`으로만 숨겨진다. 호스트→패널 포트는 테마만 나르고 가시성·포커스 신호가 없다. `visibilityState`는 창을 따른다. 그래서 `panelVisibility()`가 0×0 뷰포트를 숨김으로 본다. iframe이 실제로 0×0이 되는지는 라이브 확인이 남았다. 언어 변경은 iframe을 다시 읽지만 테마 변경은 아니다.
 
 ## 1. 파일 구성
 
