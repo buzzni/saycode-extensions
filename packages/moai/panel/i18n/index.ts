@@ -1,11 +1,217 @@
-/** The panel's words in English, Korean, Japanese and Chinese, carried over from the 1.x panel. */
+/**
+ * The panel's words in English, Korean, Japanese and Chinese. The top level is carried over from the 1.x
+ * panel; newer words live in one group per area (`shell`, `list`, `board`, `detail`), each with its own
+ * interface and its four languages side by side below, so the stages that build those areas add their words
+ * inside their own group without touching another's lines.
+ */
 import type { RefusalCode } from '../data/client.js'
+import type { SortField } from '../store.js'
+
+export type Language = 'en' | 'ko' | 'ja' | 'zh'
+
+// ── shell: tab bar, toggles, path line, add field (E2 se-qwkz.2v9) ────────────────────────────────────
+
+export interface ShellCopy {
+  /** Accessible name of the tab strip. */
+  tabsLabel: string
+  tabs: { board: string; list: string; wiki: string }
+  /** The position toggle's name says what pressing does; under 640px it says why it is off. */
+  detailToLeft: string
+  detailToBottom: string
+  detailForcedBottom: string
+  showDetail: string
+  hideDetail: string
+  resizer: string
+  /** The refresh-time button before the first read finished. */
+  refreshNow: string
+  /** Accessible name of the path line. */
+  pathLabel: string
+  /** The root of the path, as the TUI writes it. */
+  rootSegment: string
+  /** `{names} hidden` — the view toggles that hide rows. */
+  hidden: (names: string[]) => string
+  deferred: string
+  backlog: string
+  /** `sort {by}` — only when the order is not the default. */
+  sorted: (by: string) => string
+  sortFields: Record<SortField, string>
+  /** After a search or filter badge: how to take it off. */
+  clearHint: string
+  addLabel: string
+  wikiPlaceholder: string
+}
+
+const SHELL: Record<Language, ShellCopy> = {
+  en: {
+    tabsLabel: 'Moai views',
+    tabs: { board: 'Board', list: 'List', wiki: 'Wiki' },
+    detailToLeft: 'Move details to the left',
+    detailToBottom: 'Move details to the bottom',
+    detailForcedBottom: 'Details stay at the bottom while the panel is narrower than 640px',
+    showDetail: 'Show details',
+    hideDetail: 'Hide details',
+    resizer: 'Resize details',
+    refreshNow: 'Refresh',
+    pathLabel: 'Current place',
+    rootSegment: '/',
+    hidden: (names) => `${names.join(' · ')} hidden`,
+    deferred: 'deferred',
+    backlog: 'backlog',
+    sorted: (by) => `sort ${by}`,
+    sortFields: { priority: 'priority', created: 'created', updated: 'updated', column: 'column', assignee: 'assignee', title: 'title' },
+    clearHint: 'Esc clears it',
+    addLabel: 'New task title',
+    wikiPlaceholder: 'The wiki is not here yet.',
+  },
+  ko: {
+    tabsLabel: 'Moai 보기',
+    tabs: { board: '칸반', list: '목록', wiki: '위키' },
+    detailToLeft: '상세를 왼쪽으로',
+    detailToBottom: '상세를 아래로',
+    detailForcedBottom: '패널 폭이 640px보다 좁아서 상세는 아래에 둡니다',
+    showDetail: '상세 보이기',
+    hideDetail: '상세 숨기기',
+    resizer: '상세 크기 조절',
+    refreshNow: '새로고침',
+    pathLabel: '현재 경로',
+    rootSegment: '/',
+    hidden: (names) => `${names.join(' · ')} 숨김`,
+    deferred: '미룸',
+    backlog: '백로그',
+    sorted: (by) => `정렬 ${by}`,
+    sortFields: { priority: '우선순위', created: '만든 날', updated: '고친 날', column: '칸', assignee: '담당', title: '제목' },
+    clearHint: 'Esc로 해제',
+    addLabel: '새 할 일 제목',
+    wikiPlaceholder: '위키는 아직 준비 중입니다.',
+  },
+  ja: {
+    tabsLabel: 'Moai ビュー',
+    tabs: { board: 'カンバン', list: '一覧', wiki: 'Wiki' },
+    detailToLeft: '詳細を左へ',
+    detailToBottom: '詳細を下へ',
+    detailForcedBottom: 'パネルの幅が 640px 未満のため、詳細は下に置きます',
+    showDetail: '詳細を表示',
+    hideDetail: '詳細を隠す',
+    resizer: '詳細のサイズを変更',
+    refreshNow: '再読み込み',
+    pathLabel: '現在の場所',
+    rootSegment: '/',
+    hidden: (names) => `${names.join(' · ')} 非表示`,
+    deferred: '保留',
+    backlog: 'バックログ',
+    sorted: (by) => `並べ替え ${by}`,
+    sortFields: { priority: '優先度', created: '作成', updated: '更新', column: '列', assignee: '担当', title: 'タイトル' },
+    clearHint: 'Esc で解除',
+    addLabel: '新しいタスクのタイトル',
+    wikiPlaceholder: 'Wiki はまだ準備中です。',
+  },
+  zh: {
+    tabsLabel: 'Moai 视图',
+    tabs: { board: '看板', list: '列表', wiki: 'Wiki' },
+    detailToLeft: '将详情移到左侧',
+    detailToBottom: '将详情移到底部',
+    detailForcedBottom: '面板宽度小于 640px，详情固定在底部',
+    showDetail: '显示详情',
+    hideDetail: '隐藏详情',
+    resizer: '调整详情大小',
+    refreshNow: '刷新',
+    pathLabel: '当前位置',
+    rootSegment: '/',
+    hidden: (names) => `已隐藏 ${names.join(' · ')}`,
+    deferred: '推迟',
+    backlog: '待办池',
+    sorted: (by) => `排序 ${by}`,
+    sortFields: { priority: '优先级', created: '创建', updated: '更新', column: '列', assignee: '负责人', title: '标题' },
+    clearHint: '按 Esc 清除',
+    addLabel: '新任务标题',
+    wikiPlaceholder: 'Wiki 尚未就绪。',
+  },
+}
+
+// ── list: the tree list (E3 se-c10x) ─────────────────────────────────────────────────────────────────
+
+export interface ListCopy {
+  /** Accessible name of the list. */
+  label: string
+}
+
+const LIST: Record<Language, ListCopy> = {
+  en: {
+    label: 'Tasks',
+  },
+  ko: {
+    label: '할 일 목록',
+  },
+  ja: {
+    label: 'タスク一覧',
+  },
+  zh: {
+    label: '任务列表',
+  },
+}
+
+// ── board: the kanban (E3 se-c10x) ───────────────────────────────────────────────────────────────────
+
+export interface BoardCopy {
+  /** Accessible name of the board. */
+  label: string
+  /** The stopgap board (view/interim.ts) draws the list under this note. */
+  interimNote: string
+}
+
+const BOARD: Record<Language, BoardCopy> = {
+  en: {
+    label: 'Board',
+    interimNote: 'The board is on its way; the list stands in for it.',
+  },
+  ko: {
+    label: '칸반',
+    interimNote: '칸반은 준비 중이라 목록으로 대신 보여 줍니다.',
+  },
+  ja: {
+    label: 'カンバン',
+    interimNote: 'カンバンは準備中のため、一覧で代わりに表示します。',
+  },
+  zh: {
+    label: '看板',
+    interimNote: '看板尚在准备中，暂以列表代替。',
+  },
+}
+
+// ── detail: the detail pane (E3 se-c10x) ─────────────────────────────────────────────────────────────
+
+export interface DetailCopy {
+  /** Accessible name of the detail pane. */
+  label: string
+  /** The pane is shown but nothing is chosen. */
+  none: string
+}
+
+const DETAIL: Record<Language, DetailCopy> = {
+  en: {
+    label: 'Details',
+    none: 'Choose a task to see its details.',
+  },
+  ko: {
+    label: '상세',
+    none: '할 일을 고르면 상세가 여기에 나옵니다.',
+  },
+  ja: {
+    label: '詳細',
+    none: 'タスクを選ぶと、ここに詳細が表示されます。',
+  },
+  zh: {
+    label: '详情',
+    none: '选择任务后，详情会显示在这里。',
+  },
+}
+
+// ── the 1.x words, and the groups put together ───────────────────────────────────────────────────────
 
 export interface Copy {
   hint: string
   refresh: string
   refreshedAt: (time: string) => string
-  board: string
   empty: string
   more: (n: number) => string
   up: string
@@ -35,11 +241,15 @@ export interface Copy {
   unreadable: string
   refused: Record<RefusalCode, string>
   notInitialized: [string, string]
+  shell: ShellCopy
+  list: ListCopy
+  board: BoardCopy
+  detail: DetailCopy
 }
 
 const en: Copy = {
   hint: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list and details, and every time you add a task.",
-  refresh: 'Refresh', refreshedAt: (time) => `Updated ${time}`, board: 'Tasks', empty: 'Nothing here.', more: (n) => `${n} more not shown`,
+  refresh: 'Refresh', refreshedAt: (time) => `Updated ${time}`, empty: 'Nothing here.', more: (n) => `${n} more not shown`,
   up: '..', root: 'All', noMilestone: '(no milestone)', lost: '(lost)', loading: 'Loading…',
   starting: 'Starting… approve the confirmation if it is showing.', running: 'Running on the machine…',
   cancel: 'Cancel', cancelled: 'The run was cancelled.', mayContinue: 'Processes on the machine may not have finished yet.',
@@ -58,11 +268,12 @@ const en: Copy = {
     'unsupported-daemon': "That machine's Saycode runtime is too old to run Moai. Update the runtime, then try again.",
   },
   notInitialized: ['This project has no Moai board yet. On that machine, run ', ' once in the project folder, then try again. If moai is not found, run it from the Moai path shown under Machine tools in Settings → Extensions.'],
+  shell: SHELL.en, list: LIST.en, board: BOARD.en, detail: DETAIL.en,
 }
 
 const ko: Copy = {
   hint: '이 프로젝트 폴더에서 실행됩니다. 목록·상세는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
-  refresh: '새로고침', refreshedAt: (time) => `${time} 갱신`, board: '할 일 목록', empty: '항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`,
+  refresh: '새로고침', refreshedAt: (time) => `${time} 갱신`, empty: '항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`,
   up: '..', root: '전체', noMilestone: '(마일스톤 없음)', lost: '(길 잃음)', loading: '불러오는 중…',
   starting: '시작하는 중… 확인 창이 떠 있으면 승인하세요.', running: '머신에서 실행하는 중…',
   cancel: '취소', cancelled: '실행을 취소했습니다.', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.',
@@ -81,11 +292,12 @@ const ko: Copy = {
     'unsupported-daemon': '그 머신의 Saycode 런타임이 오래되어 Moai를 실행할 수 없습니다. 런타임을 업데이트한 뒤 다시 시도하세요.',
   },
   notInitialized: ['이 프로젝트에는 아직 Moai 보드가 없습니다. 그 머신의 프로젝트 폴더에서 ', '을 한 번 실행한 뒤 다시 시도하세요. moai를 찾을 수 없으면 설정 → 확장의 머신 도구에 표시된 Moai 경로로 실행하세요.'],
+  shell: SHELL.ko, list: LIST.ko, board: BOARD.ko, detail: DETAIL.ko,
 }
 
 const ja: Copy = {
   hint: 'このプロジェクトのフォルダで実行します。一覧・詳細はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。',
-  refresh: '再読み込み', refreshedAt: (time) => `${time} 更新`, board: 'タスク一覧', empty: '項目はありません。', more: (n) => `ほかに ${n} 件は表示していません`,
+  refresh: '再読み込み', refreshedAt: (time) => `${time} 更新`, empty: '項目はありません。', more: (n) => `ほかに ${n} 件は表示していません`,
   up: '..', root: 'すべて', noMilestone: '(マイルストーンなし)', lost: '(迷子)', loading: '読み込み中…',
   starting: '開始しています… 確認画面が表示されていれば承認してください。', running: 'マシンで実行中…',
   cancel: 'キャンセル', cancelled: '実行をキャンセルしました。', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。',
@@ -104,11 +316,12 @@ const ja: Copy = {
     'unsupported-daemon': 'そのマシンの Saycode ランタイムが古いため、Moai を実行できません。ランタイムを更新してから、もう一度お試しください。',
   },
   notInitialized: ['このプロジェクトにはまだ Moai ボードがありません。そのマシンのプロジェクトフォルダで ', ' を一度実行してから、もう一度お試しください。moai が見つからない場合は、設定 → 拡張機能のマシンツールに表示される Moai のパスから実行してください。'],
+  shell: SHELL.ja, list: LIST.ja, board: BOARD.ja, detail: DETAIL.ja,
 }
 
 const zh: Copy = {
   hint: '在此项目的文件夹中运行。列表和详情在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
-  refresh: '刷新', refreshedAt: (time) => `${time} 更新`, board: '任务列表', empty: '没有项目。', more: (n) => `另有 ${n} 项未显示`,
+  refresh: '刷新', refreshedAt: (time) => `${time} 更新`, empty: '没有项目。', more: (n) => `另有 ${n} 项未显示`,
   up: '..', root: '全部', noMilestone: '(无里程碑)', lost: '(无归属)', loading: '加载中…',
   starting: '正在启动… 如果显示了确认窗口，请批准。', running: '正在机器上运行…',
   cancel: '取消', cancelled: '已取消运行。', mayContinue: '机器上的进程可能尚未结束。',
@@ -127,12 +340,13 @@ const zh: Copy = {
     'unsupported-daemon': '该机器的 Saycode 运行时版本过旧，无法运行 Moai。请更新运行时后重试。',
   },
   notInitialized: ['此项目还没有 Moai 看板。请在该机器的项目文件夹中运行一次 ', '，然后重试。如果找不到 moai，请使用「设置 → 扩展」的机器工具中显示的 Moai 路径运行。'],
+  shell: SHELL.zh, list: LIST.zh, board: BOARD.zh, detail: DETAIL.zh,
 }
 
-export const COPY: Record<string, Copy> = { en, ko, ja, zh }
+export const COPY: Record<Language, Copy> = { en, ko, ja, zh }
 
 /** The host document's language, else the browser's, else English. */
 export function copyFor(language: string | undefined): Copy {
   const base = (language || 'en').split('-')[0]!.toLowerCase()
-  return COPY[base] ?? en
+  return COPY[base as Language] ?? en
 }
