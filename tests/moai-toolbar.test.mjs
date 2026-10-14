@@ -97,6 +97,15 @@ test('render: chips, error, scope, hidden note, hints, sort popover', () => {
   items[0].click()
   assert.equal(seen.pop().type, 'hint-accept')
 
+  // A closed backlog row is hidden by no one word: the note does not count it (the CLI's tail does not).
+  const idea = { id: 'i1', kind: 'backlog', title: 'login idea', status: 'done' }
+  assert.deepEqual(tb.renderToolbar(base, { doc, rows: [...rows, idea], lang: 'en' }, handlers).hidden, { done: 1 })
+
+  // A click in the filter moves the caret the hints follow.
+  hinting.filterInput.setSelectionRange(3, 3)
+  hinting.filterInput.click()
+  assert.deepEqual(seen.pop(), { type: 'filter-cursor', cursor: 3 })
+
   const sorting = tb.renderToolbar({ ...base, sortOpen: true }, { doc, rows, lang: 'en' }, handlers)
   assert.equal(sorting.el.querySelectorAll('.m-sort-pop [data-key]').length, 7)
   sorting.el.querySelector('[data-key=title] [data-how=append]').click()

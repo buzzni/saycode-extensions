@@ -98,6 +98,11 @@ test('a filter that cannot be read is refused with its reason', () => {
   refused(['grep=a', 'grep=b'], 'twice')
   refused(['type=epic', 'type=issue'], 'twice')
   refused(['stale=1', 'stale=2'], 'twice')
+  // A second value of a one-value key is reported before an item that is not a pair, as the CLI does.
+  refused('x grep=a grep=b', 'twice')
+  refused(['x', 'type=epic', 'type=issue'], 'twice')
+  refused(['x', 'statu=1'], 'not-a-pair')
+  refused(['statu=1', 'x'], 'no-such-key')
   refused(['priority=1', 'priority=2'], 'twice')
   refused(['statu=todo'], 'no-such-key')
   refused(['status'], 'not-a-pair')
@@ -161,6 +166,31 @@ test('hiding: each switch opens its own kind of row and hiddenBy names it', () =
   assert.equal(why('trk-i001', filterOf([], { all: true })), 'backlog')
   assert.equal(why('trk-i001', filterOf(['type=backlog'])), undefined)
   assert.equal(why('trk-a004', filterOf(['type=backlog'])), 'done')
+  // As moai's `hidden_by`: a closed backlog row is opened by no one word (the CLI's tail does not count it),
+  // a deferred row in done is `done`, and a deferred backlog row is `deferred` (that switch opens backlog).
+  assert.equal(why('trk-i002'), 'unopenable')
+  assert.equal(why('trk-i002', filterOf([], { all: true })), 'backlog')
+  const one = (row) => q.hiddenBy(row, plain, [row])
+  assert.equal(one({ id: 'z1', status: 'done', deferred_at: '2026-10-01T00:00:00Z' }), 'done')
+  assert.equal(one({ id: 'z2', kind: 'backlog', status: 'todo', deferred_at: '2026-10-01T00:00:00Z' }), 'deferred')
+  assert.equal(one({ id: 'z3', kind: 'backlog', status: 'done', deferred_at: '2026-10-01T00:00:00Z' }), 'unopenable')
+  assert.equal(q.hiddenBy(rows.find((row) => row.id === 'trk-i002'), filterOf([], { all: true }), rows, { now: '2026-12-01T00:00:00Z', archiveDays: 3 }), 'unopenable')
+})
+
+test('a deferral is inherited down the id parents and never into a closed row, as moai walks it', () => {
+  const parent = { id: 'p1', status: 'todo', deferred_at: '2026-10-01T00:00:00Z' }
+  const child = { id: 'p1.c1', status: 'todo' }
+  const closed = { id: 'p1.c2', status: 'done' }
+  const epic = { id: 'e1', kind: 'epic', status: 'todo', deferred_at: '2026-10-01T00:00:00Z' }
+  const member = { id: 'm1', status: 'todo', epic: 'e1', derived_epic: 'e1' }
+  const list = [parent, child, closed, epic, member]
+  const plain = filterOf([])
+  assert.equal(q.hiddenBy(child, plain, list), 'deferred')
+  assert.equal(q.hiddenBy(member, plain, list), 'deferred')
+  assert.equal(q.hiddenBy(closed, plain, list), 'done')
+  assert.deepEqual(ids(q.applyFilter(list, filterOf([], { deferred: true }))), ['p1', 'p1.c1', 'e1', 'm1'])
+  // A context hook still takes the place of the walk.
+  assert.equal(q.hiddenBy(child, plain, list, { deferredOf: () => false }), undefined)
 })
 
 test('stale and the archive read the clock they are given', () => {

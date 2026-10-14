@@ -6,7 +6,7 @@ import {
   GREP_SCOPES,
   SORT_KEYS,
   badFilterMessage,
-  hiddenBy,
+  hiding,
   hintsAt,
   items,
   nextScope,
@@ -129,8 +129,9 @@ export type ToolbarAction =
 export function acceptHint(text: string, slot: Slot, hint: Hint): { text: string; cursor: number } {
   const keyOnly = slot.key === undefined
   let insert = keyOnly ? `${hint.value}=` : hint.value
-  // A value with a space or comma only survives as one value in quotes, and a quote must open the value.
-  if (!keyOnly && /[\s,]/.test(insert) && text[slot.from - 1] === "=") insert = `"${insert}"`
+  // A value with a space is kept whole (and the hints stay on it) only in quotes, and a quote must open the
+  // value. A comma is "or" even inside quotes, as in moai, so quoting does not save it.
+  if (!keyOnly && /\s/.test(insert) && text[slot.from - 1] === "=") insert = `"${insert}"`
   const next = text.slice(0, slot.from) + insert + text.slice(slot.to)
   return { text: next, cursor: slot.from + insert.length }
 }
@@ -227,9 +228,11 @@ export function searchView<T extends Row>(
   const found = search(rows, state.searchText, state.scope, ctx)
   const hidden: Partial<Record<HiddenReason, number>> = {}
   if (state.searchText.trim() === "") return { found, hidden }
+  const hiddenBy = hiding(filter, rows, ctx)
   for (const row of found) {
-    const why = hiddenBy(row, filter, rows, ctx)
-    if (why) hidden[why] = (hidden[why] ?? 0) + 1
+    const why = hiddenBy(row)
+    // A row no one word opens is not counted, as in the CLI's tail.
+    if (why && why !== "unopenable") hidden[why] = (hidden[why] ?? 0) + 1
   }
   return { found, hidden }
 }
@@ -265,7 +268,8 @@ export function renderToolbar(state: ToolbarState, deps: ToolbarDeps, handlers: 
   const filter = parsed.ok ? parsed.value : undefined
   const root = el(doc, "div", { class: "m-toolbar-stack", "data-toolbar": "" })
 
-  // Search: opened by `/`, scope cycles with Tab-like keys on the select; applies as you type.
+  // Search: opened by `/` (bound by the caller), applies as you type. Alt+ArrowDown / Alt+ArrowUp in the input
+  // cycle the scope (the explorer's Tab / Shift-Tab order); the select sets it directly.
   const searchRow = el(doc, "div", { class: "m-toolbar", role: "search" })
   const box = searchBox(doc, {
     placeholder: t.searchPlaceholder,
@@ -302,6 +306,8 @@ export function renderToolbar(state: ToolbarState, deps: ToolbarDeps, handlers: 
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
     dispatch({ type: "filter-cursor", cursor: filterInput.selectionStart ?? 0 })
   })
+  // A click moves the caret too; without this the hints stay on the item the keyboard last left.
+  filterInput.addEventListener("click", () => dispatch({ type: "filter-cursor", cursor: filterInput.selectionStart ?? 0 }))
   filterInput.addEventListener("keydown", (event) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()

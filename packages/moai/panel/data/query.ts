@@ -7,14 +7,14 @@
  * tag=bug,ui`); {@link items} cuts a typed line into items the way the explorer's filter box does.
  *
  * What the rows alone cannot answer is read from their JSON fields: the column of a group is its
- * `derived_status`, its epic is `derived_epic`, its milestone comes through that epic, a deferral is
- * inherited down the same chain. Whoever holds the {@link IssueIndex} may pass its answers in
- * {@link Context} instead.
+ * `derived_status`, its epic is `derived_epic`, its milestone comes through that epic. A deferral is
+ * inherited as the {@link IssueIndex} walks it (id parents, epics, milestones), built from the rows on first
+ * use. Whoever holds an index already may pass its answers in {@link Context} instead.
  *
  * Not ported (see the report of the change that added this file): the eclipsed/lost-row rules that need
  * duplicate ids, the journal-only filters (`--removed`), keyset paging (`--after`) and `me`.
  */
-import { displayOrder, isBacklog, isGroup, parentOf, priorityOf, type Row } from './index.js'
+import { IssueIndex, displayOrder, isBacklog, isGroup, parentOf, priorityOf, type Row } from './index.js'
 
 /** Everything the filter and the order may need beyond the rows themselves. All of it is optional. */
 export interface Context {
@@ -362,16 +362,19 @@ export function parseFilter(input: string | readonly string[], flags: Flags = {}
   const raw: Record<string, string[]> = {}
   for (const text of texts) {
     const read = pair(text)
-    if (!read) return bad({ code: 'not-a-pair', value: text.trim() })
-    ;(raw[read[0]] ??= []).push(read[1])
+    if (read) (raw[read[0]] ??= []).push(read[1])
   }
+  // A second value of a one-value key is counted over the items that are pairs, before any item is read
+  // (moai's `single` runs before `desugar`).
   for (const key of single) {
     const values = raw[key] ?? []
     if (values.length >= 2) return bad({ code: 'twice', key, values })
   }
-  // Items are read in the order typed: the first one to be wrong is the one reported.
+  // Then items are read in the order typed: the first one to be wrong is the one reported.
   for (const text of texts) {
-    const [key, value] = pair(text) as [string, string]
+    const read = pair(text)
+    if (!read) return bad({ code: 'not-a-pair', value: text.trim() })
+    const [key, value] = read
     if (!(KEYS as readonly string[]).includes(key)) return bad({ code: 'no-such-key', key })
     if (key === 'type' && !(KINDS as readonly string[]).includes(value) && value !== 'idea') return bad({ code: 'not-a-kind', value })
     if (key === 'stale' && !/^[+-]?\d+$/.test(value)) return bad({ code: 'not-days', value })
@@ -544,13 +547,15 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
     return home ? str(home.milestone) : str(row.milestone)
   }
   const own = (row: Row): boolean => str(row.deferred_at) !== undefined
+  // The inherited deferral is the index's walk (report.rs `Shelf`): up the id parents, through each one's epic
+  // and milestone, never into a closed row. Built on first use only; a row not among `rows` asks by its id.
+  let shelf: { index: IssueIndex; at: Map<Row, number> } | undefined
   const deferred = (row: Row): boolean => {
     if (ctx.deferredOf) return ctx.deferredOf(row)
     if (own(row)) return true
-    const e = epic(row)
-    const home = e === undefined ? undefined : byId.get(e)
-    const m = home ? str(home.milestone) : str(row.milestone)
-    return Boolean((home && own(home)) || (m !== undefined && byId.get(m) && own(byId.get(m) as Row)))
+    shelf ??= { index: new IssueIndex(rows), at: new Map(rows.map((one, at) => [one, at])) }
+    const at = shelf.at.get(row)
+    return (at === undefined ? shelf.index.deferredRoot(row.id) : shelf.index.shelvedAt(at)) !== undefined
   }
   const since = (row: Row): string => str(row.status_since) ?? str(row.updated_at) ?? ''
   const archived = (row: Row): boolean => {
@@ -642,14 +647,35 @@ export function applyFilter<T extends Row>(rows: readonly T[], filter: Filter, c
   return rows.filter((row) => holds(row, filter, lens, ctx))
 }
 
-/** Why the default list hides a row, or `undefined` when it shows it: the one word that would open it. */
-export function hiddenBy(row: Row, filter: Filter, rows: readonly Row[], ctx: Context = {}): 'done' | 'backlog' | 'deferred' | 'archived' | undefined {
+/**
+ * Why the default list hides a row, or `undefined` when it shows it: the one word that would open it, as
+ * moai's `hidden_by`. A row no single word opens (a closed backlog row, an archived one) is `unopenable`,
+ * which the CLI's tail does not count. A deferred backlog row is `deferred` (that switch opens backlog too);
+ * a deferred row in done is `done`.
+ */
+export function hiddenBy(row: Row, filter: Filter, rows: readonly Row[], ctx: Context = {}): Hidden {
+  return hiding(filter, rows, ctx)(row)
+}
+
+/** Why the default list hides a row ({@link hiddenBy}). */
+export type Hidden = 'done' | 'backlog' | 'deferred' | 'archived' | 'unopenable' | undefined
+
+/** {@link hiddenBy} for many rows of one list: what needs the other rows is read once. */
+export function hiding(filter: Filter, rows: readonly Row[], ctx: Context = {}): (row: Row) => Hidden {
   const lens = lensOf(rows, ctx)
-  if (!filter.archived && lens.archived(row)) return 'archived'
-  if (isBacklog(row) && !filter.backlog) return 'backlog'
-  if (filter.deferred === undefined && !filter.all && lens.deferred(row)) return 'deferred'
-  if (!filter.all && filter.status.length === 0 && lens.column(row) === 'done') return 'done'
-  return undefined
+  return (row) => hiddenWith(row, filter, lens)
+}
+
+function hiddenWith(row: Row, filter: Filter, lens: Lens): Hidden {
+  const backlog = isBacklog(row) && !filter.backlog
+  if (!filter.archived && lens.archived(row)) return backlog ? 'unopenable' : 'archived'
+  const deferred = filter.deferred === undefined && !filter.all && lens.deferred(row)
+  const done = !filter.all && filter.status.length === 0 && lens.column(row) === 'done'
+  if (!backlog && !deferred && !done) return undefined
+  if (!deferred && !done) return 'backlog'
+  if (!done) return 'deferred'
+  if (!backlog) return 'done'
+  return 'unopenable'
 }
 
 // ---- sort -----------------------------------------------------------------------------------------------
