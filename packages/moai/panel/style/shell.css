@@ -1,0 +1,51 @@
+/*
+ * The shell's own parts (view/shell.ts, view/crumbs.ts): the frame fills the panel, the path line, the
+ * activity line, banners and add field under it, and the panes. Needs tokens.css and components.css.
+ */
+
+#moai-app { height: 100%; }
+
+/* Slots other parts mount into take no room while empty. */
+.m-toolbar-slot:empty, .m-tabbar-slot:empty { display: none; }
+.m-tabbar-slot { display: flex; align-items: center; gap: 4px; }
+.m-tabbar .moai-refresh:disabled { opacity: 1; cursor: default; }
+
+/* ---- Path line (design §1): the badges get their room first, the path shrinks. ---- */
+.m-crumbs {
+  flex: none; display: flex; align-items: center; gap: 8px; height: 28px; min-width: 0; padding: 0 8px;
+  border-bottom: 1px solid var(--border-soft); font-size: 12px;
+}
+.m-crumbs-path { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.m-crumb {
+  flex: 0 1 auto; min-width: 2ch; max-width: 32ch; height: 22px; padding: 0 4px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); font: 600 12px var(--font);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+}
+.m-crumb:hover { background: var(--hover); color: var(--text); }
+.m-crumb[aria-current="location"] { color: var(--text); }
+.m-crumbs-sep { flex: none; color: var(--muted); }
+.m-crumbs-badges { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
+.m-crumbs-badges:empty { display: none; }
+.m-crumbs-hint { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+/* ---- Notes under the path line: each takes room only while it says something. ---- */
+.m-shell-head { flex: none; }
+.m-shell-notes { display: flex; flex-direction: column; }
+.m-shell-notes > * { margin: 8px 8px 0; }
+.m-shell-notes > :last-child { margin-bottom: 8px; }
+.moai-hint, .moai-more { color: var(--muted); font-size: 12px; }
+.moai-notice:empty, .moai-error:empty, .moai-more:empty, .moai-result:empty { display: none; }
+.moai-result { font-size: 12px; }
+.m-addbar { display: flex; align-items: center; gap: 8px; }
+.m-addbar .m-input { flex: 1 1 auto; padding: 4px 8px; }
+.m-shell-status {
+  flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px;
+  border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 12px;
+}
+.m-shell-status .moai-activity { flex: 1 1 auto; min-width: 0; }
+
+/* ---- Panes: the list and board each scroll on their own, so a tab change keeps each one's offset. ---- */
+.m-shell .m-split-list { display: flex; flex-direction: column; overflow: hidden; }
+.m-pane-main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.m-pane-main:focus, .m-pane-detail:focus, .m-pane-wiki:focus { outline: 0; }
+.m-pane-wiki { overflow: auto; }

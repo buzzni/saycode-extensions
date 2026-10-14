@@ -359,7 +359,8 @@ const KINDS = ['issue', 'epic', 'milestone', 'backlog'] as const
  */
 export function parseFilter(input: string | readonly string[], flags: Flags = {}): Bad<Filter> {
   const texts = typeof input === 'string' ? splitItems(input) : input.map((one) => one.trim()).filter((one) => one !== '')
-  const raw: Record<string, string[]> = {}
+  // No prototype: a typed key such as `constructor` or `__proto__` is a key to refuse, not a member to find.
+  const raw: Record<string, string[]> = Object.create(null)
   for (const text of texts) {
     const read = pair(text)
     if (read) (raw[read[0]] ??= []).push(read[1])
@@ -539,27 +540,35 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   for (const row of rows) byId.set(row.id, row)
   const column = (row: Row): string => str(row.derived_status) ?? str(row.status) ?? ''
   const epic = (row: Row): string | undefined => (ctx.epicOf ? ctx.epicOf(row) : (str(row.derived_epic) ?? undefined))
+  // The index of the rows (nav.rs placing, report.rs `Shelf`), built on first use only; a row not among `rows`
+  // asks by its id.
+  let shelf: { index: IssueIndex; at: Map<Row, number> } | undefined
+  const indexed = () => (shelf ??= { index: new IssueIndex(rows), at: new Map(rows.map((one, at) => [one, at])) })
   const milestone = (row: Row): string | undefined => {
     if (ctx.milestoneOf) return ctx.milestoneOf(row)
     // ASSUMED upstream `derived_milestone` wins when the row carries it (null or empty: none).
     if (row.derived_milestone !== undefined) return str(row.derived_milestone)
-    // The epic beats the milestone a row wrote for itself.
+    // The milestone the row stands on as moai reads it (`report::stood_at_line`): the epic beats the milestone
+    // it wrote, an id child stands where its fold top stands (its own field is not read), and a row naming an
+    // epic that is not there stands on none.
+    const { index, at } = indexed()
+    const i = at.get(row)
+    if (i !== undefined) return index.stoodAtLine(i)
     const e = epic(row)
     const home = e === undefined ? undefined : byId.get(e)
     return home ? str(home.milestone) : str(row.milestone)
   }
   const own = (row: Row): boolean => str(row.deferred_at) !== undefined
   // The inherited deferral is the index's walk (report.rs `Shelf`): up the id parents, through each one's epic
-  // and milestone, never into a closed row. Built on first use only; a row not among `rows` asks by its id.
-  let shelf: { index: IssueIndex; at: Map<Row, number> } | undefined
+  // and milestone, never into a closed row.
   const deferred = (row: Row): boolean => {
     if (ctx.deferredOf) return ctx.deferredOf(row)
     // ASSUMED upstream `derived_deferred` wins when the row carries it (the index's shelf reads it too).
     if (typeof row.derived_deferred === 'boolean') return row.derived_deferred
     if (own(row)) return true
-    shelf ??= { index: new IssueIndex(rows), at: new Map(rows.map((one, at) => [one, at])) }
-    const at = shelf.at.get(row)
-    return (at === undefined ? shelf.index.deferredRoot(row.id) : shelf.index.shelvedAt(at)) !== undefined
+    const { index, at } = indexed()
+    const i = at.get(row)
+    return (i === undefined ? index.deferredRoot(row.id) : index.shelvedAt(i)) !== undefined
   }
   const since = (row: Row): string => str(row.status_since) ?? str(row.updated_at) ?? ''
   const archived = (row: Row): boolean => {
@@ -583,7 +592,7 @@ export function hits(row: Row, q: string, scope: GrepScope, ctx: Context = {}): 
     (sees(scope, 'title') && lowerHas(row.title, needle)) ||
     (sees(scope, 'tag') && Array.isArray(row.tags) && row.tags.some((tag) => lowerHas(tag, needle))) ||
     (sees(scope, 'body') && lowerHas(row.body, needle)) ||
-    (sees(scope, 'note') && Boolean(ctx.notes?.[row.id]?.some((note) => note.toLowerCase().includes(needle))))
+    (sees(scope, 'note') && Boolean(ctx.notes && Object.prototype.hasOwnProperty.call(ctx.notes, row.id) && ctx.notes[row.id]?.some((note) => note.toLowerCase().includes(needle))))
   )
 }
 

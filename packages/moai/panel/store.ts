@@ -83,6 +83,15 @@ export interface State {
   wiki: WikiState
 }
 
+/**
+ * The choices the panel remembers between openings (design §5): the last tab, and where and how large the
+ * detail stands. data/memory.ts cleans what storage gives back and saves it again; the store only applies it.
+ */
+export interface Remembered {
+  tab: Tab
+  detail: DetailSettings
+}
+
 export const COLUMN_DEFAULTS: Record<ColumnName, boolean> = {
   id: true, priority: true, counts: true, header: true,
   tags: false, epic: false, assignee: false, created: false, updated: false,
@@ -133,16 +142,20 @@ export type Action =
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
   | { type: 'detail-closed' }
+  /** Settings read back at boot (already cleaned by data/memory.ts); what is left out keeps its value. */
+  | { type: 'restore'; settings: Partial<Remembered> }
 
 /** Where the detail actually stands at this panel width: a narrow panel forces the bottom. */
 export const detailPosition = (detail: DetailSettings, width: number): DetailPosition => effectivePosition(width, detail.position)
 
 /**
  * After a reload the cursor stays on the same id. When that row is gone it moves to the nearest row that
- * is still there — the next one in the old order, else the previous one.
+ * is still there — the next one in the old order, else the previous one. A cursor that was never a row
+ * (`known` holds the ids read before: the list's `..` line, a bucket) is not a row's to lose and stays.
  */
-export function keepCursor(cursor: string | null, order: readonly string[], present: ReadonlySet<string>): string | null {
+export function keepCursor(cursor: string | null, order: readonly string[], present: ReadonlySet<string>, known?: ReadonlySet<string>): string | null {
   if (cursor === null || present.has(cursor)) return cursor
+  if (known && !known.has(cursor)) return cursor
   const at = order.indexOf(cursor)
   if (at < 0) return null
   for (let distance = 1; distance < order.length; distance++) {
@@ -194,10 +207,11 @@ export function reduce(state: State, action: Action): State {
       return { ...state, board: { ...state.board, loading: true } }
     case 'board-loaded': {
       const present = new Set(action.data.rows.map((row) => row.id))
+      const before = state.board.value?.rows.map((row) => row.id) ?? []
       return {
         ...state,
         board: { value: action.data, loading: false, problem: null },
-        cursor: keepCursor(state.cursor, action.order ?? state.board.value?.rows.map((row) => row.id) ?? [], present),
+        cursor: keepCursor(state.cursor, action.order ?? before, present, new Set(before)),
       }
     }
     case 'board-failed':
@@ -211,6 +225,17 @@ export function reduce(state: State, action: Action): State {
       return { ...state, shown: { value: null, loading: false, problem: action.problem } }
     case 'detail-closed':
       return { ...state, shown: idle(), focus: 'list' }
+    case 'restore': {
+      const { tab, detail } = action.settings
+      if (tab === undefined && detail === undefined) return state
+      const ratio = detail ? { left: normalizeRatio(detail.ratio.left, 'left'), bottom: normalizeRatio(detail.ratio.bottom, 'bottom') } : state.detail.ratio
+      return {
+        ...state,
+        tab: tab ?? state.tab,
+        detail: detail ? { visible: detail.visible, position: detail.position, ratio } : state.detail,
+        focus: detail && !detail.visible ? 'list' : state.focus,
+      }
+    }
   }
 }
 

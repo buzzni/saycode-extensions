@@ -29,9 +29,12 @@ export function iconSvg(name: IconName, size = 16): string {
   return `<svg xmlns="${SVG_NS}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`
 }
 
-/** The icon as an element. The body is a constant above, never user text. */
+/**
+ * The icon as an element. The body is a constant above, never user text. It is parsed as SVG (XML) rather
+ * than set as HTML, so the packed panel holds no innerHTML at all — tests/moai.test.mjs checks that.
+ */
 export function iconEl(doc: Document, name: IconName, size = 16): SVGSVGElement {
-  const template = doc.createElement("template")
-  template.innerHTML = iconSvg(name, size)
-  return template.content.firstElementChild as SVGSVGElement
+  const Parser = doc.defaultView?.DOMParser ?? DOMParser
+  const parsed = new Parser().parseFromString(iconSvg(name, size), "image/svg+xml")
+  return doc.importNode(parsed.documentElement, true) as unknown as SVGSVGElement
 }

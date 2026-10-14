@@ -383,3 +383,85 @@ test('smoke: real wiki pages render with tables and links, safely', async () => 
   assert.ok(tables > 0)
   assert.ok(anyLinks > 0)
 })
+
+const ext = (href) => ({ kind: 'external', href })
+
+test('entities: named and numeric decode into text, never markup', () => {
+  assert.equal(md('a &amp; b &lt;script&gt; &copy; &mdash; &#65;&#x42; &nbsp;|').root.textContent, 'a & b <script> \u00a9 \u2014 AB \u00a0|')
+  const r = md('&lt;script&gt;alert(1)&lt;/script&gt; &lt;b&gt;x&lt;/b&gt;')
+  assert.equal(r.root.querySelector('script, b'), null)
+  assert.equal(r.root.textContent, '<script>alert(1)</script> <b>x</b>')
+  assertSafe(r.root)
+  // Bad numerics and unknown names stay literal; decoding is single-pass.
+  assert.equal(md('&#0; &#xD800; &#1114112; &#7; &bogus; &amp;lt;').root.textContent, '&#0; &#xD800; &#1114112; &#7; &bogus; &lt;')
+})
+
+test('entities: not decoded in code spans or fences; decoded in link text and destination', () => {
+  const r = md('`&amp;` and\n\n```\n&lt; &amp;\n```\n\n[a &amp; b](x?a=1&amp;b=2)', { resolveLink: ext })
+  assert.equal(r.root.querySelector('code.m-md-inline-code').textContent, '&amp;')
+  assert.equal(r.root.querySelector('pre').textContent, '&lt; &amp;')
+  assert.equal(r.links[0].textContent, 'a & b')
+  assert.equal(r.links[0].getAttribute('data-href'), 'x?a=1&b=2')
+})
+
+test('inline: thousands of unclosed openers render in well under a second', () => {
+  for (const unit of ['*a ', '_a ', '*a **b ']) {
+    const started = Date.now()
+    const r = md(unit.repeat(5000))
+    assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started}ms`)
+    assert.equal(r.root.querySelector('em, strong'), null)
+  }
+  assert.equal(html('*a* **b** and *c*'), '<p><em>a</em> <strong>b</strong> and <em>c</em></p>')
+})
+
+test('block quotes: a fence opened inside a quote ends with the quote', () => {
+  const r = md('> ```\n> code\nplain text')
+  assert.equal(r.root.querySelector('pre').textContent, 'code')
+  assert.equal(r.root.querySelector('blockquote pre').parentElement.tagName, 'BLOCKQUOTE')
+  assert.equal(r.root.querySelector(':scope > p').textContent, 'plain text')
+  // Lazy continuation of an ordinary quoted paragraph is unchanged.
+  assert.equal(html('> a\nb'), '<blockquote><p>a\nb</p></blockquote>')
+})
+
+test('links: destinations with spaces', () => {
+  const seen = []
+  const resolveLink = (h) => (seen.push(h), ext(h))
+  const r = md('[t](a b.md) and [u](<a b.md>)', { resolveLink })
+  assert.deepEqual(seen, ['a b.md'])
+  assert.equal(r.links.length, 1)
+  assert.equal(r.links[0].textContent, 'u')
+  assert.equal(r.root.textContent, '[t](a b.md) and u')
+})
+
+test('links: reference style, shortcut, collapsed, case-insensitive, definitions removed', () => {
+  const src = '[text][Ref] [ref][] [REF] [missing] [x][nope]\n\n[ref]: http://a.test "Title"\n\nafter\n[other]: <b c.md>\n\n```\n[ref]: not-a-def\n```\n[other]'
+  const r = md(src, { resolveLink: ext })
+  assert.deepEqual(r.links.map((a) => [a.textContent, a.getAttribute('data-href')]), [
+    ['text', 'http://a.test'], ['ref', 'http://a.test'], ['REF', 'http://a.test'], ['other', 'b c.md'],
+  ])
+  assert.ok(!r.root.textContent.includes('http://a.test "Title"'))
+  assert.match(r.root.textContent, /\[missing\] \[x\]\[nope\]/)
+  assert.equal(r.root.querySelector('pre').textContent, '[ref]: not-a-def')
+  assertSafe(r.root)
+})
+
+test('strikethrough: ~~x~~ is <del>, single ~ stays literal', () => {
+  assert.equal(html('a ~~gone~~ b ~one~ ~~ x ~~'), '<p>a <del>gone</del> b ~one~ ~~ x ~~</p>')
+  assert.equal(html('~~**b**~~'), '<p><del><strong>b</strong></del></p>')
+  assert.equal(html('`~~x~~`'), '<p><code class="m-md-inline-code">~~x~~</code></p>')
+  assert.match(css, /\.m-md del/)
+})
+
+test('task lists: marker span at the start of an item, no input', () => {
+  const r = md('- [ ] todo\n- [x] done\n- [X] DONE\n- not [ ] here\n- [ ]\n\ntext [x] y')
+  const marks = [...r.root.querySelectorAll('span.m-md-task')]
+  assert.deepEqual(marks.map((m) => m.getAttribute('data-checked')), ['false', 'true', 'true'])
+  assert.equal(r.root.querySelectorAll('input').length, 0)
+  const items = [...r.root.querySelectorAll('li')]
+  assert.equal(items[0].textContent.trim(), 'todo')
+  assert.equal(items[3].textContent, 'not [ ] here')
+  assert.equal(items[4].textContent, '[ ]')
+  assert.match(r.root.querySelector('p:last-child').textContent, /text \[x\] y/)
+  assertSafe(r.root)
+  assert.match(css, /\.m-md-task/)
+})

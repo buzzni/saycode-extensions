@@ -172,8 +172,8 @@ async function runPanel(answer, language = 'en') {
   const $ = (selector) => dom.window.document.querySelector(selector)
   return {
     window: dom.window, calls, $,
-    rows: () => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].map((row) => row.dataset.id),
-    row: (id) => [...dom.window.document.querySelectorAll('.moai-list button.moai-row')].find((row) => row.dataset.id === id),
+    rows: () => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].map((row) => row.dataset.id),
+    row: (id) => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].find((row) => row.dataset.id === id),
     starts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
     pressEnter(isComposing) {
       $('.moai-add input').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true }))
@@ -243,20 +243,22 @@ test('choosing a task shows its details beside the list, with history and status
   // The list stays: the detail no longer replaces it.
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   const detail = panel.$('.moai-detail')
-  assert.equal(detail.hidden, false)
+  assert.equal(panel.$('.m-split').dataset.detail, 'shown')
   assert.equal(detail.querySelector('h2').textContent, '가이드 첫 할 일')
-  const meta = Object.fromEntries([...detail.querySelectorAll('dt')].map((term) => [term.textContent, term.nextElementSibling.textContent]))
-  assert.equal(meta['상태'], '할 일')
-  assert.equal(meta['우선순위'], 'P2')
-  assert.equal(meta['ID'], 'mgd-hmcr')
-  assert.equal(detail.querySelector('.moai-body').textContent, '본문 첫 줄\n둘째 줄')
-  assert.deepEqual([...detail.querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '메모 하나'])
+  // Id, status and priority are the head line's text and chips, not labeled fields.
+  assert.equal(detail.querySelector('.moai-detail-id').textContent, 'mgd-hmcr')
+  assert.deepEqual([...detail.querySelectorAll('.moai-detail-chips > *')].map((chip) => chip.textContent).slice(0, 2), ['할 일', 'P2'])
+  assert.equal(detail.querySelector('.moai-detail-body').textContent, '본문 첫 줄\n둘째 줄')
+  assert.deepEqual([...detail.querySelectorAll('details[data-fold="journal"] li > span:first-child')].map((entry) => entry.textContent), ['만들었습니다', '메모 하나'])
 
   panel.row('mgd-ogym').click()
   await flush()
-  assert.deepEqual([...panel.$('.moai-detail').querySelectorAll('.moai-journal-text')].map((entry) => entry.textContent), ['만들었습니다', '할 일 → 진행 중'])
-  panel.$('.moai-close').click()
-  assert.equal(panel.$('.moai-detail').hidden, true)
+  assert.deepEqual([...panel.$('.moai-detail').querySelectorAll('details[data-fold="journal"] li > span:first-child')].map((entry) => entry.textContent), ['만들었습니다', '할 일 → 진행 중'])
+  panel.$('.moai-detail [data-focus="close"]').click()
+  await flush()
+  // Closing clears what the detail shows (it says to choose a task); the cursor row stays where it was.
+  assert.equal(panel.$('.moai-detail h2'), null)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, '할 일을 고르면 상세가 여기에 나옵니다.')
 })
 
 test('a refused read is explained where it happened; user choices are information, machine problems errors', async () => {
@@ -349,13 +351,16 @@ test('a truncated list says how many more tasks there are', async () => {
   assert.equal(panel.$('.moai-more').textContent, '5 more not shown')
 })
 
-test('an empty banner takes no room, and the page scrolls to rows and details below the fold', async () => {
+test('an empty banner takes no room, and the panes scroll to rows and details below the fold', async () => {
   const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME }))
-  for (const selector of ['.moai-notice', '.moai-error', '.moai-result']) {
+  for (const selector of ['.moai-notice', '.moai-error', '.moai-result', '.moai-more']) {
     assert.equal(panel.window.getComputedStyle(panel.$(selector)).display, 'none', selector)
   }
-  // tokens.css stops the body scrolling for the shell's own panes; this one-column view needs the page to scroll.
-  assert.equal(panel.window.getComputedStyle(panel.window.document.body).overflow, 'auto')
+  // The page itself does not scroll (tokens.css); the list and the detail scroll in their own panes.
+  const style = (selector) => panel.window.getComputedStyle(panel.$(selector))
+  assert.equal(style('body').overflow, 'hidden')
+  assert.equal(style('.m-pane-main[data-pane="list"]').overflow, 'auto')
+  assert.equal(style('.m-split-detail').overflow, 'auto')
 })
 
 test('why an add did nothing stays on its own line while the list and the detail redraw', async () => {
@@ -411,14 +416,70 @@ test('a detail asked for a task the next read no longer lists closes instead of 
   await flush()
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr'])
   assert.equal(panel.row('mgd-hmcr').getAttribute('aria-selected'), 'true')
-  assert.equal(panel.$('.moai-detail').hidden, true)
+  // The pane says to choose a task. (`h2 === null` alone would also hold while it is stuck on "Loading…".)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+  assert.doesNotMatch(panel.$('.moai-detail').textContent, /Loading/)
+})
+
+test('a loaded detail goes when a reload no longer lists its task', async () => {
+  const prime = JSON.parse(PRIME)
+  let listed = PRIME
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': () => listed, 'buzzni.moai.show': SHOW_MOVED }))
+  panel.row('mgd-ogym').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '버튼으로 추가한 할 일')
+  // The task is finished elsewhere: the next read does not list it. Its detail does not stay beside another row.
+  listed = JSON.stringify({ ...prime, picked: prime.picked.filter((row) => row.id !== 'mgd-ogym') })
+  panel.$('.moai-refresh').click()
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.row('mgd-ogym'), undefined)
+  assert.equal(panel.$('.moai-detail h2'), null)
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+})
+
+test('a key press that moves the cursor while a detail is read does not discard the answer', async () => {
+  let holding = true
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail').textContent, 'Loading…')
+  // ArrowDown moves the cursor without reading a detail (list.ts `point`).
+  panel.$('.moai-list').dispatchEvent(new panel.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
+  holding = false
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일', 'the task that was chosen is shown')
+  assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true', 'the cursor stays where the key left it')
+})
+
+test('closing the detail while its read is still running keeps it closed', async () => {
+  let holding = false
+  const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': () => (holding ? null : SHOW_NOTE_BODY) }))
+  panel.row('mgd-hmcr').click()
+  await flush()
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  // Choosing the same task again reads it again; the pane keeps showing the old answer meanwhile, with its Close.
+  holding = true
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.$('.moai-detail [data-focus="close"]').click()
+  assert.equal(panel.$('.moai-detail .m-empty-title').textContent, 'Choose a task to see its details.')
+  holding = false
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  await flush()
+  assert.equal(panel.$('.moai-detail h2'), null, 'the answer to a read nobody waits for does not reopen the pane')
 })
 
 test('the row with the keyboard focus keeps it when the list redraws', async () => {
   const panel = await runPanel(stdoutFor({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY }))
-  panel.row('mgd-hmcr').focus()
+  // The keyboard focus lives on the treegrid itself and points at the row (aria-activedescendant), so a redraw keeps it.
+  const list = panel.$('.moai-list')
+  list.focus()
   panel.row('mgd-hmcr').click()
   await flush()
-  assert.equal(panel.$('.moai-detail').hidden, false)
-  assert.equal(panel.window.document.activeElement, panel.row('mgd-hmcr'))
+  assert.equal(panel.$('.moai-detail h2').textContent, '가이드 첫 할 일')
+  assert.equal(panel.window.document.activeElement, list)
+  assert.equal(list.getAttribute('aria-activedescendant'), panel.row('mgd-hmcr').id)
 })

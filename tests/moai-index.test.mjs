@@ -228,14 +228,16 @@ test('assumed upstream archive_candidate wins when present, own derivation other
   assert.equal(archiveCandidate({ id: 'b', status: 'todo', archive_candidate: true }, now, 30), true)
 })
 
-test('without the field, archiveCandidate follows moai archive: off at 0 days, no milestone, an epic by its members, whole days', () => {
+test('without the field, archiveCandidate follows report::archived: off at 0 days, whole days, a group by its members', () => {
   const now = new Date('2026-10-14T00:00:00Z')
   const done = { id: 'a', status: 'done', status_since: '2026-09-30T00:00:00Z' }
   assert.equal(archiveCandidate(done, now, 14), true, 'exactly 14 whole days')
   assert.equal(archiveCandidate(done, now, 15), false)
   assert.equal(archiveCandidate(done, now, 0), false, '0 days turns the archive off')
-  assert.equal(archiveCandidate({ ...done, id: 'm', kind: 'milestone' }, now, 14), false, 'moai archive never moves a milestone')
-  const epic = { id: 'e', kind: 'epic', status_since: '2026-01-01T00:00:00Z' }
-  assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14), true, 'its members put it in done')
-  assert.equal(archiveCandidate({ ...epic, status: 'done', derived_status: 'in_progress' }, now, 14), false)
+  // A group stands in the column its members give it, since the latest day one of them got there.
+  const epic = { id: 'e', kind: 'epic', status_since: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' }
+  const members = [{ id: 'e.1', status: 'done', status_since: '2026-09-01T00:00:00Z' }, { id: 'e.2', status: 'done', status_since: '2026-10-10T00:00:00Z' }]
+  assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14, members.slice(0, 1)), true, 'its members put it in done')
+  assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14, members), false, 'a member done 4 days ago keeps it')
+  assert.equal(archiveCandidate({ ...epic, status: 'done', derived_status: 'in_progress' }, now, 14, members.slice(0, 1)), false)
 })

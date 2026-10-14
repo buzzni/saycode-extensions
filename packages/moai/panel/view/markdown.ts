@@ -63,6 +63,7 @@ interface Ctx {
   issueSet: Set<string>
   headings: Heading[]
   seen: Map<string, number>
+  refs: Map<string, string>
 }
 
 export function renderMarkdown(doc: Document, source: string, options: RenderOptions = {}): Rendered {
@@ -81,6 +82,7 @@ export function renderMarkdown(doc: Document, source: string, options: RenderOpt
     issueSet: new Set(ids),
     headings: [],
     seen: new Map(),
+    refs: new Map(),
   }
   const root = el(doc, "div", { class: "m-md" })
   // A leading BOM (Windows editors) would keep the first `# Title` from reading as a heading; moai strips it the
@@ -90,9 +92,44 @@ export function renderMarkdown(doc: Document, source: string, options: RenderOpt
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/^[ \t]*\t[ \t]*/, (lead) => lead.replace(/\t/g, "    ")))
-  parseBlocks(ctx, lines, root, false)
+  parseBlocks(ctx, collectDefinitions(ctx, lines), root, false)
   const links = [...root.querySelectorAll<HTMLAnchorElement>("a.m-md-link")]
   return { root, headings: ctx.headings, links }
+}
+
+// ---- reference definitions ----
+
+const REF_DEF = /^ {0,3}\[((?:[^\[\]\\]|\\.)+)\]:[ \t]*(?:<([^<>\n]*)>|([^\s<][^\s]*))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*$/
+
+const refLabel = (label: string): string => label.trim().replace(/\s+/g, " ").toLowerCase()
+
+/** Pull `[label]: url "title"` lines out of the document (outside fenced code); the first definition of a label wins. */
+function collectDefinitions(ctx: Ctx, lines: string[]): string[] {
+  const out: string[] = []
+  let fence: RegExp | null = null
+  for (const line of lines) {
+    if (fence) {
+      if (fence.test(line)) fence = null
+      out.push(line)
+      continue
+    }
+    const open = FENCE.exec(line)
+    if (open && isFence(line)) {
+      const mark = at(open, 2)
+      fence = new RegExp(`^ {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`)
+      out.push(line)
+      continue
+    }
+    const def = REF_DEF.exec(line)
+    const label = def ? refLabel(at(def, 1)) : ""
+    const dest = def ? (def[2] ?? def[3] ?? "") : ""
+    if (def && label !== "" && dest !== "") {
+      if (!ctx.refs.has(label)) ctx.refs.set(label, decodeEntities(dest.replace(/\\([!-/:-@[-`{-~])/g, "$1")))
+      continue
+    }
+    out.push(line)
+  }
+  return out
 }
 
 // ---- block pass ----
@@ -223,9 +260,19 @@ function parseBlocks(ctx: Ctx, lines: string[], parent: Node, tight: boolean): v
     // Block quote.
     if (QUOTE.test(line)) {
       const inner: string[] = []
+      // A fence opened inside the quote ends where the quote ends: a line without `>` is not lazy text then.
+      let quoteFence: RegExp | null = null
       while (i < n && !isBlank(at(lines, i))) {
-        if (QUOTE.test(at(lines, i))) inner.push(at(lines, i).replace(/^ {0,3}> ?/, ""))
-        else if (interrupts(at(lines, i))) break
+        if (QUOTE.test(at(lines, i))) {
+          const text = at(lines, i).replace(/^ {0,3}> ?/, "")
+          const open = FENCE.exec(text)
+          if (quoteFence) { if (quoteFence.test(text)) quoteFence = null }
+          else if (open && isFence(text)) {
+            const mark = at(open, 2)
+            quoteFence = new RegExp(`^ {0,3}${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`)
+          }
+          inner.push(text)
+        } else if (quoteFence || interrupts(at(lines, i))) break
         else inner.push(at(lines, i))
         i++
       }
@@ -362,7 +409,25 @@ function parseList(ctx: Ctx, lines: string[], start: number, parent: Node): numb
   if (ordered && firstNum !== 1) list.setAttribute("start", String(firstNum))
   for (const itemLines of items) {
     const li = el(doc, "li")
+    const task = /^\[([ xX])\][ \t]+(?=\S)/.exec(at(itemLines, 0))
+    if (task) itemLines[0] = at(itemLines, 0).slice(at(task, 0).length)
     parseBlocks(ctx, itemLines, li, !loose)
+    if (task) {
+      // Only the start of the first paragraph; a span, never an <input>.
+      const checked = at(task, 1) !== " "
+      const mark = el(doc, "span", {
+        class: "m-md-task",
+        role: "checkbox",
+        "data-checked": checked ? "true" : "false",
+        "aria-checked": checked ? "true" : "false",
+        "aria-disabled": "true",
+      })
+      const first = li.firstChild
+      const host: Node = first && first.nodeType === 1 && (first as Element).tagName === "P" ? first : li
+      host.insertBefore(mark, host.firstChild)
+      host.insertBefore(doc.createTextNode(" "), mark.nextSibling)
+      li.setAttribute("class", "m-md-task-item")
+    }
     list.appendChild(li)
   }
   parent.appendChild(list)
@@ -374,6 +439,39 @@ function parseList(ctx: Ctx, lines: string[], start: number, parent: Node): numb
 const PUNCT = /[!-/:-@[-`{-~]/
 const WORD = /[\p{L}\p{N}]/u
 const AUTOLINK = /<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)>/y
+
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0", copy: "\u00a9", reg: "\u00ae", trade: "\u2122",
+  mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", laquo: "\u00ab", raquo: "\u00bb", middot: "\u00b7",
+  bull: "\u2022", rarr: "\u2192", larr: "\u2190", times: "\u00d7",
+}
+const ENTITY = /&(?:#([0-9]{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,8}));/y
+
+/** The text one entity at `i` stands for, with its length; null leaves the `&` literal. */
+function entityAt(s: string, i: number): { text: string; len: number } | null {
+  ENTITY.lastIndex = i
+  const m = ENTITY.exec(s)
+  if (!m) return null
+  const len = at(m, 0).length
+  if (m[3] !== undefined) {
+    const named = Object.hasOwn(ENTITIES, m[3]) ? ENTITIES[m[3]] : undefined
+    return named === undefined ? null : { text: named, len }
+  }
+  const cp = m[1] !== undefined ? parseInt(m[1], 10) : parseInt(m[2] ?? "", 16)
+  const control = cp < 0x20 ? cp !== 9 && cp !== 10 : cp >= 0x7f && cp <= 0x9f
+  if (cp === 0 || control || (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff) return null
+  return { text: String.fromCodePoint(cp), len }
+}
+
+function decodeEntities(s: string): string {
+  if (!s.includes("&")) return s
+  let out = ""
+  for (let i = 0; i < s.length; i++) {
+    const e = s.charAt(i) === "&" ? entityAt(s, i) : null
+    if (e) { out += e.text; i += e.len - 1 } else out += s.charAt(i)
+  }
+  return out
+}
 
 function makeLink(ctx: Ctx, href: string): HTMLAnchorElement {
   let target: LinkTarget
@@ -427,7 +525,8 @@ function codeSpanEnd(s: string, i: number): { run: number; end: number } {
 
 interface LinkMatch { text: string; dest: string; end: number }
 
-function parseLinkAt(s: string, i: number): LinkMatch | null {
+/** Index of the `]` closing the `[` at i, or -1. */
+function bracketEnd(s: string, i: number): number {
   let depth = 1
   let j = i + 1
   for (; j < s.length; j++) {
@@ -441,7 +540,12 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
     if (ch === "[") depth++
     else if (ch === "]" && --depth === 0) break
   }
-  if (depth !== 0 || s.charAt(j + 1) !== "(") return null
+  return depth === 0 ? j : -1
+}
+
+function parseLinkAt(s: string, i: number): LinkMatch | null {
+  const j = bracketEnd(s, i)
+  if (j < 0 || s.charAt(j + 1) !== "(") return null
   const text = s.slice(i + 1, j)
   let k = j + 2
   while (s.charAt(k) === " " || s.charAt(k) === "\n") k++
@@ -473,11 +577,29 @@ function parseLinkAt(s: string, i: number): LinkMatch | null {
     while (s.charAt(k) === " " || s.charAt(k) === "\n") k++
   }
   if (s.charAt(k) !== ")" || dest === "") return null
-  return { text, dest, end: k + 1 }
+  return { text, dest: decodeEntities(dest), end: k + 1 }
+}
+
+/** `[text][ref]`, `[ref][]` and `[ref]` against the collected definitions. */
+function parseRefAt(ctx: Ctx, s: string, i: number): LinkMatch | null {
+  if (ctx.refs.size === 0) return null
+  const j = bracketEnd(s, i)
+  if (j < 0) return null
+  const text = s.slice(i + 1, j)
+  if (s.charAt(j + 1) === "[") {
+    const k = s.indexOf("]", j + 2)
+    const inner = k < 0 ? null : s.slice(j + 2, k)
+    if (inner !== null && !inner.includes("[")) {
+      const dest = ctx.refs.get(refLabel(inner === "" ? text : inner))
+      if (dest !== undefined) return { text, dest, end: k + 1 }
+    }
+  }
+  const dest = ctx.refs.get(refLabel(text))
+  return dest === undefined || text.trim() === "" ? null : { text, dest, end: j + 1 }
 }
 
 interface EmphMatch { lit: number; k: number; start: number; close: number; end: number }
-type EmphMemo = Map<number, EmphMatch | null>
+type EmphMemo = Map<number, EmphMatch | null> & { lastClose?: Record<string, number> }
 
 /**
  * The emphasis opening at i, or null. Memoized per position of `s`: an opener that never closes is retried by
@@ -499,6 +621,8 @@ function findEmph(s: string, i: number, memo: EmphMemo): EmphMatch | null {
   const after = s.charAt(i + r)
   if (after === undefined || /\s/.test(after)) return null
   if (c === "_" && before !== undefined && WORD.test(before)) return null
+  // No run of `c` after this opener can close it (none is preceded by a non-space): nothing to scan for.
+  if ((memo.lastClose?.[c] ?? Infinity) < i + r) return null
   const sizes = r >= 3 ? [3, 2, 1] : r === 2 ? [2, 1] : [1]
   for (const k of sizes) {
     let j = i + r
@@ -533,10 +657,19 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
   // Fill the emphasis memo right to left first: every nested lookup in findEmph is then a memo hit, so the
   // recursion stays one level deep however many openers the text has.
   const emphMemo: EmphMemo = new Map()
+  const lastClose: Record<string, number> = { "*": -1, _: -1 }
+  for (let p = 1; p < s.length; p++) {
+    const ch = s.charAt(p)
+    // A closing run starts after a non-space that is not the same delimiter (or after an escaped one).
+    const prev = s.charAt(p - 1)
+    if ((ch === "*" || ch === "_") && !/\s/.test(prev) && (prev !== ch || s.charAt(p - 2) === "\\")) lastClose[ch] = p
+  }
+  emphMemo.lastClose = lastClose
   for (let p = s.length - 1; p >= 0; p--) {
     const ch = s.charAt(p)
     if (ch === "*" || ch === "_") matchEmph(s, p, emphMemo)
   }
+  let strikeFail = Infinity // an opener at or after this index has no closer
   let buf = ""
   const flush = (): void => {
     if (buf) addText(ctx, parent, buf, noLinks)
@@ -585,7 +718,7 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
       continue
     }
     if (c === "[" && !noLinks) {
-      const m = parseLinkAt(s, i)
+      const m = parseLinkAt(s, i) ?? parseRefAt(ctx, s, i)
       if (m) {
         flush()
         const a = makeLink(ctx, m.dest)
@@ -610,6 +743,28 @@ function inlineInto(ctx: Ctx, parent: Node, s: string, noLinks: boolean): void {
         i += at(m, 0).length
         continue
       }
+    }
+    if (c === "&") {
+      const e = entityAt(s, i)
+      if (e) { buf += e.text; i += e.len; continue }
+    }
+    if (c === "~" && s.charAt(i + 1) === "~" && s.charAt(i + 2) !== "~" && i < strikeFail) {
+      const open = s.charAt(i + 2)
+      let close = -1
+      if (open !== "" && !/\s/.test(open)) {
+        for (let k = s.indexOf("~~", i + 2); k >= 0; k = s.indexOf("~~", k + 1)) {
+          if (k > i + 2 && s.charAt(k + 2) !== "~" && s.charAt(k - 1) !== "~" && !/\s/.test(s.charAt(k - 1))) { close = k; break }
+        }
+      }
+      if (close >= 0) {
+        flush()
+        const d = el(doc, "del")
+        parent.appendChild(d)
+        inlineInto(ctx, d, s.slice(i + 2, close), noLinks)
+        i = close + 2
+        continue
+      }
+      strikeFail = i
     }
     if (c === "*" || c === "_") {
       const m = matchEmph(s, i, emphMemo)

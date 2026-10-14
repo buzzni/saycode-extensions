@@ -58,6 +58,19 @@ export type Outcome =
   | { kind: 'unreadable'; truncated?: true }
   | { kind: 'cancelled'; mayContinue: boolean }
 
+/** Whether an outcome is information (a choice the user made, a retry, a board not made yet) rather than an error. */
+export function isInformation(outcome: Outcome): boolean {
+  switch (outcome.kind) {
+    case 'refused':
+      return INFO_REFUSALS.has(outcome.code)
+    case 'not-initialized':
+    case 'cancelled':
+      return true
+    default:
+      return false
+  }
+}
+
 export type Phase = 'queued' | 'starting' | 'running'
 
 /** What the panel is to run with (se-0g4a.fjl): 3 reads at once, a busy read tried 3 times, 1 s then 2 s apart. */
@@ -176,8 +189,16 @@ export function createClient(bridge: Bridge, options: ClientOptions = {}): Clien
   const listeners = new Set<() => void>()
   let seq = 0
 
+  // A subscriber is view code. If it throws, the queue must still go on: the next request is started after a
+  // notify, so an exception here would leave it queued (and the one running 'starting' or 'running') for good.
   const notify = () => {
-    for (const listener of [...listeners]) listener()
+    for (const listener of [...listeners]) {
+      try {
+        listener()
+      } catch (error) {
+        console.error(error)
+      }
+    }
   }
   const running = () => pending.filter((entry) => entry.phase !== 'queued').length
 

@@ -60,7 +60,9 @@ test('the same cases against the real binary, when it is installed', { skip: !mo
   const dir = mkdtempSync(join(tmpdir(), 'moai-query-'))
   try {
     mkdirSync(join(dir, '.moai'))
-    writeFileSync(join(dir, '.moai', 'config.toml'), 'prefix = "trk"\nstatuses = "todo,in_progress,review,done"\nnaming = "full"\n')
+    // `archive_days = 0` turns the archive off: the cases are expectations without a clock, and the fixture's done
+    // rows would otherwise age past the 14-day default and drop out of `all` / `status=done` on a later day.
+    writeFileSync(join(dir, '.moai', 'config.toml'), 'prefix = "trk"\nstatuses = "todo,in_progress,review,done"\nnaming = "full"\narchive_days = 0\n')
     writeFileSync(join(dir, '.moai', 'issues.jsonl'), fixture.issues.map((row) => JSON.stringify(row)).join('\n') + '\n')
     for (const item of fixture.cases) {
       const out = JSON.parse(execFileSync('moai', ['-C', dir, ...cliArgs(item)], { encoding: 'utf8' }))
@@ -391,4 +393,39 @@ test('assumed upstream derived_deferred, derived_milestone and archive_candidate
   const fresh = { id: 'fresh', status: 'done', status_since: '2026-10-13T00:00:00Z', archive_candidate: true }
   assert.equal(q.hiddenBy(old, all, [old], ctx), undefined)
   assert.equal(q.hiddenBy(fresh, all, [fresh], ctx), 'archived')
+})
+
+test('a key spelled like an Object.prototype member is a key to refuse, not a crash', () => {
+  for (const key of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    const parsed = q.parseFilter([`${key}=1`])
+    assert.equal(parsed.ok, false, key)
+    assert.deepEqual(parsed.error, { code: 'no-such-key', key })
+    assert.equal(q.parseFilter([`status=todo`, `${key}=x`]).ok, false, key)
+  }
+  // A row whose id is such a word is searched like any other (the notes table is keyed by id).
+  assert.equal(q.hits({ id: 'constructor', title: 'x' }, 'zzz', 'note', { notes: {} }), false)
+  assert.equal(q.hits({ id: 'constructor', title: 'x' }, 'zzz', 'all', { notes: { other: ['zzz'] } }), false)
+})
+
+test('milestone is the one a row stands on: the epic and the id parent decide, not the field the row wrote', () => {
+  // `moai show --json --all --filter milestone=trk-m001` / `milestone=none` on this tracker (moai 0.16.0) listed:
+  //   trk-m001 -> trk-q001, trk-q001.bbb     none -> trk-d001, trk-m001, trk-p001, trk-p001.aaa
+  const row = (id, extra = {}) => ({ id, title: id, kind: 'issue', status: 'todo', priority: 2, ...extra })
+  const tracker = [
+    { ...row('trk-m001'), kind: 'milestone' },
+    // Names an epic that is not there: it stands on no milestone whatever it wrote.
+    row('trk-d001', { epic: 'trk-gone', milestone: 'trk-m001' }),
+    // A child stands where its parent stands: the parent has none, so the milestone the child wrote is not read.
+    row('trk-p001'),
+    row('trk-p001.aaa', { milestone: 'trk-m001' }),
+    // And a child of a row with a milestone stands on it without writing one.
+    row('trk-q001', { milestone: 'trk-m001' }),
+    row('trk-q001.bbb'),
+  ]
+  const ofMilestone = (value) => ids(q.applyFilter(tracker, filterOf([`milestone=${value}`], { all: true }))).sort()
+  assert.deepEqual(ofMilestone('trk-m001'), ['trk-q001', 'trk-q001.bbb'])
+  assert.deepEqual(ofMilestone('none'), ['trk-d001', 'trk-m001', 'trk-p001', 'trk-p001.aaa'])
+  // An epic that wrote a milestone that does not exist stands on that id still (the CLI filters by it).
+  const lost = [row('trk-e001', { kind: 'epic', milestone: 'trk-zzzz' }), row('trk-e001.a', { epic: 'trk-e001' })]
+  assert.deepEqual(ids(q.applyFilter(lost, filterOf(['milestone=trk-zzzz'], { all: true }))).sort(), ['trk-e001', 'trk-e001.a'])
 })

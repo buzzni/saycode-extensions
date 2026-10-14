@@ -1,14 +1,18 @@
 /**
- * Boots the board panel: waits for the host bridge, wires the store to the data layer and renders.
+ * Boots the board panel: waits for the host bridge, restores the remembered settings, wires the store to the
+ * data layer and mounts the shell (view/shell.ts), which renders from the store.
  * Built by build.mjs into the single file dist/panel.html.
  */
 import { createClient, type Bridge } from './data/client.js'
 import { IssueIndex, type Row } from './data/index.js'
-import { createRefresher, refreshTime } from './data/refresh.js'
+import { createMemory, remember } from './data/memory.js'
+import { createRefresher } from './data/refresh.js'
 import { addTask, loadDetail, loadRows } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { createStore, type State } from './store.js'
-import { mountInterim, type Activity } from './view/interim.js'
+import { listLines, sortOrder, viewKeep } from './view/list-model.js'
+import { PANES } from './view/panes.js'
+import { mountShell, type Activity } from './view/shell.js'
 
 declare global {
   interface Window {
@@ -20,6 +24,9 @@ const bridge = window.saycodePanel
 const language = document.documentElement.lang || navigator.language || 'en'
 const copy = copyFor(language)
 const store = createStore()
+// The last tab and the detail's place come back before anything is drawn. localStorage when the frame may use
+// it, else this session only (data/memory.ts); reading `window.localStorage` itself can throw, hence the getter.
+remember(store, createMemory(() => window.localStorage))
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) })
 
 // The index is built once per read, not per render.
@@ -31,19 +38,26 @@ function indexOf(state: State): IssueIndex | null {
   return indexed.index
 }
 
-/** The ids in the order the list draws them now, so a reload can keep the cursor near where it was. */
+/** The ids in the order the list draws them now (its hiding, order and unfolded folders), so a reload can keep the cursor near where it was. */
 function drawnOrder(): string[] {
   const state = store.getState()
   const index = indexOf(state)
   if (!index) return []
-  return index.entries(state.path).flatMap((entry) => (entry.at === undefined ? [] : [index.rows[entry.at]!.id]))
+  const lines = listLines(state, index, viewKeep(state.view, index), sortOrder(state.sort, index))
+  return lines.flatMap((line) => (line.kind === 'row' ? [line.key] : []))
 }
 
 async function loadBoard(): Promise<void> {
   store.dispatch({ type: 'board-loading' })
   const loaded = await loadRows(client)
-  if (loaded.ok) store.dispatch({ type: 'board-loaded', data: { rows: loaded.value.rows, more: loaded.value.more, loadedAt: Date.now() }, order: drawnOrder() })
-  else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+  if (loaded.ok) {
+    store.dispatch({ type: 'board-loaded', data: { rows: loaded.value.rows, more: loaded.value.more, loadedAt: Date.now() }, order: drawnOrder() })
+    // The detail on screen was read before this list and stands beside it: when its row has left the list
+    // (finished, moved away) the pane goes with it, as choose() does for a read still running.
+    const state = store.getState()
+    const shown = state.shown.value
+    if (shown && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
+  } else store.dispatch({ type: 'board-failed', problem: loaded.outcome })
 }
 
 const refresher = createRefresher({ load: loadBoard, isVisible: () => document.visibilityState !== 'hidden' })
@@ -57,9 +71,13 @@ async function choose(id: string) {
   const loaded = await loadDetail(client, id)
   // A later choice wins: its own answer settles the detail.
   if (mine !== choice) return
-  // A reload moved the cursor off this row (the row was gone). Nothing else will answer for the detail, so it
-  // closes instead of staying on "Loading…".
-  if (store.getState().cursor !== id) return store.dispatch({ type: 'detail-closed' })
+  const now = store.getState()
+  // The pane was closed while the read ran (Close, or a reload that closed it): the answer is not wanted.
+  if (!now.shown.loading) return
+  // A reload removed the row. Nothing else will answer for the detail, so it closes instead of staying on
+  // "Loading…". The cursor moving elsewhere is the user's own (a key press) and does not cancel the read.
+  const listed = indexOf(now)
+  if (listed && listed.find(id) === undefined) return store.dispatch({ type: 'detail-closed' })
   if (loaded.ok) store.dispatch({ type: 'detail-loaded', data: { id, row: loaded.value } })
   else store.dispatch({ type: 'detail-failed', id, problem: loaded.outcome })
 }
@@ -67,17 +85,16 @@ async function choose(id: string) {
 let adding = false
 async function add(text: string) {
   const title = text.trim()
-  if (!title) return view.say(copy.titleRequired, true)
+  if (!title) return shell.say(copy.titleRequired, true)
   if (adding) return
   adding = true
-  view.say('')
+  shell.say('')
   try {
     const added = await addTask(client, title)
-    if (!added.ok) return view.refuse(added.outcome)
-    view.say(copy.added({ id: added.value.id, title: typeof added.value.title === 'string' ? added.value.title : title }))
+    if (!added.ok) return shell.refuse(added.outcome)
+    shell.say(copy.added({ id: added.value.id, title: typeof added.value.title === 'string' ? added.value.title : title }))
     // The field stays editable while an add runs: clear it only if it still holds what was sent.
-    const input = root.querySelector('input')
-    if (input?.value === text) input.value = ''
+    if (shell.input.value === text) shell.input.value = ''
     // A list read already running started before the add and cannot hold the new task.
     await refresher.refresh({ fresh: true })
   } finally {
@@ -96,27 +113,26 @@ function activity(): Activity {
 }
 
 const root = document.getElementById('moai-app') ?? document.body
-const view = mountInterim(root, copy, language, {
-  refresh: () => void refresher.refresh(),
-  enter: (path) => store.dispatch({ type: 'enter', path }),
-  choose: (id) => void choose(id),
-  closeDetail: () => store.dispatch({ type: 'detail-closed' }),
-  add: (title) => void add(title),
-  cancel: () => {
-    const running = client.requests().find((request) => request.operationId !== null)
-    if (running) client.cancel(running.key)
+// The shell draws on every store change; the request queue changes only the activity line and Cancel.
+const shell = mountShell(root, {
+  document,
+  store,
+  copy,
+  language,
+  panes: PANES,
+  index: indexOf,
+  activity,
+  intents: {
+    refresh: () => void refresher.refresh(),
+    choose: (id) => void choose(id),
+    add: (title) => void add(title),
+    cancel: () => {
+      const running = client.requests().find((request) => request.operationId !== null)
+      if (running) client.cancel(running.key)
+    },
   },
 })
-
-const render = () => {
-  const state = store.getState()
-  const loadedAt = state.board.value?.loadedAt
-  view.render(state, indexOf(state), activity(), loadedAt === undefined ? null : refreshTime(loadedAt, language))
-}
-store.subscribe(render)
-// The request queue changes only the activity line and Cancel; redrawing the list for it would be wasted work.
-client.subscribe(() => view.activity(activity()))
-render()
+client.subscribe(() => shell.activity(activity()))
 
 void (async () => {
   try {

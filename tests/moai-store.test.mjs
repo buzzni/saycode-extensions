@@ -76,6 +76,23 @@ test('after a reload the cursor stays on its id, or moves to the nearest row sti
   assert.equal(keepCursor(null, ['a'], new Set(['a'])), null)
 })
 
+test('a cursor that was never a row (the list\'s `..` line, a bucket) survives a reload', () => {
+  const known = new Set(['a', 'b', 'c'])
+  assert.equal(keepCursor('..', ['a', 'b', 'c'], new Set(['a', 'b', 'c']), known), '..')
+  assert.equal(keepCursor('m:', ['a', 'b'], new Set(['a']), known), 'm:')
+  assert.equal(keepCursor('lost', [], new Set(), known), 'lost')
+  // A row that was there and is gone still moves to its neighbour.
+  assert.equal(keepCursor('b', ['a', 'b', 'c'], new Set(['a', 'c']), known), 'c')
+  // Through the reducer: the cursor on `..` stays across a reload of the same rows.
+  let state = reduce(initialState(), { type: 'board-loaded', data: { rows: [{ id: 'a' }, { id: 'b' }], more: 0, loadedAt: 1 } })
+  state = reduce(state, { type: 'enter', path: ['i:a'], cursor: '..' })
+  state = reduce(state, { type: 'board-loaded', data: { rows: [{ id: 'a' }, { id: 'b' }], more: 0, loadedAt: 2 }, order: ['a', 'b'] })
+  assert.equal(state.cursor, '..')
+  state = reduce(state, { type: 'cursor', id: 'b' })
+  state = reduce(state, { type: 'board-loaded', data: { rows: [{ id: 'a' }], more: 0, loadedAt: 3 }, order: ['a', 'b'] })
+  assert.equal(state.cursor, 'a')
+})
+
 test('a reload keeps the rows read before on screen when it fails', () => {
   let state = reduce(initialState(), { type: 'board-loaded', data: { rows: [{ id: 'a' }, { id: 'b' }], more: 0, loadedAt: 1 } })
   state = reduce(state, { type: 'cursor', id: 'b' })

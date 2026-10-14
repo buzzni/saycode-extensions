@@ -1,0 +1,212 @@
+/**
+ * The detail pane (design §4.3): the row under the cursor from `show <id>` — head line, labeled fields,
+ * blockers, a group's roll-up, the body, commits, and the history (journal) and work log as folded sections.
+ * It only draws `state.shown` and the index; closing is the one thing it reports (`intents.closeDetail`).
+ * The pure wording lives in view/detail-format.ts.
+ */
+import { isInformation } from '../data/client.js'
+import type { IssueIndex, Row } from '../data/index.js'
+import type { State } from '../store.js'
+import { banner, button, chip, el, emptyState } from './components.ts'
+import {
+  BLOCKER_MARK,
+  blockedByOf,
+  blockerState,
+  blocksOf,
+  childrenOf,
+  commitsOf,
+  fieldsOf,
+  headOf,
+  journalOf,
+  problemText,
+  rollupOf,
+  tagsOf,
+  workOf,
+} from './detail-format.ts'
+import { renderMarkdown } from './markdown.ts'
+import type { MountPane, PaneView, ViewContext } from './types.ts'
+
+/** The body as markdown (view/markdown.ts: raw HTML stays text, links are only recorded, never followed). */
+export function renderBody(doc: Document, text: string): HTMLElement {
+  const { root } = renderMarkdown(doc, text)
+  root.classList.add('moai-detail-body')
+  return root
+}
+
+const STYLE_ID = 'moai-detail-style'
+const STYLE = `
+.moai-detail { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 14px; font-size: 13px; }
+.moai-detail-head { display: flex; align-items: flex-start; gap: 8px; }
+.moai-detail-headtext { flex: 1; min-width: 0; }
+.moai-detail-id { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.moai-detail-title { margin: 2px 0 6px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.moai-detail-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.moai-detail-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.moai-detail-fields dt { color: var(--muted); }
+.moai-detail-fields dd { margin: 0; overflow-wrap: anywhere; }
+.moai-detail-ids { margin: 0; padding: 0; list-style: none; }
+.moai-detail-ids li { overflow-wrap: anywhere; }
+.moai-detail-mark { display: inline-block; width: 1.2em; color: var(--muted); }
+.moai-detail-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.moai-detail-bar > span { display: block; height: 100%; background: var(--ok); }
+.moai-detail-body { overflow-wrap: anywhere; }
+.moai-detail h3, .moai-detail summary { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.moai-detail summary { cursor: pointer; }
+.moai-detail-list { margin: 4px 0 0; padding: 0; list-style: none; }
+.moai-detail-list li { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0; overflow-wrap: anywhere; }
+.moai-detail-hash { font-family: var(--mono, monospace); color: var(--muted); }
+.moai-detail-meta { color: var(--muted); }
+`
+
+function styled(doc: Document) {
+  if (doc.getElementById(STYLE_ID)) return
+  const style = el(doc, 'style', { id: STYLE_ID })
+  style.textContent = STYLE
+  doc.head.append(style)
+}
+
+/** A titled block; `h3` is the section's name. */
+const section = (doc: Document, title: string, ...content: Array<Node | null>) => el(doc, 'section', {}, el(doc, 'h3', {}, title), ...content)
+
+/** A folded block: the summary is its name, the open state survives redraws through `open`. */
+function folded(doc: Document, key: string, title: string, open: Set<string>, ...content: Node[]) {
+  const details = el(doc, 'details', { 'data-fold': key, open: open.has(key) }, el(doc, 'summary', {}, title), ...content)
+  details.addEventListener('toggle', () => {
+    if (details.open) open.add(key)
+    else open.delete(key)
+  })
+  return details
+}
+
+function idList(doc: Document, ids: string[], index: IssueIndex | null, copy: ViewContext['copy'], marks: boolean, row?: Row): HTMLElement {
+  const list = el(doc, 'ul', { class: 'moai-detail-ids' })
+  for (const id of ids) {
+    const item = el(doc, 'li')
+    const at = index?.find(id)
+    const title = at === undefined ? '' : String(index!.rows[at]!.title ?? '')
+    if (marks) {
+      const state = blockerState(id, index, row)
+      const word = { done: copy.detail.blockerDone, open: copy.detail.blockerOpen, deferred: copy.detail.blockerDeferred, missing: copy.detail.blockerMissing }[state]
+      item.append(el(doc, 'span', { class: 'moai-detail-mark', title: word, 'aria-label': word }, BLOCKER_MARK[state]))
+    }
+    item.append(`${id}${title ? ` ${title}` : ''}`)
+    list.append(item)
+  }
+  return list
+}
+
+export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): PaneView => {
+  const { document: doc, copy, intents } = ctx
+  const d = copy.detail
+  styled(doc)
+  const view = el(doc, 'div', { class: 'moai-detail', role: 'region', 'aria-label': d.label })
+  root.replaceChildren(view)
+  // The pane scrolls in the split's detail container (marked data-keep-scroll), which holds `root`; a view
+  // mounted on a scroller of its own is its own.
+  const scroller = (): HTMLElement => root.closest<HTMLElement>('[data-keep-scroll]') ?? root
+  /** Folded sections the user opened, kept per id so a refresh does not close them. */
+  const open = new Set<string>()
+  let shownId: string | null = null
+  /** What the pane was drawn from: it is drawn again only when one of them changed (a redraw loses a text
+   *  selection and the focus on a folded section's summary, and the shell renders it on every store change). */
+  let drawn: { shown: State['shown']; index: IssueIndex | null } | null = null
+
+  function closeButton() {
+    const close = button(doc, { label: d.close, variant: 'ghost', small: true, icon: 'x', onClick: () => intents.closeDetail() })
+    close.dataset.focus = 'close'
+    return close
+  }
+
+  function content(row: Row, index: IssueIndex | null): Node[] {
+    const head = headOf(row, copy)
+    const chips = el(doc, 'div', { class: 'moai-detail-chips' })
+    if (head.status) chips.append(chip(doc, { label: head.statusLabel, tone: head.tone }))
+    if (head.priority) chips.append(chip(doc, { label: head.priority }))
+    if (head.kind) chips.append(chip(doc, { label: head.kind }))
+    if (head.deferred) chips.append(chip(doc, { label: `${d.deferred}: ${head.deferred}`, tone: 'warn' }))
+    else if (head.shelvedBy) chips.append(chip(doc, { label: d.deferredUnder(head.shelvedBy), tone: 'warn' }))
+    for (const tag of tagsOf(row)) chips.append(chip(doc, { label: tag }))
+    const out: Node[] = [
+      el(doc, 'div', { class: 'moai-detail-head' },
+        el(doc, 'div', { class: 'moai-detail-headtext' },
+          el(doc, 'div', { class: 'moai-detail-id' }, head.id),
+          el(doc, 'h2', { class: 'moai-detail-title' }, head.title),
+          chips),
+        closeButton()),
+    ]
+    const fields = fieldsOf(row, index, copy)
+    if (fields.length) {
+      const list = el(doc, 'dl', { class: 'moai-detail-fields' })
+      for (const field of fields) list.append(el(doc, 'dt', {}, field.label), el(doc, 'dd', { 'data-field': field.key }, field.value))
+      out.push(list)
+    }
+    const blockedBy = blockedByOf(row)
+    if (blockedBy.length) out.push(section(doc, d.blockedBy, idList(doc, blockedBy, index, copy, true, row)))
+    const blocks = blocksOf(row, index)
+    if (blocks.length) out.push(section(doc, d.blocks, idList(doc, blocks, index, copy, false)))
+    const rollup = rollupOf(row, index)
+    if (rollup) {
+      const bar = el(doc, 'div', { class: 'moai-detail-bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': rollup.percent ?? 0, 'aria-label': d.rollup })
+      bar.append(el(doc, 'span', { style: `width: ${rollup.percent ?? 0}%` }))
+      const counts = rollup.byStatus.map(([status, n]) => `${copy.stats[status] ?? status} ${n}`).join(' · ')
+      out.push(section(doc, d.rollup, el(doc, 'div', { class: 'moai-detail-rollup' }, d.rollupText(rollup.done, rollup.work, rollup.percent)), bar, counts ? el(doc, 'div', { class: 'moai-detail-meta' }, counts) : null))
+    }
+    const body = typeof row.body === 'string' ? row.body.trim() : ''
+    if (body) out.push(section(doc, d.body, renderBody(doc, body)))
+    const children = childrenOf(row, index)
+    if (children.length) {
+      const list = el(doc, 'ul', { class: 'moai-detail-list' })
+      for (const child of children) list.append(el(doc, 'li', {}, `${child.id} ${child.title ?? ''}`.trim()))
+      out.push(section(doc, d.subtasks, list))
+    }
+    const commits = commitsOf(row)
+    if (commits.length) {
+      const list = el(doc, 'ul', { class: 'moai-detail-list' })
+      for (const commit of commits) list.append(el(doc, 'li', {}, el(doc, 'span', { class: 'moai-detail-hash' }, commit.hash), commit.subject))
+      out.push(section(doc, d.commits, list))
+    }
+    const journal = journalOf(row, copy)
+    const history = el(doc, 'ol', { class: 'moai-detail-list' })
+    if (journal.length) {
+      for (const line of journal) history.append(el(doc, 'li', { 'data-kind': line.kind }, el(doc, 'span', {}, line.text), line.meta ? el(doc, 'span', { class: 'moai-detail-meta' }, line.meta) : null))
+    } else history.append(el(doc, 'li', { class: 'moai-detail-meta' }, d.noJournal))
+    out.push(folded(doc, 'journal', d.journal, open, history))
+    const work = workOf(row)
+    if (work.length) {
+      const list = el(doc, 'ul', { class: 'moai-detail-list' })
+      for (const line of work) list.append(el(doc, 'li', {}, line))
+      out.push(folded(doc, 'work', d.work, open, list))
+    }
+    return out
+  }
+
+  function render(state: State, index: IssueIndex | null) {
+    if (drawn && drawn.shown === state.shown && drawn.index === index) return
+    drawn = { shown: state.shown, index }
+    const { value, loading, problem } = state.shown
+    // Another row's detail starts at the top; the same row redrawn (a refresh) keeps its place.
+    const id = value?.id ?? null
+    const top = id !== null && id === shownId ? scroller().scrollTop : 0
+    shownId = id
+    const active = doc.activeElement as HTMLElement | null
+    const key = active && view.contains(active) ? active.dataset?.focus : undefined
+    const children: Node[] = []
+    if (problem) {
+      const said = problemText(problem, copy)
+      children.push(banner(doc, isInformation(problem) ? 'info' : 'danger', said ? `${d.problem} ${said}` : d.problem))
+    }
+    if (value) children.push(...content(value.row, index))
+    else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
+    else if (!problem) children.push(emptyState(doc, { title: d.none }))
+    view.replaceChildren(...children)
+    scroller().scrollTop = top
+    if (key !== undefined) view.querySelector<HTMLElement>(`[data-focus="${key}"]`)?.focus({ preventScroll: true })
+  }
+
+  return {
+    render,
+    // The pane itself takes the focus while it has no control yet (it is still reading), so the focus is
+    // never left behind in the list that asked for it.
+    focus: () => (view.querySelector<HTMLElement>('button') ?? root).focus({ preventScroll: true }),
+  }
+}

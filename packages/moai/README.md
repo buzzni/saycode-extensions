@@ -47,20 +47,25 @@ The sample deliberately has no init, tui, wake, hooks, editor, or shell entry po
 The extension contributes a project tool (Desktop engine 1.2.0): in a project conversation, the work area More menu lists
 **Moai** under the built-in tools, and choosing it opens the board as a work area tab (the host draws the single "Moai"
 title; `surfaceSize: "compact"` applies only where a host opens it as a modal). Settings → Machines no longer shows a
-Moai button. Opening the board loads the project's tasks with `prime`, grouped as In progress, Review and To do
-(held tasks of other people included; done tasks are not listed, and a truncated list says how many more there are).
-Choosing a task shows its details with `show` in the same tab — status, priority, assignee, creation time, body,
-subtasks and history (notes, status moves) — and **Back to list** returns to the list with focus on that task.
-**Refresh** reloads the list, and adding a task refreshes it. A read is approved once per profile, machine and folder
-for the session, so the list and the details each ask once; every add asks again. The panel also runs the profiles
-through the extension's own commands: **Add task**
-(the primary button, or Enter in the title field) creates a task from the typed title, and **Show status** shows the
-task counts as four small chips. Runs target the project of the conversation; Desktop's confirmation shows the machine
-and folder. The hint at the top says so, and until a run is accepted the status reads "Starting… approve the
-confirmation if it is showing" rather than claiming it already runs on the machine (1.1.1). **Cancel** appears only once the run has an operation id (not while the
-confirmation is open); a small spinner shows while the run is in progress and the panel polls its status. After a
-cancel it is ready again at once and notes when the machine says processes may still be running (the daemon's
-workspace write lock refuses an overlapping write until they settle).
+Moai button.
+
+Version 2.0 is a keyboard-first explorer modelled on `moai tui`. It has three tabs — **Kanban**, **List** and **Wiki**
+(click the tab bar, or `SPC g b` / `SPC g l` / `SPC g w`) — and a detail pane that sits below the list or, on a panel at least
+640 px wide, on its left; a small button in the toolbar (or `SPC o d`) switches the position. The toolbar and the keys
+cover search (`/`), filter (`SPC f`), sort (`SPC s`), view toggles for deferred, backlog, archived and status columns
+(`SPC v`), list columns (`SPC c`) and the unread mark: **NEW** rows are marked read with `r`, `SPC m g` (group) and
+`SPC m a` (all). `?` shows the shortcut overlay. See [PANEL.md](PANEL.md) for how the panel is used and the full
+shortcut table.
+
+The panel loads the project's tasks once and filters, sorts and groups them in the panel, so keys respond at once;
+details (`show`) and wiki pages are read when opened. A read is approved once per profile, machine and folder for the
+session; every add and every read-mark write asks again. Runs target the project of the conversation; Desktop's
+confirmation shows the machine and folder, and until a run is accepted the panel reads "Starting… approve the
+confirmation if it is showing" rather than claiming it already runs on the machine. After a cancelled run the panel is
+ready again at once and notes when the machine says processes may still be running (the daemon's workspace write lock
+refuses an overlapping write until they settle).
+
+Keyboard input reaches the panel only once it has focus: click the panel after opening the tab.
 
 The panel follows Desktop's panel theme v1 variables (`--saycode-*`, `data-theme`) and falls back to the OS light/dark
 scheme on older Desktop builds.
