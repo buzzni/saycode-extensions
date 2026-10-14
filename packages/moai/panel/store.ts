@@ -83,6 +83,15 @@ export interface State {
   wiki: WikiState
 }
 
+/**
+ * The choices the panel remembers between openings (design §5): the last tab, and where and how large the
+ * detail stands. data/memory.ts cleans what storage gives back and saves it again; the store only applies it.
+ */
+export interface Remembered {
+  tab: Tab
+  detail: DetailSettings
+}
+
 export const COLUMN_DEFAULTS: Record<ColumnName, boolean> = {
   id: true, priority: true, counts: true, header: true,
   tags: false, epic: false, assignee: false, created: false, updated: false,
@@ -133,6 +142,8 @@ export type Action =
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
   | { type: 'detail-closed' }
+  /** Settings read back at boot (already cleaned by data/memory.ts); what is left out keeps its value. */
+  | { type: 'restore'; settings: Partial<Remembered> }
 
 /** Where the detail actually stands at this panel width: a narrow panel forces the bottom. */
 export const detailPosition = (detail: DetailSettings, width: number): DetailPosition => effectivePosition(width, detail.position)
@@ -211,6 +222,17 @@ export function reduce(state: State, action: Action): State {
       return { ...state, shown: { value: null, loading: false, problem: action.problem } }
     case 'detail-closed':
       return { ...state, shown: idle(), focus: 'list' }
+    case 'restore': {
+      const { tab, detail } = action.settings
+      if (tab === undefined && detail === undefined) return state
+      const ratio = detail ? { left: normalizeRatio(detail.ratio.left, 'left'), bottom: normalizeRatio(detail.ratio.bottom, 'bottom') } : state.detail.ratio
+      return {
+        ...state,
+        tab: tab ?? state.tab,
+        detail: detail ? { visible: detail.visible, position: detail.position, ratio } : state.detail,
+        focus: detail && !detail.visible ? 'list' : state.focus,
+      }
+    }
   }
 }
 
