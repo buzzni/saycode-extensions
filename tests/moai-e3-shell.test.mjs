@@ -439,3 +439,24 @@ test('shell: every refusal has its words in every language; a cancel that was re
   assert.deepEqual(reaped.parts, [en.cancelled])
   assert.deepEqual(describe({ kind: 'cancelled', mayContinue: true }, en, doc).parts, [`${en.cancelled} ${en.mayContinue}`])
 })
+
+test('shell: the activity line asks to approve a waiting run beside one that runs, and an unchanged line is not rewritten', async () => {
+  const panel = boot(fakeStorage())
+  const line = panel.$('.moai-activity')
+  const writes = []
+  new panel.dom.window.MutationObserver((records) => writes.push(...records)).observe(line, { childList: true, characterData: true, subtree: true })
+  panel.shell.activity({ phase: 'running', waiting: true, cancellable: true })
+  assert.equal(line.textContent, `${en.running} ${en.starting}`)
+  assert.equal(panel.$('.moai-cancel').hidden, false)
+  await Promise.resolve()
+  const after = writes.length
+  panel.shell.activity({ phase: 'running', waiting: true, cancellable: true })
+  await Promise.resolve()
+  assert.equal(writes.length, after, 'the live region is left alone')
+  panel.shell.activity({ phase: 'running', waiting: false, cancellable: true })
+  assert.equal(line.textContent, en.running)
+  // Waiting alone: nothing to cancel yet.
+  panel.shell.activity({ phase: 'starting', waiting: true, cancellable: false })
+  assert.equal(line.textContent, en.starting)
+  assert.equal(panel.$('.moai-cancel').hidden, true)
+})

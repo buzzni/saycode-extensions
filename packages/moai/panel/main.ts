@@ -207,6 +207,7 @@ function activity(): Activity {
   const running = requests.find((request) => request.operationId !== null)
   return {
     phase: running ? 'running' : requests.length ? 'starting' : 'idle',
+    waiting: requests.some((request) => request.phase === 'starting'),
     // Nothing to cancel while the confirmation is still open: the run has no operation id yet.
     cancellable: running !== undefined,
   }

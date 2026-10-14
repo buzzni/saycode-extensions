@@ -810,3 +810,19 @@ test('an archive read that fails is told on its own line; the board and its bann
   await flush()
   assert.equal(panel.$('.moai-archive-problem').textContent, '')
 })
+
+test('while one run goes and another waits for its confirmation, the line still asks to approve it', async () => {
+  const accepts = new Map()
+  const answer = () => null
+  answer.start = (args) => new Promise((resolve) => accepts.set(args[0], () => resolve(null)))
+  const panel = await runPanel(answer)
+  // show --all is approved and runs; the backlog and status reads still wait on their confirmations.
+  accepts.get('buzzni.moai.show-all')()
+  await flush()
+  assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine… Starting… approve the confirmation if it is showing.')
+  assert.equal(panel.$('.moai-cancel').hidden, false, 'something runs, so it can be cancelled')
+  accepts.get('buzzni.moai.backlog-all')()
+  accepts.get('buzzni.moai.status')()
+  await flush()
+  assert.equal(panel.$('.moai-activity').textContent, 'Running on the machine…')
+})

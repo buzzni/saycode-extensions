@@ -24,6 +24,11 @@ import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource 
 export interface Activity {
   /** 'starting' while Desktop may show its confirmation, 'running' once the machine runs it. */
   phase: "idle" | "starting" | "running"
+  /**
+   * A request still waits on its confirmation. Up to three run at once, so one may wait while another already
+   * runs (phase 'running'): the line still asks the person to approve it.
+   */
+  waiting: boolean
   cancellable: boolean
 }
 
@@ -304,7 +309,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
   // ── drawing ──
   function showActivity(current: Activity) {
-    const line = current.phase === "starting" ? copy.starting : current.phase === "running" ? copy.running : ""
+    const line = current.phase === "starting" ? copy.starting
+      : current.phase === "running" ? (current.waiting ? `${copy.running} ${copy.starting}` : copy.running)
+      : ""
     // A live region is read again when it is written, so an unchanged line is left alone.
     if (activityText.textContent !== line) activityText.textContent = line
     cancel.hidden = !current.cancellable
