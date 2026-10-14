@@ -400,11 +400,13 @@ moai 상류 릴리스 ─┐
 |---|---|---|---|
 | 마지막 탭 | `board`·`list`·`wiki` | 키 `buzzni.moai.panel`(`MEMORY_KEY`), 세션만 | 수십 B |
 | 상세 표시·위치·위치별 비율 | `visible`, `position`, `ratio.left`·`ratio.bottom` | 같은 키, 세션만 | 수십 B |
-| 정렬 | 키 목록(최대 몇 개)과 방향 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
-| 필터 | `key=value` 문법 문자열 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
-| 열 | 켠 열 id 목록 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
-| 보이기 토글 | 칸별 숨김, 미룸·backlog·아카이브 표시, 상세·원문 | 영속 안 됨(`se-cv7w.lca`) | 수십 B |
-| **기본 정렬**(`se-5air`) | 정렬 편집기 `D`가 저장하는 값 | 저장처가 없어 "사용 불가" | 수백 B |
+| 정렬 | 키 목록(최대 몇 개)과 방향 | 세션만(`se-cv7w.lca`, 영속은 `se-c9mu`) | 수백 B |
+| 필터 | `key=value` 문법 문자열 | 세션만(`se-cv7w.lca`) | 수백 B |
+| 열 | 켠 열 id 목록 | 세션만(`se-cv7w.lca`) | 수백 B |
+| 보이기 토글 | 칸별 숨김, 미룸·backlog·아카이브 표시, 상세·원문 | 세션만(`se-cv7w.lca`) | 수십 B |
+| **기본 정렬**(`se-5air`) | 정렬 편집기 `D`가 저장하는 값 | 세션만(`se-5air`) | 수백 B |
+
+`se-5air`·`se-cv7w.lca`는 세션 수준에서 닫혔다. 영속 저장은 SDK API를 기다리는 `se-c9mu`다. 현재 이음새(`SettingsStorage`)는 동기식이고 범위가 없어, 요청한 API(4.3절, 비동기·workspace/global)에 붙일 때 호출부가 바뀐다.
 
 합계는 **4 KiB 아래**로 본다 **[추정]**. 값은 JSON 한 덩어리(`{version, tab, detail, sort, filter, columns, view, defaultSort}`)이고 `version`으로 옛 모양을 올린다(`MEMORY_VERSION`, `normalizeMemory`가 모르는 키·틀린 값을 기본값으로 바꾼다 — 이 점은 저장소가 어떻게 바뀌어도 그대로다). 세션 한정이 맞는 것(검색어·커서·접힘)은 저장하지 않는다.
 
