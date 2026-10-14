@@ -6,9 +6,9 @@
  * ({@link CompatProbe.subscribe}) hear of each thing handed over, a late one too, so the caller can put the new
  * report where it is drawn. The banner is drawn elsewhere.
  *
- * Extension and moai versions are independent (README, Compatibility); the extension assumes upstream
- * improvements (se-0g4a) and a catalog of 13 profiles (se-0g4a.anz). Features that still work keep working:
- * the fallbacks are in source.ts, this only names which ones are in use.
+ * Extension and moai versions are independent (README, Compatibility); the extension relies on the upstream
+ * improvements moai 0.17.0 brought (se-0g4a) and assumes a catalog of 13 profiles (se-0g4a.anz). Features that
+ * still work keep working: the fallbacks are in source.ts, this only names which ones are in use.
  *
  * What is evidence of what:
  * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it, or the daemon is too

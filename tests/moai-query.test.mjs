@@ -124,11 +124,11 @@ test('a filter that cannot be read is refused with its reason', () => {
   assert.ok(q.parseFilter(['', '  ']).ok)
 })
 
-test('the scopes cycle in the order of the explorer and the note scope is last', () => {
-  assert.deepEqual(q.GREP_SCOPES, ['all', 'id', 'title', 'tag', 'body', 'note'])
+test('the scopes cycle in the order of the explorer, without the note scope nothing loads notes for', () => {
+  assert.deepEqual(q.GREP_SCOPES, ['all', 'id', 'title', 'tag', 'body'])
   assert.equal(q.nextScope('all'), 'id')
-  assert.equal(q.nextScope('note'), 'all')
-  assert.equal(q.prevScope('all'), 'note')
+  assert.equal(q.nextScope('body'), 'all')
+  assert.equal(q.prevScope('all'), 'body')
   assert.equal(q.prevScope('title'), 'id')
   assert.ok(q.sees('all', 'tag') && q.sees('body', 'body') && !q.sees('title', 'body'))
 })
@@ -366,33 +366,48 @@ test('hintsAt finds the item under the cursor and what to suggest there', () => 
   assert.deepEqual(got.hints.map((one) => one.value), ['todo'])
 })
 
-// ASSUMED upstream fields (not in any released moai): when a row carries them they decide the lens, as they do
-// in the index; absent, the lens derives the same answers itself (the tests above).
-test('assumed upstream derived_deferred, derived_milestone and archive_candidate decide the lens when present', () => {
+// moai 0.17's own derivations, printed only when they hold: when a row carries them they decide the lens, as
+// they do in the index; absent, the lens derives the same answers itself (the tests above).
+test('moai shelved_by, derived_milestone and archived decide the lens when present', () => {
   const parent = { id: 'p1', status: 'todo', deferred_at: '2026-10-01T00:00:00Z' }
-  const toldNo = { id: 'p1.c1', status: 'todo', derived_deferred: false }
-  const toldYes = { id: 'free', status: 'todo', derived_deferred: true }
+  const kid = { id: 'p1.c1', status: 'todo' }
+  const toldYes = { id: 'free', status: 'todo', shelved_by: 'e-gone' }
   const m1 = { id: 'm1', kind: 'milestone', status: 'todo' }
   const m2 = { id: 'm2', kind: 'milestone', status: 'todo' }
   const epic = { id: 'e1', kind: 'epic', status: 'todo', milestone: 'm1' }
   const moved = { id: 'x', status: 'todo', epic: 'e1', derived_epic: 'e1', derived_milestone: 'm2' }
   const none = { id: 'y', status: 'todo', epic: 'e1', derived_epic: 'e1', derived_milestone: null }
-  const list = [parent, toldNo, toldYes, m1, m2, epic, moved, none]
+  const list = [parent, kid, toldYes, m1, m2, epic, moved, none]
   const plain = filterOf([])
-  assert.equal(q.hiddenBy(toldNo, plain, list), undefined, 'false beats the parent it would inherit from')
-  assert.equal(q.hiddenBy(toldYes, plain, list), 'deferred')
-  const ownNo = { id: 'own', status: 'todo', deferred_at: '2026-10-01T00:00:00Z', derived_deferred: false }
-  assert.equal(q.hiddenBy(ownNo, plain, [ownNo]), undefined, 'false beats its own deferred_at too')
-  assert.deepEqual(ids(q.applyFilter(list, filterOf([], { deferred: true }))), ['p1', 'free'])
+  assert.equal(q.hiddenBy(kid, plain, list), 'deferred', 'absent: inherited from the parent')
+  assert.equal(q.hiddenBy(toldYes, plain, list), 'deferred', 'a shelf not among the rows')
+  assert.deepEqual(ids(q.applyFilter(list, filterOf([], { deferred: true }))), ['p1', 'p1.c1', 'free'])
   assert.ok(ids(q.applyFilter(list, filterOf(['milestone=m2']))).includes('x'))
   assert.ok(!ids(q.applyFilter(list, filterOf(['milestone=m1']))).includes('x'))
   assert.ok(!ids(q.applyFilter(list, filterOf(['milestone=m1']))).includes('y'), 'null: no milestone')
   const ctx = { now: '2026-10-14T00:00:00Z', archiveDays: 30 }
   const all = filterOf([], { all: true })
-  const old = { id: 'old', status: 'done', status_since: '2026-01-01T00:00:00Z', archive_candidate: false }
-  const fresh = { id: 'fresh', status: 'done', status_since: '2026-10-13T00:00:00Z', archive_candidate: true }
-  assert.equal(q.hiddenBy(old, all, [old], ctx), undefined)
-  assert.equal(q.hiddenBy(fresh, all, [fresh], ctx), 'archived')
+  const fresh = { id: 'fresh', status: 'done', status_since: '2026-10-13T00:00:00Z', archived: true }
+  assert.equal(q.hiddenBy(fresh, all, [fresh], ctx), 'archived', 'moai says archived whatever the clock reads')
+  assert.equal(q.hiddenBy(fresh, all, [fresh], {}), 'archived', 'without archive_days too')
+})
+
+test('real 0.17 output: the lens hides what moai marks, and derives the same without the marks', async () => {
+  const read = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
+  const real = await read('show-archived-v017.json')
+  const bare = real.map(({ shelved_by: _s, archived: _a, derived_milestone: _m, ...row }) => row)
+  const ctx = { now: '2026-10-14T12:10:00Z', archiveDays: 30 }
+  const plain = filterOf([])
+  const told = real.map((row) => q.hiddenBy(row, plain, real, ctx))
+  assert.deepEqual(bare.map((row) => q.hiddenBy(row, plain, bare, ctx)), told)
+  real.forEach((row, at) => {
+    if (row.archived === true) assert.equal(told[at], 'archived', row.id)
+    else if (row.shelved_by) assert.equal(told[at], 'deferred', row.id)
+    // Alone and with no clock, nothing is left to derive from: only moai's marks hide the row.
+    const alone = q.hiddenBy(row, plain, [row], {})
+    if (row.archived === true) assert.equal(alone, 'archived', `${row.id} alone`)
+    else if (row.shelved_by) assert.equal(alone, 'deferred', `${row.id} alone`)
+  })
 })
 
 test('a key spelled like an Object.prototype member is a key to refuse, not a crash', () => {

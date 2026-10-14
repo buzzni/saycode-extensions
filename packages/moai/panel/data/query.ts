@@ -65,8 +65,12 @@ export type Key = (typeof KEYS)[number]
 
 /** Where `grep` looks. `all` sees the other five; `note` comes last, after the four fields of the row. */
 export type GrepScope = 'all' | 'id' | 'title' | 'tag' | 'body' | 'note'
-/** The scopes in the order Tab cycles them. */
-export const GREP_SCOPES: readonly GrepScope[] = ['all', 'id', 'title', 'tag', 'body', 'note']
+/**
+ * The scopes the panel offers, in the order Tab cycles them. `note` is left out: the rows carry no notes and
+ * nothing loads them into {@link Context.notes}, so it would find nothing and say nothing (se-thyl). The matcher
+ * still reads notes when given; the scope comes back once a source fills them (moai 0.17 `show -g` sees notes).
+ */
+export const GREP_SCOPES: readonly GrepScope[] = ['all', 'id', 'title', 'tag', 'body']
 
 /** Next scope (Tab), wrapping at the end. */
 export const nextScope = (scope: GrepScope): GrepScope => GREP_SCOPES[(GREP_SCOPES.indexOf(scope) + 1) % GREP_SCOPES.length] ?? 'all'
@@ -546,7 +550,7 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   const indexed = () => (shelf ??= { index: new IssueIndex(rows), at: new Map(rows.map((one, at) => [one, at])) })
   const milestone = (row: Row): string | undefined => {
     if (ctx.milestoneOf) return ctx.milestoneOf(row)
-    // ASSUMED upstream `derived_milestone` wins when the row carries it (null or empty: none).
+    // moai's `derived_milestone` wins when the row carries it (null or empty: none); 0.17 leaves it out under none.
     if (row.derived_milestone !== undefined) return str(row.derived_milestone)
     // The milestone the row stands on as moai reads it (`report::stood_at_line`): the epic beats the milestone
     // it wrote, an id child stands where its fold top stands (its own field is not read), and a row naming an
@@ -563,8 +567,9 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   // and milestone, never into a closed row.
   const deferred = (row: Row): boolean => {
     if (ctx.deferredOf) return ctx.deferredOf(row)
-    // ASSUMED upstream `derived_deferred` wins when the row carries it (the index's shelf reads it too).
-    if (typeof row.derived_deferred === 'boolean') return row.derived_deferred
+    // moai 0.17 `shelved_by` (present only when the row is put off) wins (the index's shelf reads it too); its
+    // absence leaves the walk below to decide, as on an older moai.
+    if (str(row.shelved_by) !== undefined) return true
     if (own(row)) return true
     const { index, at } = indexed()
     const i = at.get(row)
@@ -572,8 +577,9 @@ function lensOf(rows: readonly Row[], ctx: Context): Lens {
   }
   const since = (row: Row): string => str(row.status_since) ?? str(row.updated_at) ?? ''
   const archived = (row: Row): boolean => {
-    // ASSUMED upstream `archive_candidate` (computed with the CLI's own archive_days) wins when the row carries it.
-    if (typeof row.archive_candidate === 'boolean') return row.archive_candidate
+    // moai 0.17 `archived: true` (by the CLI's own archive_days), or source.ts markArchived's tag where moai left
+    // the key out (an older moai, or a row the clock archived after the archive was read).
+    if (row.archived === true) return true
     if (!ctx.archiveDays || ctx.archiveDays <= 0 || !ctx.now || column(row) !== 'done') return false
     const now = parseStamp(ctx.now)
     const at = parseStamp(since(row))
