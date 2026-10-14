@@ -13,14 +13,14 @@
 | 2절 `view/` 목록 | 목록·칸반이 `list-model.ts`, `board-groups.ts`, `detail-format.ts`, `responsive.ts`, `components.ts`, `icons.ts`로 더 쪼개졌다 | 머지됨 |
 | 3.1 `backlog` 프로필 | `backlog-all`(`backlog show --all`). 데몬의 기존 `buzzni.moai.backlog`가 `backlog add`라서 id를 따로 잡았다 | 선언만, 데몬 확인 대기 |
 | 3.1 `show-archived` 한 개 | `show-archived`(첫 쪽)와 `show-archived-after`(다음 쪽) 두 개, 쪽당 200 고정 | 선언만, 데몬 확인 대기 |
-| 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 **가정**하고, 없으면 `counts` 키를 기본 순서에 맞춘다 | 가정(상류 요청) |
+| 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 읽고, 없으면(옛 moai) `counts` 키를 기본 순서에 맞춘다 | 머지됨. 상류 moai 0.17.0에서 확인 |
 | 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 머지됨(`main.ts`가 `PANEL_CLIENT_OPTIONS` 사용), 라이브 확인 대기 |
 | 3.2 폴링 500ms | 그대로 | 머지됨 |
 | 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 머지됨(`se-bco3`). `main.ts`가 `loadAllRows`를 쓰고 잘림 배너를 단다 |
 | 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`, 연결 `se-poaz`) |
-| 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류가 행에 `derived_milestone`, `derived_deferred`, `archive_candidate`를 주는 것으로 **가정**하고, 있으면 그것을 우선한다. 없을 때만 `nav.rs` 규칙으로 계산한다 | 가정(상류 요청) |
+| 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류 moai 0.17.0이 행에 `derived_milestone`, `shelved_by`, `archived`를 해당할 때만 준다(요청 때 이름은 `derived_deferred`·`archive_candidate`). 있으면 그것을 우선하고, 없을 때만 `nav.rs` 규칙으로 계산한다 | 머지됨(`se-ydco`). 상류 0.17.0에서 확인 |
 | 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 없고, `note` 범위는 조용히 아무것도 못 찾는다 | 매처만 머지됨. backlog `se-thyl` |
-| 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 가정(상류 `moai-cqwy`) |
+| 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 머지됨. 상류 `moai-cqwy`, 0.17.0에서 확인 |
 | 4.9 쓰는 값은 그린 행의 `updated_at` | CLI는 값을 받지 않고 **현재** `updated_at`을 쓴다. 쓰기 뒤 다시 읽어 `staleAgainst`로만 비교한다 | 달라짐. 상류 요청은 backlog `se-a5wl` |
 | 4.9 NEW 모든 행 | **아카이브에서만 온 행은 NEW를 그리지 않는다.** `moai read`가 활성 행만 풀기 때문이다 | 머지됨(`se-fvou`) |
 | 4.9 탭 뱃지·NEW 칩 | 판정·쓰기와 읽음 키(`r`, `SPC m a`, `SPC m g`)는 이어졌고 칩과 뱃지는 아직 없다 | 열림(`se-ehdi.zcx`) |

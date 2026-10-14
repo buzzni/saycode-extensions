@@ -3,12 +3,12 @@
 Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소 밖에서 두 가지가 먼저 있어야 한다. 이 페이지는 그 두 곳에 건넬 요청을 한 곳에 모은다. 개편 전체 계획은 [개편 계획](overview.md)에 있다.
 
 - **1절 — Happy 데몬(happy-cli) 담당에게**: 카탈로그에 프로필 7개를 더한다. 선언은 `extension.json`과 글자 그대로 같아야 한다.
-- **2절 — moai CLI(`moa-issue`) 담당에게**: 확장이 이미 있는 것으로 가정한 상류 개선 목록과, 없을 때 패널이 하는 일.
+- **2절 — moai CLI(`moa-issue`) 담당에게**: 확장이 기대하는 상류 개선 목록과, 없을 때 패널이 하는 일. 8번(`read --seen`)을 빼고 moai 0.17.0에 들어왔다.
 - **3절 — 릴리스 순서**.
 
 작성일 2026-10-14. 선언의 출처는 `milestone/se-9inv`의 `packages/moai/extension.json`(확장 2.0.0, `apiVersion 3`)이다. 추적 이슈는 `se-0g4a.anz`(데몬), `se-0g4a.l89`(moai unread), `se-a5wl`(`read --seen`).
 
-> **상태.** 아래 가정은 2026-10-14 사람 결정으로 "구현된 것으로 가정하고 진행"한 것이고(`se-0g4a` 노트), 실제 환경에서는 아직 하나도 확인되지 않았다. 확인은 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)의 실기 목록이 맡는다.
+> **상태.** 아래 가정은 2026-10-14 사람 결정으로 "구현된 것으로 가정하고 진행"한 것이다(`se-0g4a` 노트). 같은 날 moai **0.17.0**이 설치되어 2절은 8번(`read --seen`, `se-a5wl`)을 빼고 모두 **확인됨**이다. 4번 파생값 둘은 이름이 달랐고 패널이 실제 이름을 읽도록 고쳤다(`se-ydco`). 1절 데몬 카탈로그는 happy-cli 쪽이라 아직 **대기**다(`se-0g4a.anz`). 남은 확인은 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)의 실기 목록이 맡는다.
 
 ## 1. Happy 데몬 카탈로그
 
@@ -327,18 +327,18 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 ## 2. moai CLI 상류
 
-패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰다. 가정하는 번호는 `0.17.0`이고 이 번호는 자리표시자다(3절). 가정이 빗나가도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
+패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
-| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`(브랜치 `worktree-moai-cqwy`, 미병합) | NEW 뱃지가 꺼진다(`unread` 기능이 `degraded`에 든다). 오류는 아니다. 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
-| 2 | `status --json`의 **`statuses[]`** (설정 순서) | `statuses: string[]`, `.moai/config.toml` 순서 | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서를 잃고 `status-order`가 `degraded` |
-| 3 | **설정 읽기 JSON** | 칸 이름·`archive_days` 같은 값을 JSON으로 | 코드의 기본값(`archive_days = 14`, 칸 4개) |
-| 4 | 파생값 **`derived_milestone`·`derived_deferred`·`archive_candidate`** | 행에 `derived_milestone`(문자열 또는 null), `derived_deferred`(bool), `archive_candidate`(bool) | `nav.rs` 규칙을 이식한 인덱스가 클라이언트에서 직접 계산한다. 있으면 그 값이 이긴다 |
-| 5 | **`--fields`** | 목록에서 본문을 뺀 출력 | 아카이브는 쪽 나누기와 잘림 배너로 버틴다. 실측상 필수는 아니다 |
-| 6 | **안정 페이징** | `show --archived -n 200 --sort id --after <id>`가 쪽 사이에서 같은 순서를 낸다 | 쪽 나누기가 안 되고 아카이브는 큰 저장소에서 읽지 못한다(`archive` 기능이 꺼짐) |
-| 7 | `status --json`의 **`milestones[]`·`epics[]` 집계** | `{id, done, total}` 목록. 아카이브된 행까지 센 값 | 보드의 n/n이 `show --all`이 가진 행만 센 값이 되어 `moai status`와 어긋난다. `tallies`가 `degraded` |
-| 8 | **`read <id> --seen <updated_at>`** (backlog `se-a5wl`) | 화면에 그린 행의 `updated_at`을 값으로 받는다. `read --json` 결과에도 행별 `updated_at`이 있으면 좋다 | 지금 `moai read`는 값 없이 행의 **현재** `updated_at`을 쓴다. 그린 뒤 바뀐 행이 새 판으로 읽음 처리될 수 있고, 패널은 다시 읽은 뒤 바뀜만 알린다(`staleAgainst`, `panel/data/read.ts`). 이 항목은 **2.0 릴리스 없이 갈 수 있다** |
+| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`. **0.17.0 확인됨** | NEW 뱃지가 꺼진다(`unread` 기능이 `degraded`에 든다). 오류는 아니다. 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
+| 2 | `status --json`의 **`statuses[]`** (설정 순서) | `statuses: string[]`, `.moai/config.toml` 순서. **0.17.0 확인됨** | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서를 잃고 `status-order`가 `degraded` |
+| 3 | **설정 읽기 JSON** | 칸 이름·`archive_days` 같은 값을 JSON으로. **0.17.0 확인됨**(`config --json`). 패널은 아직 읽지 않는다(선언한 프로필에 없음) | 코드의 기본값(`archive_days = 14`, 칸 4개) |
+| 4 | 파생값 **`derived_milestone`·`shelved_by`·`archived`** (요청 때 이름은 `derived_deferred`·`archive_candidate`) | **0.17.0 확인됨, 이름이 다름.** 행에 `derived_milestone`(문자열), `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`(`show --all`이 아카이브로 숨기는 행에 `true`). 셋 다 해당할 때만 키가 있고 `false`·`null`은 나오지 않는다 | `nav.rs` 규칙을 이식한 인덱스가 클라이언트에서 직접 계산한다. 있으면 그 값이 이긴다 |
+| 5 | **`--fields`** | 목록에서 본문을 뺀 출력 | 아카이브는 쪽 나누기와 잘림 배너로 버틴다. 실측상 필수는 아니다. (**0.17.0 확인됨**, `show --fields`) |
+| 6 | **안정 페이징** | `show --archived -n 200 --sort id --after <id>`가 쪽 사이에서 같은 순서를 낸다. **0.17.0 확인됨** | 쪽 나누기가 안 되고 아카이브는 큰 저장소에서 읽지 못한다(`archive` 기능이 꺼짐) |
+| 7 | `status --json`의 **`milestones[]`·`epics[]` 집계** | `{id, done, total}` 목록. 아카이브된 행까지 센 값. **0.17.0 확인됨** | 보드의 n/n이 `show --all`이 가진 행만 센 값이 되어 `moai status`와 어긋난다. `tallies`가 `degraded` |
+| 8 | **`read <id> --seen <updated_at>`** (backlog `se-a5wl`) | **0.17.0에 없음.** 화면에 그린 행의 `updated_at`을 값으로 받는다. `read --json` 결과에도 행별 `updated_at`이 있으면 좋다 | 지금 `moai read`는 값 없이 행의 **현재** `updated_at`을 쓴다. 그린 뒤 바뀐 행이 새 판으로 읽음 처리될 수 있고, 패널은 다시 읽은 뒤 바뀜만 알린다(`staleAgainst`, `panel/data/read.ts`). 이 항목은 **2.0 릴리스 없이 갈 수 있다** |
 
 ### 2.1 판별 방식
 
@@ -365,16 +365,16 @@ moai 상류 릴리스 ─┐
 데몬 카탈로그 갱신 ─┘
 ```
 
-1. **moai 상류 릴리스** — 2절 1~7번이 들어간 `moai`. 이 문서가 가정하는 번호는 `0.17.0`이다.
+1. **moai 상류 릴리스** — 2절 1~7번이 들어간 `moai`. **0.17.0으로 나왔다**(2026-10-14 설치·실측).
 2. **데몬 카탈로그 갱신** — 1절의 7개 프로필. 1번과 순서는 상관없지만 둘 다 3번보다 먼저다.
-3. **확장 2.0.0** — 위 둘이 나온 뒤에 내보낸다. 확장과 moai는 버전 번호가 따로이고 확장의 `README` 호환성 표가 "moai 0.17.0 이상(**가정**)"으로 적혀 있다.
+3. **확장 2.0.0** — 위 둘이 나온 뒤에 내보낸다. 확장과 moai는 버전 번호가 따로이고 확장의 `README` 호환성 표가 "moai 0.17.0 이상"으로 적혀 있다.
 4. 2절 8번(`read --seen`)은 위와 상관없이 언제든 들어갈 수 있다.
 
-### 3.1 "moai 0.17.0 가정" 자리표시자
+### 3.1 "moai 0.17.0" 번호 (확정)
 
-- `0.17.0`은 **실제 릴리스 번호가 아니다.** 지금 확인된 moai는 0.16이고 위 개선은 아직 하나도 릴리스되지 않았다(unread는 미병합 브랜치뿐).
-- 상류 릴리스 번호가 정해지면 바꿀 곳: 확장 `README.md`의 호환성 표(Needs 표의 `moai` CLI 행과 "assumed" 주석), `compat.ts` 헤더의 설명, 이 문서 2절 첫 문장과 3절. 확장 코드는 번호를 비교하지 않고 모양만 보므로 번호가 바뀌어도 동작은 바뀌지 않는다.
-- 상류가 일부만 받아들이면 표의 "없으면" 열이 곧 그 릴리스의 동작이다. 그 경우 호환성 표의 "Notes" 칸을 받아들여진 항목에 맞춰 줄인다.
+- 처음에는 `0.17.0`이 자리표시자였고, 상류가 같은 번호로 릴리스해 확정됐다(2026-10-14). 확장 `README.md` 호환성 표, `compat.ts` 헤더, 이 문서 2절과 3절에서 "가정" 표시를 걷었다(`se-ydco`).
+- 확장 코드는 번호를 비교하지 않고 모양만 본다(2.1절). 0.17.0의 `status --json`(`statuses[]`와 집계)은 `moai: ok`로 읽힌다(`tests/moai-compat.test.mjs`, 실제 출력 픽스처 `tests/fixtures/moai/*-v017.json`).
+- 8번(`read --seen`)은 0.17.0에 들어오지 않았다. 들어오면 표의 그 줄과 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)을 고친다.
 
 ## Desktop 저장소 후속
 

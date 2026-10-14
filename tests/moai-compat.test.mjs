@@ -22,10 +22,11 @@ const clientOf = (answers) => ({
   cancel() {},
 })
 
+// Real moai 0.17.0 output, captured from a scratch tracker (`moai init`, a custom `blocked` column).
 const everything = async (overrides = {}) => ({
-  [PROFILE.showAll]: passed(await fixture('show-all-v016.json')),
-  [PROFILE.backlog]: passed(await fixture('backlog-v016.json')),
-  [PROFILE.status]: passed(await fixture('status-statuses-assumed.json')),
+  [PROFILE.showAll]: passed(await fixture('show-all-v017.json')),
+  [PROFILE.backlog]: passed(await fixture('backlog-v017.json')),
+  [PROFILE.status]: passed(await fixture('status-v017.json')),
   ...overrides,
 })
 
@@ -33,17 +34,21 @@ test('nothing seen yet says nothing is known', () => {
   assert.deepEqual(new CompatProbe().report(), { moai: 'unknown', toolMissing: false, catalog: { state: 'unknown', missing: [] }, degraded: [] })
 })
 
-test('the assumed shapes (statuses[], tallies, unread) read as a whole new setup', async () => {
+test('real 0.17 output (statuses[], tallies, unread) reads as a whole new setup: moai ok', async () => {
   const probe = new CompatProbe()
   const client = clientOf(await everything())
   assert.equal((await loadAllRows(client, undefined, probe)).ok, true)
-  assert.equal((await loadStatuses(client, undefined, probe)).ok, true)
+  assert.deepEqual((await loadStatuses(client, undefined, probe)).value, ['todo', 'in_progress', 'blocked', 'review', 'done'])
   assert.deepEqual(probe.report(), { moai: 'ok', toolMissing: false, catalog: { state: 'ok', missing: [] }, degraded: [] })
 })
 
 test('real 0.16 output: no statuses[] is an old moai, yet nothing the panel uses falls back', async () => {
   const probe = new CompatProbe()
-  const client = clientOf(await everything({ [PROFILE.status]: passed(await fixture('status-v016.json')) }))
+  const client = clientOf(await everything({
+    [PROFILE.showAll]: passed(await fixture('show-all-v016.json')),
+    [PROFILE.backlog]: passed(await fixture('backlog-v016.json')),
+    [PROFILE.status]: passed(await fixture('status-v016.json')),
+  }))
   await loadAllRows(client, undefined, probe)
   const statuses = await loadStatuses(client, undefined, probe)
   assert.deepEqual(statuses.value, ['todo', 'in_progress', 'review', 'done'])

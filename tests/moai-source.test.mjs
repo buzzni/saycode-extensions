@@ -164,8 +164,8 @@ const WIKI_LS = await fixture('wiki-ls-v016.json')
 const WIKI_SHOW = await fixture('wiki-show-v016.json')
 // Real Moai v0.8.0 output (as tests/moai.test.mjs reads it).
 const PRIME = await fixture('prime-v080.json')
-// Hand-written: the `statuses` array is the ASSUMED upstream shape (its `_assumed` key says so).
-const STATUSES_ASSUMED = await fixture('status-statuses-assumed.json')
+// Real moai 0.17.0 output from a scratch tracker whose config adds a `blocked` column.
+const STATUS_V017 = await fixture('status-v017.json')
 
 test('all rows are show --all and the backlog, read at once, backlog rows marked so', async () => {
   const client = fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: passed(BACKLOG) })
@@ -277,9 +277,8 @@ test('loadRows still reads prime alone until the panel switches to loadAllRows',
   assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.prime])
 })
 
-test('the columns come from statuses (assumed shape), else from the counts in the default order', async () => {
-  assert.match(STATUSES_ASSUMED._assumed, /ASSUMED|requested upstream shape/i)
-  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(STATUSES_ASSUMED) })), { ok: true, value: ['todo', 'in_progress', 'blocked', 'review', 'done'] })
+test('the columns come from statuses (moai 0.17), else from the counts in the default order', async () => {
+  assert.deepEqual(await loadStatuses(fakeClient({ [PROFILE.status]: passed(STATUS_V017) })), { ok: true, value: ['todo', 'in_progress', 'blocked', 'review', 'done'] })
   // Moai 0.16.0 has no statuses: its counts keys come alphabetically.
   assert.equal(STATUS.statuses, undefined)
   assert.deepEqual(statusesFrom(STATUS), { ok: true, value: ['todo', 'in_progress', 'review', 'done'] })
@@ -372,6 +371,24 @@ test('archive rows absent from the active set are tagged archived; loadArchived 
   const loaded = await loadArchived(fakeClient(archive(3)), { active: new Set(['r-0001']) })
   assert.deepEqual(loaded.value.map((row) => row.archived === true), [true, false, true])
   assert.equal((await loadArchived(fakeClient(archive(1)))).value[0].archived, undefined)
+})
+
+test('moai 0.17 marks its archive rows archived itself: the same meaning, never tagged twice, absence still tagged', async () => {
+  const showAll = await fixture('show-all-v017.json')
+  const archived = await fixture('show-archived-v017.json')
+  // Real 0.17: `archived: true` stands on the one row `show --all` hides (done past archive_days), on no other.
+  const marked = archived.filter((row) => row.archived === true).map((row) => row.id)
+  assert.equal(marked.length, 1)
+  assert.equal(showAll.some((row) => marked.includes(row.id)), false)
+  assert.equal(showAll.some((row) => 'archived' in row), false)
+  // Read against the rows held, the tag lands on exactly moai's row, which is passed through as moai printed it.
+  const away = withArchive({ rows: showAll, truncated: false }, archived).slice(showAll.length)
+  assert.deepEqual(away.map((row) => row.id), marked)
+  const held = archived.find((row) => row.id === marked[0])
+  assert.equal(markArchived([held], new Set())[0], held)
+  // A row the clock archived after the archive was read is in its answer unmarked (it was active then) and gone
+  // from the active rows read since: it is tagged by its absence.
+  assert.deepEqual(markArchived([held, { id: 'late', status: 'done' }], new Set()).map((row) => row.archived), [true, true])
 })
 
 test('a cut list does not make an active row of the archive archive-only by its absence; a done one stays tagged', () => {
