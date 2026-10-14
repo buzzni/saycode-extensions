@@ -794,3 +794,40 @@ test('router: Korean letters run the vim keys in a non-editable target, composin
   assert.equal(key('Process', { code: 'KeyK', keyCode: 229, editable: true }).handled, false)
   assert.equal(key('ㅓ', { isComposing: true }).handled, false)
 })
+
+test('help: while open, a paste, cut, undo or redo into an input behind it is stopped; copy and select-all go on', () => {
+  for (const [platform, mod] of [['other', 'ctrlKey'], ['mac', 'metaKey']]) {
+    const dom = new JSDOM('<!doctype html><body><input id="i"><button id="b">b</button></body>')
+    const doc = dom.window.document
+    const help = createHelp(doc, { platform })
+    doc.body.append(help.el)
+    const input = doc.getElementById('i')
+    const press = (node, key, init = {}) => {
+      const event = new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+      node.dispatchEvent(event)
+      return event
+    }
+    help.open('browse', browse())
+    for (const [key, init] of [['v', {}], ['x', {}], ['z', {}], ['Z', { shiftKey: true }], ['y', {}]]) {
+      input.focus()
+      assert.equal(press(input, key, { [mod]: true, ...init }).defaultPrevented, true, `${platform} ${mod}+${key} edits the input behind`)
+      assert.equal(doc.activeElement, help.el, 'the focus comes back to the overlay')
+    }
+    for (const key of ['c', 'a']) {
+      input.focus()
+      assert.equal(press(input, key, { [mod]: true }).defaultPrevented, false, `${platform} ${mod}+${key} edits nothing: the host's`)
+      assert.equal(doc.activeElement, input)
+    }
+    // On a control that is no input, the same combination edits nothing and stays the host's.
+    const button = doc.getElementById('b')
+    button.focus()
+    assert.equal(press(button, 'v', { [mod]: true }).defaultPrevented, false)
+    assert.equal(help.isOpen(), true)
+  }
+})
+
+test('table: SPC v a says the archive stays out, as SHOW_ALL leaves it (se-q0u4)', () => {
+  const item = menuLayer(['SPC', 'v'], browse()).items.find((one) => one.key === 'a')
+  assert.equal(item.action, 'view.all')
+  assert.match(item.label, /아카이브 제외/)
+})

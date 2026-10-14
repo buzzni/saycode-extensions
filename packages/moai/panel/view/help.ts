@@ -1,6 +1,7 @@
 // Shortcut help overlay (opened by the 'help' action: ? and SPC ?) and the small kbd hints used next to toolbar
 // controls and in the 보기 menu shortcut column.
 
+import { isEditableTarget } from "../keys/router.ts"
 import { helpSections, keyLabel, type KeyContext, type Mode, type Platform } from "../keys/table.ts"
 import { el, iconButton, kbd } from "./components.ts"
 
@@ -42,6 +43,9 @@ const ACTS_BEHIND: ReadonlySet<string> = new Set([
   "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown",
 ])
 
+/** Host combinations that edit a focused input (paste, cut, undo, redo): copy, select-all and find do not. */
+const EDITS_INPUT: ReadonlySet<string> = new Set(["v", "x", "z", "y"])
+
 export function createHelp(doc: Document, props: HelpProps): HelpView {
   const root = el(doc, "div", {
     class: "m-menu m-help",
@@ -70,12 +74,13 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
    * before any control's own keydown listener. The host's combinations (copy, find, a tab switch: Cmd/Meta, and Ctrl
    * off macOS) go on untouched, the focus stays where it is, and the key router (wiring.ts intercept) keeps the
    * panel's own shortcuts from running on them. Stopped all the same: a key a control behind acts on whatever the
-   * modifier ({@link ACTS_BEHIND}), Ctrl+Alt (AltGr on Windows, which types a character), and Ctrl on macOS (Ctrl+H,
-   * Ctrl+K edit text there).
+   * modifier ({@link ACTS_BEHIND}), a paste, cut, undo or redo into an input behind ({@link EDITS_INPUT}), Ctrl+Alt
+   * (AltGr on Windows, which types a character), and Ctrl on macOS (Ctrl+H, Ctrl+K edit text there).
    */
   function guard(event: KeyboardEvent): void {
     const host = event.metaKey || (event.ctrlKey && !event.altKey && props.platform !== "mac")
-    if (root.hidden || (host && !ACTS_BEHIND.has(event.key))) return
+    const edits = EDITS_INPUT.has(event.key.toLowerCase()) && isEditableTarget(event.target)
+    if (root.hidden || (host && !ACTS_BEHIND.has(event.key) && !edits)) return
     const target = event.target as Node | null
     const inside = target !== null && root.contains(target)
     if (inside && event.key !== "Tab") return

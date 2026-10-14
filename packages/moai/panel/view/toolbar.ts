@@ -343,7 +343,7 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
   // the input (their mousedown is prevented below), so it is still taken. When the whole window loses the focus the
   // input stays the document's active element and has it back on return, so the suggestions stay open with it.
   filterInput.addEventListener("blur", () => {
-    if (filterInput.ownerDocument.activeElement === filterInput) return
+    if (doc.activeElement === filterInput) return
     if (state.hintsOpen) dispatch({ type: "hints-close" })
   })
   filterInput.addEventListener("keydown", (event) => {
