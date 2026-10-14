@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { panelModule } from './moai-panel-modules.mjs'
 
-const { DEFAULT_INTERVAL_MS, createRefresher, refreshTime } = await panelModule('data/refresh.ts')
+const { DEFAULT_INTERVAL_MS, HIDDEN_PROBE_MS, createRefresher, panelVisibility, refreshTime } = await panelModule('data/refresh.ts')
 
 const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve)) }
 
@@ -149,4 +149,165 @@ test('a fresh read after a write waits out a read that started before it, then r
   assert.equal(loads, 3)
   release()
   await idle
+})
+
+/**
+ * An iframe window as Desktop leaves it: `hideParent` makes the viewport 0×0 the way a hidden tool tab does,
+ * with or without the resize event reaching the frame; `hideWindow` is the Desktop window going away.
+ */
+function fakeWindow(clock) {
+  const win = new EventTarget()
+  const doc = new EventTarget()
+  doc.visibilityState = 'visible'
+  doc.documentElement = {}
+  Object.assign(win, {
+    document: doc,
+    innerWidth: 800,
+    innerHeight: 600,
+    setTimeout: (callback, ms) => clock.setTimeout(callback, ms),
+    clearTimeout: (handle) => clock.clearTimeout(handle),
+    size(width, height, { event = true } = {}) {
+      win.innerWidth = width
+      win.innerHeight = height
+      if (event) win.dispatchEvent(new Event('resize'))
+    },
+    hideWindow(hidden) {
+      doc.visibilityState = hidden ? 'hidden' : 'visible'
+      doc.dispatchEvent(new Event('visibilitychange'))
+    },
+  })
+  return win
+}
+
+test('the panel counts as hidden when the document is hidden or the viewport is 0×0', () => {
+  const win = fakeWindow(fakeClock())
+  const signal = panelVisibility(win)
+  assert.equal(signal.shown(), true)
+  win.size(0, 0, { event: false })
+  assert.equal(signal.shown(), false)
+  win.size(800, 600, { event: false })
+  win.document.visibilityState = 'hidden'
+  assert.equal(signal.shown(), false)
+})
+
+test('the signal says so once per change, from resize and visibilitychange', () => {
+  const win = fakeWindow(fakeClock())
+  let changes = 0
+  const unwatch = panelVisibility(win).watch(() => { changes += 1 })
+  win.size(820, 600)
+  assert.equal(changes, 0, 'a resize that keeps it shown is no change')
+  win.size(0, 0)
+  win.size(0, 0)
+  assert.equal(changes, 1)
+  win.size(800, 600)
+  assert.equal(changes, 2)
+  win.hideWindow(true)
+  assert.equal(changes, 3)
+  win.hideWindow(false)
+  assert.equal(changes, 4)
+  unwatch()
+  win.size(0, 0)
+  win.hideWindow(true)
+  assert.equal(changes, 4, 'nothing is heard after unwatch')
+})
+
+test('a 0×0 viewport that hears no event is still found shown again by the probe', async () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  let changes = 0
+  const unwatch = panelVisibility(win).watch(() => { changes += 1 })
+  assert.equal(clock.pending(), 0, 'no probe while shown')
+  win.size(0, 0)
+  assert.equal(changes, 1)
+  assert.equal(clock.pending(), 1)
+  win.size(800, 600, { event: false })
+  await clock.advance(HIDDEN_PROBE_MS)
+  assert.equal(changes, 2)
+  assert.equal(clock.pending(), 0, 'the probe stops once shown')
+  win.size(0, 0)
+  unwatch()
+  assert.equal(clock.pending(), 0, 'unwatch stops the probe')
+})
+
+test('no probe while the document itself is hidden — visibilitychange will come', () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  const unwatch = panelVisibility(win).watch(() => {})
+  win.hideWindow(true)
+  win.size(0, 0)
+  assert.equal(clock.pending(), 0)
+  unwatch()
+})
+
+test('an inactive tool tab stops the refresh, and shown again after the interval it reads at once', async () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, visibility: panelVisibility(win) })
+  await refresher.refresh()
+  win.size(0, 0)
+  await clock.advance(DEFAULT_INTERVAL_MS * 3)
+  assert.equal(loads, 1)
+  win.size(800, 600)
+  await flush()
+  assert.equal(loads, 2)
+  await clock.advance(DEFAULT_INTERVAL_MS)
+  assert.equal(loads, 3)
+  refresher.stop()
+})
+
+test('a tool tab shown again before the interval passed waits for the rest of it', async () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, visibility: panelVisibility(win) })
+  await refresher.refresh()
+  win.size(0, 0)
+  await clock.advance(20_000)
+  win.size(800, 600)
+  await clock.advance(39_999)
+  assert.equal(loads, 1)
+  await clock.advance(1)
+  assert.equal(loads, 2)
+  refresher.stop()
+})
+
+test('a timer that falls due while hidden reads nothing, even when nobody said it was hidden', async () => {
+  const clock = fakeClock()
+  let shown = true
+  let changed
+  const visibility = { shown: () => shown, watch(callback) { changed = callback; return () => { changed = null } } }
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, visibility })
+  await refresher.refresh()
+  shown = false
+  await clock.advance(DEFAULT_INTERVAL_MS)
+  assert.equal(loads, 1)
+  assert.equal(clock.pending(), 0)
+  shown = true
+  changed()
+  await flush()
+  assert.equal(loads, 2)
+  refresher.stop()
+  assert.equal(changed, null, 'stop unwatches the signal')
+})
+
+test('isVisible and the signal both have to say shown', async () => {
+  const clock = fakeClock()
+  const win = fakeWindow(clock)
+  let visible = false
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, isVisible: () => visible, visibility: panelVisibility(win) })
+  await refresher.refresh()
+  await clock.advance(DEFAULT_INTERVAL_MS * 2)
+  assert.equal(loads, 1)
+  visible = true
+  win.size(0, 0)
+  refresher.visibilityChanged()
+  await clock.advance(DEFAULT_INTERVAL_MS * 2)
+  assert.equal(loads, 1)
+  win.size(800, 600)
+  await flush()
+  assert.equal(loads, 2)
+  refresher.stop()
 })
