@@ -57,10 +57,14 @@ export function createHelp(doc: Document, props: HelpProps): HelpView {
    * While the overlay is open nothing behind it takes a key: a key pressed with the focus outside it (a click behind
    * it moved the focus) neither clicks a focused button nor types into an input — the focus comes back to the
    * overlay, and Esc closes it. Tab inside it stays inside it. On the document in the capture phase, so it runs
-   * before any control's own keydown listener. Cmd/Meta combinations are the host's and go on.
+   * before any control's own keydown listener. Ctrl and Cmd/Meta combinations (copy, find, a tab switch) type
+   * nothing and are the host's (but Ctrl+Enter/Space, which can press a button): they go on untouched, the focus stays where it is, and the key router (wiring.ts
+   * intercept) keeps the panel's own shortcuts from running on them.
    */
   function guard(event: KeyboardEvent): void {
-    if (root.hidden || event.metaKey) return
+    // Ctrl+Enter and Ctrl+Space still press a focused button in some browsers: those stay stopped.
+    const presses = event.key === "Enter" || event.key === " "
+    if (root.hidden || event.metaKey || (event.ctrlKey && !presses)) return
     const target = event.target as Node | null
     const inside = target !== null && root.contains(target)
     if (inside && event.key !== "Tab") return

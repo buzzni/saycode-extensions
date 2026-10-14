@@ -9,7 +9,7 @@
 // open, `prompt` while a search or filter input has the caret, `wiki` on the wiki tab, `browse` otherwise.
 
 import type { Outcome } from "../data/client.ts"
-import { NO_MILESTONE } from "../data/index.ts"
+import { NO_MILESTONE, type Row } from "../data/index.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
 import type { Copy } from "../i18n/index.ts"
 import type { ColumnName, State, Store } from "../store.ts"
@@ -271,10 +271,20 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     setSort(sortEdit(store.getState().sort, field, how))
   }
   // ── read marks ──
+  /**
+   * The row under the cursor. With archived rows shown the list draws the archive answer too (main.ts), and its
+   * active rows are in no one else's hands: they are not in the board's rows, and untagged.
+   */
+  function rowHere(): Row | undefined {
+    const state = store.getState()
+    if (state.cursor === null) return undefined
+    const at = (rows: readonly Row[] | null | undefined) => rows?.find((r) => r.id === state.cursor)
+    return at(state.board.value?.rows) ?? (state.view.showArchived ? at(state.archive) : undefined)
+  }
   /** The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in. */
   function groupHere(): string | null {
     const state = store.getState()
-    const row = state.cursor === null ? undefined : state.board.value?.rows.find((r) => r.id === state.cursor)
+    const row = rowHere()
     if (row && (row.kind === "milestone" || row.kind === "epic")) return row.id
     // The "(no milestone)" bucket (`m:`, NO_MILESTONE) is a place, not a group: it has no id to mark.
     const place = [...state.path].reverse().find((segment) => (segment.startsWith("m:") && segment !== NO_MILESTONE) || segment.startsWith("e:"))
@@ -292,8 +302,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     }
   }
   const readOne = marking((marks) => {
-    const id = store.getState().cursor
-    return id !== null && store.getState().board.value?.rows.some((row) => row.id === id) ? marks.one(id) : null
+    const row = rowHere()
+    return row ? marks.one(row.id) : null
   })
   const readAll = marking((marks) => marks.all())
   const readGroup = marking((marks) => {
@@ -493,7 +503,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     redraw()
   })
 
-  // Keys are quiet while the help is open, even when the focus has left it; Esc closes it.
+  // Keys are quiet while the help is open, even when the focus has left it; Esc closes it. The help's guard stops
+  // every other key before it gets here but the Ctrl and Cmd/Meta combinations, the host's own (copy, find): those
+  // are swallowed here without preventDefault, so the panel's shortcuts stay off and the browser still acts.
   const detach = attachKeyRouter(doc, {
     ...router,
     handle(event) {
