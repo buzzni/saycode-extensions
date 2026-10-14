@@ -65,8 +65,12 @@ export type Key = (typeof KEYS)[number]
 
 /** Where `grep` looks. `all` sees the other five; `note` comes last, after the four fields of the row. */
 export type GrepScope = 'all' | 'id' | 'title' | 'tag' | 'body' | 'note'
-/** The scopes in the order Tab cycles them. */
-export const GREP_SCOPES: readonly GrepScope[] = ['all', 'id', 'title', 'tag', 'body', 'note']
+/**
+ * The scopes the panel offers, in the order Tab cycles them. `note` is left out: the rows carry no notes and
+ * nothing loads them into {@link Context.notes}, so it would find nothing and say nothing (se-thyl). The matcher
+ * still reads notes when given; the scope comes back once a source fills them (moai 0.17 `show -g` sees notes).
+ */
+export const GREP_SCOPES: readonly GrepScope[] = ['all', 'id', 'title', 'tag', 'body']
 
 /** Next scope (Tab), wrapping at the end. */
 export const nextScope = (scope: GrepScope): GrepScope => GREP_SCOPES[(GREP_SCOPES.indexOf(scope) + 1) % GREP_SCOPES.length] ?? 'all'
