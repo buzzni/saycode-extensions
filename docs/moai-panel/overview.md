@@ -60,9 +60,35 @@ TUI에서 뺄 것:
    - localStorage를 쓸 수 있는지, `storage.*` 권한의 액션 시그니처가 무엇인지 확인한다.
    - `machine.run`을 동시에 여러 개 돌릴 수 있는지, 출력 한도 1 MiB에 걸리는지 확인한다. moa-issue 저장소의 `show --archived --json`은 2.35 MB라서 한도를 넘는다.
 
+### 3.1 구현 시점의 가정과 남은 실기 확인 (2026-10-14)
+
+구현은 아래 상류 개선이 **이미 들어간 것으로 가정하고** 진행했다(`se-0g4a`의 노트, 사람 결정). 가정이 틀리면 해당 기능이 꺼지거나 대체 경로로 떨어진다. 위 3절의 항목 중 어느 것도 실제 환경에서 확인되지 않았다.
+
+| 가정한 상류 개선 | 패널이 기대하는 모양 | 틀렸을 때 |
+|---|---|---|
+| `show --json`에 `unread` (moa-issue `moai-cqwy`, 브랜치 `worktree-moai-cqwy`, 미병합) | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없다. 사람을 모르면 어디에도 없다 | NEW가 꺼진다 (오류는 아님) |
+| `status --json`에 `statuses` 배열(설정 순서) | `statuses: string[]` | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서는 잃는다 |
+| 설정 읽기 JSON | 설정 값(칸·`archive_days` 등)을 JSON으로 | 코드의 기본값 |
+| 파생값 | 행에 `derived_milestone`, `derived_deferred`, `archive_candidate` | `nav.rs` 규칙을 이식한 인덱스가 직접 계산한다 |
+| `--fields` | 목록에서 본문 뺀 출력 | 아카이브 쪽 나누기와 잘림 배너로 버틴다. 실측상 필수는 아니다 |
+| 안정 페이징 | `show --archived -n --sort id --after` | 쪽 나누기 불가. 아카이브는 큰 저장소에서 읽을 수 없다 |
+| 데몬 카탈로그에 새 프로필 7개 | `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`, `read-all`, `read-group`. `backlog-all`은 데몬의 `backlog`(= `backlog add`)와 id가 다르다 | 선언 해시가 달라 데몬이 실행하지 않는다(거부 코드로 돌아온다). 전체 행 읽기가 실패해도 목록이 비는 대신 읽을 수 있는 것으로 물러나는 처리는 잘림에 대해서만 구현돼 있다 |
+
+또 하나, `moai read`가 **값 없이** 행의 현재 `updated_at`을 쓰는 것은 설계(그린 행의 값)와 다르다. 상류에 값 지정을 요청하는 일은 backlog(`se-a5wl`)에 있다.
+
+**남은 실기 확인** — 모두 아직 하지 않았다.
+
+| 이슈 | 확인할 것 | 막고 있는 것 |
+|---|---|---|
+| `se-0g4a.anz` | 설치된 데몬 카탈로그에 위 프로필이 들어갔고 선언이 글자 그대로 같은지. `workspace-busy`가 읽기끼리도 나는지(코드상 쓰기 범위 락이라 안 날 수도 있다) | 새 프로필 전부의 실제 동작 |
+| `se-0g4a.fjl` | (코드로만 정리됨, 라이브 검증 대기) 읽기 3개를 `await` 없이 연속 시작해 실행이 겹치는지, 쓰기 둘 동시, 두 작업 영역 병렬. 한도 1 MiB에서 종료 상태가 바뀌는지 | 동시 3의 근거 |
+| `se-0g4a.zrf` | iframe 포커스를 얻는 방법, Linux에서 `Ctrl+F/B/U/D`, 모달에서 `Esc`. 한글 입력 소스에서 `event.code` 대체(`se-pbqz.k84`) | 키 대체 키의 필요 여부 |
+| `se-0g4a.y91` | 패널 프레임에서 `localStorage`가 되는지, `storage.*` 권한의 액션 시그니처 | 정렬·열·보기 설정 영속화(`se-cv7w.lca`). 지금 기억은 localStorage를 시도하고 안 되면 세션 동안만 유지한다 |
+| `se-cv7w.lca` | 위 스파이크 결과로 정렬·필터·열·보기 기억을 붙이기 | — |
+
 ## 4. 마일스톤과 에픽
 
-마일스톤 **`se-9inv` Moai 패널 2.0 — TUI 수준 개편** (시작 2026-10-14). 에픽 9개, 이슈 42개다. `moai show --tree --milestone se-9inv`로 볼 수 있다.
+마일스톤 **`se-9inv` Moai 패널 2.0 — TUI 수준 개편** (시작 2026-10-14). 에픽 9개다. `moai show --tree --milestone se-9inv`로 볼 수 있다. 이슈 수는 처음 42개였고 구현 중 리뷰에서 넘어온 항목이 늘어 64개가 됐다(2026-10-14, 48개 완료). 구현 결과는 [현황 2.0절](current-state.md#20-구현-결과)에 있다.
 
 | 에픽 | 이름 | 이슈 | 핵심 산출물 |
 |---|---|---|---|

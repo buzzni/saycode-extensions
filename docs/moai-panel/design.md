@@ -2,6 +2,45 @@
 
 [개편 계획](overview.md)의 결정을 구현 단위로 풀어 쓴 설계다. 원본 동작은 [moai TUI 분석](tui-analysis.md), 스타일 값은 [세이코드 룩앤필 가이드](look-and-feel.md), 키는 [단축키 매핑](keybindings.md)을 기준으로 한다.
 
+> **구현 후 표시.** 이 페이지는 구현 **전**의 설계이고 본문은 고치지 않았다. 구현이 설계와 달라진 곳과 아직 머지되지 않은 곳은 아래 "구현과 달라진 점"에 모았고, 본문에도 해당 절에 `※`로 가리켰다. 구현 결과 자체는 [현황 2.0절](current-state.md#20-구현-결과)이 기준이다.
+
+## 구현과 달라진 점 (2026-10-14, `milestone/se-9inv` `216ecb3` 기준)
+
+| 설계 | 구현 | 상태 |
+|---|---|---|
+| 2절 구조의 `data/unread.ts` | `data/read.ts`. 판정은 CLI가 하고(`row.unread`), 파일은 판정 헬퍼와 쓰기·갱신 비교를 둔다 | 머지됨 |
+| 2절 `keys/table.ts`·`router.ts` | 같은 이름 | 머지됨 |
+| 2절 `view/` 목록 | 목록·칸반이 `list-model.ts`, `board-groups.ts`, `detail-format.ts`, `responsive.ts`, `components.ts`, `icons.ts`로 더 쪼개졌다 | 머지됨 |
+| 3.1 `backlog` 프로필 | `backlog-all`(`backlog show --all`). 데몬의 기존 `buzzni.moai.backlog`가 `backlog add`라서 id를 따로 잡았다 | 선언만, 데몬 확인 대기 |
+| 3.1 `show-archived` 한 개 | `show-archived`(첫 쪽)와 `show-archived-after`(다음 쪽) 두 개, 쪽당 200 고정 | 선언만, 데몬 확인 대기 |
+| 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 **가정**하고, 없으면 `counts` 키를 기본 순서에 맞춘다 | 가정(상류 요청) |
+| 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 코드는 머지됨, 라이브 확인 대기. `main.ts`는 묶음에서 바꾸는 중 |
+| 3.2 폴링 500ms | 그대로 | 머지됨 |
+| 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 로더는 머지됨, `main.ts`는 아직 `prime`만 읽음(묶음 `se-bco3`) |
+| 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`), 연결은 묶음(`se-poaz`) |
+| 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류가 행에 `derived_milestone`, `derived_deferred`, `archive_candidate`를 주는 것으로 **가정**하고, 있으면 그것을 우선한다. 없을 때만 `nav.rs` 규칙으로 계산한다 | 가정(상류 요청) |
+| 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 아직 없다 | 매처만 머지됨 |
+| 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 가정(상류 `moai-cqwy`) |
+| 4.9 쓰는 값은 그린 행의 `updated_at` | CLI는 값을 받지 않고 **현재** `updated_at`을 쓴다. 쓰기 뒤 다시 읽어 `staleAgainst`로만 비교한다 | 달라짐. 상류 요청은 backlog `se-a5wl` |
+| 4.9 NEW 모든 행 | **아카이브에서만 온 행은 NEW를 그리지 않는다.** `moai read`가 활성 행만 풀기 때문이다 | 머지됨(`se-fvou`) |
+| 4.9 탭 뱃지·NEW 칩 | 판정과 쓰기 로직만 있고 칩과 뱃지는 없다 | 진행 중(`se-ehdi.zcx`) |
+| 4.11 렌더러 지원 목록 | 엔티티·참조 링크·취소선·작업 목록이 더해졌다. 이미지는 여전히 지원하지 않는다 | 머지됨 |
+| 5 설정 영속화 범위 "탭: 프로젝트" | 기억은 키 `buzzni.moai.panel` 하나에 **전역**으로 둔다. 항목은 탭·상세 표시·위치·위치별 비율뿐이다 | 머지됨 |
+| 5 정렬·열·보기·위키 분할 기억 | 아직 기억하지 않는다 | 대기(`se-cv7w.lca` ← 스파이크 `se-0g4a.y91`) |
+
+### 아직 진행 중인 것
+
+한 워크트리(`.worktrees/se-pbqz`, 세션 `saycode-extensions-08`)가 **배선 묶음**을 들고 있고 epic-end 리뷰(`se-pbqz.y8z`)가 돈다. 머지 전까지 아래는 마일스톤에 없다.
+
+| 이슈 | 내용 |
+|---|---|
+| `se-jwl3` | 키 라우터·SPC 메뉴·도움말을 `main.ts`·`store.ts`에 잇기. 리뷰에서 넘어온 세 가지(SPC 메뉴 토글 뒤 메뉴 다시 그리기, 버튼에서 Enter가 클릭을 막는 문제, 도움말이 열린 동안 라우터 침묵)를 함께 처리한다 |
+| `se-pbqz.k84` | 한글 입력 소스에서 글자 키를 `event.code`로 읽기. 구현(`ab59484`)은 있고 실기 확인이 남았다 |
+| `se-cv7w.0qk` | `query.ts`·`toolbar.ts`를 스토어·목록·칸반에 잇기 |
+| `se-jj42` | 위키 탭을 셸에 잇기: 위키 상태 저장·복원, `wiki.handleKey`, 위키 안 `Tab`에서 빠져나오기, `SPC v r` |
+| `se-bco3` | `main.ts`를 `PANEL_CLIENT_OPTIONS`와 `loadAllRows`로 바꾸고 잘림 배너 |
+| `se-poaz` | `loadTallies`를 `IssueIndex`에, `loadArchived({active})`를 아카이브 읽는 곳에 |
+
 ## 1. 화면 구성
 
 ```
@@ -83,6 +122,8 @@ packages/moai/
 
 ### 3.1 프로필 (데몬 카탈로그와 함께 추가)
 
+※ 구현은 13개이고 `backlog`는 `backlog-all`, 아카이브는 두 개다. 위 "구현과 달라진 점"과 [현황 2.0.3](current-state.md#203-프로필-13개)을 본다.
+
 | 프로필 id | argv (`moai --json -C {{workspaceRoot}} …`) | 용도 | 쓰기 |
 |---|---|---|---|
 | `status` (기존) | `status` | 칸 이름, 카운트, 경고 | 아니오 |
@@ -102,6 +143,8 @@ packages/moai/
 - `show-all`이 1 MiB를 넘으면(`truncated`) 배너로 알린다. 상류에는 본문을 뺀 목록 출력을 제안한다. 본문은 상세를 열 때 `show <id>`로 읽으면 된다.
 
 ### 3.2 요청 큐
+
+※ 동시 3과 `workspace-busy` 재시도로 정했다. [현황 2.0.4](current-state.md#204-요청-큐-동시-3-workspace-busy-재시도).
 
 - 전역 `busy` 락을 없앤다. 요청마다 `{profileId, params, state, operationId}`를 갖는다.
 - 같은 키(`profileId+params`)로 이미 실행 중인 요청이 있으면 그 요청을 공유한다.
@@ -244,6 +287,8 @@ TUI와의 차이:
 
 ### 4.9 읽음 (read)
 
+※ 판정 주체, 쓰는 값, 아카이브 행이 설계와 다르다. 위 표와 [현황 2.0.6](current-state.md#206-읽음-아카이브-보드-셈).
+
 - 판정:
   - 대상은 "내게 온 것"뿐이다. 담당이 나인 행, 그 `.자식`, 내 에픽의 멤버가 여기에 든다. 마일스톤 축은 세지 않는다.
   - `seen[id]`가 없거나 `updated_at > seen[id]`이면 안 읽음이다.
@@ -277,6 +322,8 @@ TUI와의 차이:
 - 이슈 본문과 위키가 같은 렌더러를 쓴다.
 
 ## 5. 설정 영속화
+
+※ 구현은 전역 키 하나에 탭·상세만 기억한다. 나머지는 스파이크 뒤로 미뤘다. [현황 2.0.5](current-state.md#205-기억memory-프레임-localstorage-전역).
 
 | 설정 | TUI 키 | 범위 |
 |---|---|---|
