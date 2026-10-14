@@ -27,7 +27,7 @@
  * (se-0g4a.anz) until it is checked live. The catalog's own `buzzni.moai.backlog` is `backlog add`, so the
  * backlog read has an id of its own.
  */
-import { PRIORITY, answerOf, requestKey, type Client, type Outcome } from './client.js'
+import { PRIORITY, answerOf, refusalCode, requestKey, type Client, type Outcome, type RequestOptions } from './client.js'
 import type { CompatProbe } from './compat.js'
 import { DEFAULT_STATUSES, standsDone, type Row } from './index.js'
 
@@ -56,7 +56,7 @@ export interface Rows {
   more: number
   /** `show --all` was cut at the output limit, so these are prime's rows (and the backlog), not all of them. */
   truncated: boolean
-  /** These are prime's rows (and the backlog), not every active row: `show --all` was cut, or the catalog lacks it. */
+  /** These are prime's rows (and the backlog), not every active row: loadRows, or loadAllRows' fallback ({@link primeRows}). */
   partial: boolean
 }
 
@@ -70,8 +70,7 @@ function seen(probe: CompatProbe | undefined, profile: string, outcome: Outcome)
  * The daemon's catalog lacks the profile (or the daemon is too old for the machine run at all): a refusal, or a
  * start that failed, naming `unsupported-daemon` — what compat.ts reads as a missing profile.
  */
-const lacked = (outcome: Outcome): boolean =>
-  (outcome.kind === 'refused' || outcome.kind === 'not-started') && outcome.code === 'unsupported-daemon'
+const lacked = (outcome: Outcome): boolean => refusalCode(outcome) === 'unsupported-daemon'
 
 export type Loaded<T> = { ok: true; value: T } | { ok: false; outcome: Outcome }
 
@@ -114,7 +113,7 @@ export function rowsFromPrime(output: unknown): Loaded<Rows> {
   // `rest` and `others_rest` count over what the running milestone let through; the ids it left out stand in
   // `outside` and are counted nowhere else, so a milestone whose members are all blocked reads as "nothing here".
   const outside = Array.isArray(output.outside) ? output.outside.length : 0
-  return { ok: true, value: { rows, more: (Number(output.rest) || 0) + (Number(output.others_rest) || 0) + outside, truncated: false, partial: false } }
+  return { ok: true, value: { rows, more: (Number(output.rest) || 0) + (Number(output.others_rest) || 0) + outside, truncated: false, partial: true } }
 }
 
 /**
@@ -137,35 +136,39 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list,
  * The index rows: `show --all` and `backlog show --all` read at once. A failure of either is the load's failure
  * (`show --all` first), except a read the catalog lacks ({@link lacked}), which the load does without. When
  * `show --all` was cut at the output limit (`truncated`) or the catalog lacks it, prime's rows stand in with
- * `partial: true`, plus the backlog when that read, without its references to the groups prime leaves out.
+ * `partial: true` (prime's failure is then the load's), plus the backlog when that read — a backlog read that failed
+ * is left out there, as it always was beside prime — without its references to the groups prime leaves out.
  */
 export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
   const listing = client.request(PROFILE.showAll, undefined, { priority })
   const reading = client.request(PROFILE.backlog, undefined, { priority })
   const all = seen(probe, PROFILE.showAll, await listing)
+  // compat learns what the backlog read ends with when it lands, whether or not this load still waits on it: a read
+  // called off below that already ended keeps its outcome, and a cancelled one says nothing. The probe tells its
+  // listeners then, after this load may have ended (main.ts puts the report in the store then).
+  const read = reading.then((outcome) => seen(probe, PROFILE.backlog, outcome))
+  // Another read alone decides this load: the backlog read is called off. One still queued ends at once; one already
+  // starting beside it (the panel runs up to 3 reads at once) is cancelled as soon as it is accepted, though its
+  // confirmation may already be showing. The panel does not wait on a read it no longer wants.
+  const callOff = () => client.cancel(requestKey(PROFILE.backlog))
   const cut = all.kind === 'unreadable' && all.truncated === true
-  const primed = cut || lacked(all)
-  if (!primed && answerOf(all) === undefined) {
-    // show --all alone decides this load (declined, no tracker): the backlog read is called off. One still queued
-    // ends at once; one already starting beside it (the panel runs up to 3 reads at once) is cancelled as soon as
-    // it is accepted, though its confirmation may already be showing.
-    client.cancel(requestKey(PROFILE.backlog))
-    // A read that already ended keeps its outcome, and compat learns it; a cancelled one says nothing.
-    // Not awaited: the panel does not wait on a read it no longer wants. The probe tells its listeners when the
-    // outcome lands, after this load has ended (main.ts puts the report in the store then).
-    if (probe) void reading.then((outcome) => probe.observe(PROFILE.backlog, outcome))
-    return { ok: false, outcome: all }
-  }
-  // prime starts beside the backlog read still running, not after it.
-  const priming = primed ? loadRows(client, priority, probe) : undefined
-  const backlog = seen(probe, PROFILE.backlog, await reading)
-  if (priming) {
-    const loaded = await priming
-    if (!loaded.ok) return loaded
+  const listed = answerOf(all)
+  if (cut || lacked(all)) {
+    // prime starts beside the backlog read still running, not after it, and decides the load when it fails.
+    const loaded = await loadRows(client, priority, probe)
+    if (!loaded.ok) {
+      callOff()
+      return loaded
+    }
+    const backlog = await read
     return { ok: true, value: { rows: withBacklog(loaded.value.rows, answerOf(backlog), ungrouped), more: loaded.value.more, truncated: cut, partial: true } }
   }
-  const listed = answerOf(all)
-  if (listed === undefined) return { ok: false, outcome: all }
+  if (listed === undefined) {
+    // show --all alone decides this load (declined, no tracker).
+    callOff()
+    return { ok: false, outcome: all }
+  }
+  const backlog = await read
   const thoughts = lacked(backlog) ? [] : answerOf(backlog)
   if (thoughts === undefined) return { ok: false, outcome: backlog }
   const loaded = rowsFromLists(listed, thoughts)
@@ -245,6 +248,8 @@ export interface ArchiveOptions {
   priority?: number
   /** Told each page's outcome (compat.ts). */
   probe?: CompatProbe
+  /** The caller's write count (client.ts RequestOptions.epoch): no page is handed a run that began before a write. */
+  epoch?: number
   /**
    * Ids of the active rows already held (`show --all`). `--archived` lists active rows too, and `moai read`
    * resolves only active rows, so an archive-only row must read `archived: true` (read.ts then never draws NEW on
@@ -267,6 +272,9 @@ export function markArchived(rows: readonly Row[], active: ReadonlySet<string>):
 /** The rows a list read stands on, and whether they are prime's rather than every active row ({@link Rows}). */
 export type Listed = Pick<Rows, 'rows'> & { partial?: boolean; truncated?: boolean }
 
+/** The rows are prime's, not every active row: `partial`, or `truncated` (`show --all` cut), which is prime's rows too. */
+export const primeRows = (listed: Omit<Listed, 'rows'>): boolean => listed.partial === true || listed.truncated === true
+
 /**
  * The ids of the active rows, to tell the archive's archive-only rows by: `--archived` lists the active rows too,
  * and before moai 0.17 its rows carry no mark of their own ({@link markArchived}). A whole list holds every active
@@ -280,8 +288,7 @@ export type Listed = Pick<Rows, 'rows'> & { partial?: boolean; truncated?: boole
  */
 export function activeIds(listed: Listed, archive: readonly Row[] = []): Set<string> {
   const active = new Set(listed.rows.map((row) => row.id))
-  // A cut list (`truncated`) is prime's rows too.
-  if (listed.partial || listed.truncated) for (const row of archive) if (!standsDone(row)) active.add(row.id)
+  if (primeRows(listed)) for (const row of archive) if (!standsDone(row)) active.add(row.id)
   return active
 }
 
@@ -311,7 +318,7 @@ export async function loadArchived(client: Client, options: ArchiveOptions = {})
   for (;;) {
     if (options.cancelled?.()) return { ok: false, outcome: { kind: 'cancelled', mayContinue: false } }
     const profile = after === undefined ? PROFILE.showArchived : PROFILE.showArchivedAfter
-    const outcome = seen(options.probe, profile, await client.request(profile, after, { priority }))
+    const outcome = seen(options.probe, profile, await client.request(profile, after, { priority, epoch: options.epoch }))
     const output = answerOf(outcome)
     if (output === undefined) return { ok: false, outcome }
     if (!Array.isArray(output)) return { ok: false, outcome: { kind: 'unreadable' } }
@@ -339,9 +346,9 @@ export async function loadWikiPage(client: Client, slug: string, probe?: CompatP
   return output === undefined ? { ok: false, outcome } : { ok: true, value: output }
 }
 
-/** One row with its body, children and journal (`moai show <id>`). */
-export async function loadDetail(client: Client, id: string): Promise<Loaded<Row>> {
-  const outcome = await client.request(PROFILE.show, id, { priority: PRIORITY.detail })
+/** One row with its body, children and journal (`moai show <id>`); `epoch` as client.ts RequestOptions says. */
+export async function loadDetail(client: Client, id: string, options: Pick<RequestOptions, 'epoch'> = {}): Promise<Loaded<Row>> {
+  const outcome = await client.request(PROFILE.show, id, { priority: PRIORITY.detail, epoch: options.epoch })
   if (outcome.kind !== 'passed') return { ok: false, outcome }
   return isRecord(outcome.output) && typeof outcome.output.id === 'string' ? { ok: true, value: outcome.output as Row } : { ok: false, outcome: { kind: 'unreadable' } }
 }

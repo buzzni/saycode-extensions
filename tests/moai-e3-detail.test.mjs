@@ -208,6 +208,8 @@ test('pane: a tool-missing refusal the compat banner tells is not said again; un
   assert.equal(root.querySelector('.m-banner'), null, 'the banner told it: the detail keeps quiet')
   // A task was chosen and its read refused: the pane does not ask to choose one, it says it has no details.
   assert.equal(root.querySelector('.m-empty-title').textContent, en.detail.problem)
+  // Announced as the danger banner it stands for would have been: a status region inserted with its text is not.
+  assert.equal(root.querySelector('.m-empty').getAttribute('role'), 'alert')
   const daemon = stateWith({ problem: { kind: 'refused', code: 'unsupported-daemon' } })
   view.render({ ...daemon, compat: { toolMissing: false, catalog: { state: 'missing' } } }, index)
   assert.ok(root.querySelector('.m-banner'), 'the detail read is not heard by the probe: unsupported-daemon is its own')

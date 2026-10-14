@@ -427,9 +427,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explain(untold(state.board.problem) ?? (state.detail.visible ? null : untold(state.shown.problem, false)))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
-    // Written only when it changes: it is a live region.
-    const partial = state.board.value?.truncated === true ? copy.shell.truncated : ""
-    if (truncated.textContent !== partial) truncated.textContent = partial
+    // Written only when it changes: it is a live region. Only a cut list says so here; one the catalog left to prime's
+    // rows is told by the compat banner (BoardData.partial without `truncated`).
+    const cut = state.board.value?.truncated === true ? copy.shell.truncated : ""
+    if (truncated.textContent !== cut) truncated.textContent = cut
     explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
 

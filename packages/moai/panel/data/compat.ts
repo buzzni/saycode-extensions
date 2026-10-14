@@ -28,7 +28,7 @@
  *   serves nothing drawn yet, so a 0.16 that prints `unread` reads `old` with nothing degraded; one whose rows print
  *   none leaves the NEW marks off, and that is named.
  */
-import type { Outcome } from './client.js'
+import { refusalCode, type Outcome } from './client.js'
 import type { Row } from './index.js'
 import { PROFILE } from './source.js'
 
@@ -81,10 +81,6 @@ export function sameReport(a: CompatReport, b: CompatReport): boolean {
     sameList(a.catalog.missing, b.catalog.missing) && sameList(a.degraded, b.degraded)
 }
 
-/** The refusal code an outcome names: a refusal's, or the one a start that failed named (client.ts `not-started`). */
-const codeOf = (outcome: Outcome | null): string | undefined =>
-  outcome?.kind === 'refused' || outcome?.kind === 'not-started' ? outcome.code : undefined
-
 /**
  * The compatibility banner already tells this refusal (install moai, update the catalog), so the board's own
  * banners need not tell it again. A start that failed naming the code is read as the refusal is. An
@@ -93,7 +89,7 @@ const codeOf = (outcome: Outcome | null): string | undefined =>
  * not): the catalog line names only profiles it heard, while moai missing is the machine's and stands for any read.
  */
 export function compatTells(report: CompatReport | null, outcome: Outcome | null, heard = true): boolean {
-  const code = codeOf(outcome)
+  const code = refusalCode(outcome)
   if (!report || code === undefined) return false
   if (code === 'tool-missing') return report.toolMissing
   return heard && code === 'unsupported-daemon' && report.catalog.state === 'missing'
@@ -105,7 +101,7 @@ export function compatTells(report: CompatReport | null, outcome: Outcome | null
  */
 export function compatFixed(before: CompatReport | null, after: CompatReport, outcome: Outcome | null, heard = true): boolean {
   if (!compatTells(before, outcome, heard)) return false
-  return codeOf(outcome) === 'tool-missing' ? !after.toolMissing : after.catalog.state === 'ok'
+  return refusalCode(outcome) === 'tool-missing' ? !after.toolMissing : after.catalog.state === 'ok'
 }
 
 export class CompatProbe {

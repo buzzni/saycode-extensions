@@ -7,9 +7,9 @@ import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Outcome
 import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
-import { markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
+import { isUnread, markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, sameTallies, withArchive, type Loaded } from './data/source.js'
+import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -93,9 +93,12 @@ async function loadBoard(): Promise<void> {
   const state = store.getState()
   const shown = state.shown.value
   if (shown && wasListed && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
-  // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed). Not while
-  // a read still pages: that one would be cancelled and the paging started over.
-  if (state.view.showArchived && state.archive === null && archiveRunning === null) void loadArchive()
+  // Archived rows shown but not read yet (turned on before the rows were there, or the last read failed), or read beside
+  // a whole list that is prime's rows now: the archive's answer stands in for the active rows prime lacks (source.ts
+  // activeIds), and its copies of them were never drawn, so no read mark read it again (marked()). Not while a read
+  // still pages: that one would be cancelled and the paging started over.
+  const turned = primeRows(data) && before.board.value !== null && !primeRows(before.board.value)
+  if (state.view.showArchived && archiveRunning === null && (state.archive === null || turned)) void loadArchive()
   // Counts that come later go on this board only: a later load's board has its own (store 'tallies'). Counts that
   // match the ones carried (most refreshes) change nothing on screen, so the board is not drawn again for them;
   // counts that could not be read leave the board counting its own rows, as when they fail first.
@@ -106,27 +109,46 @@ async function loadBoard(): Promise<void> {
   }
 }
 
+// Read marks written so far (marked()). The detail and archive reads hand it to the client (client.ts
+// RequestOptions.epoch), so a read asked after a mark is never handed a run that began before it and prints the
+// `unread` the mark took off.
+let marks = 0
+
 // The archive is read when archived rows are shown (`SPC v o`), each time they are turned on, once the active
 // rows are there: a row they do not hold is archive-only, tagged `archived: true` (never NEW, never read-marked;
 // a partial list — prime's rows — judges by column instead, source.ts activeIds).
 let archiving = 0
 /** The `archiving` number of the archive read still paging, or null when none is. */
 let archiveRunning: number | null = null
+/** The read marks written when that read was asked for: its runs answer for those, not for a later one. */
+let archiveAsked = 0
+/**
+ * A read mark landed while the archive read asked before it still paged (marked()): it is read again once that one
+ * ends with an answer. One cancelled or declined is the person's to start again (`SPC v o`).
+ */
+let archiveAgain = false
 async function loadArchive(): Promise<void> {
   if (!store.getState().board.value) return
   const mine = ++archiving
   archiveRunning = mine
+  archiveAsked = marks
+  archiveAgain = false
+  let answered = false
   try {
     // Read without `active`, as moai printed it (moai 0.17 marks its archive rows itself): withArchive tags the
     // archive-only rows left unmarked against the rows held when it draws, and a partial list needs the archive's own
     // rows to judge by (source.ts activeIds).
-    const loaded = await loadArchived(client, { probe, cancelled: () => mine !== archiving })
+    const loaded = await loadArchived(client, { probe, cancelled: () => mine !== archiving, epoch: archiveAsked })
     if (mine !== archiving) return
+    answered = loaded.ok
     // The archive's own problem: the board's rows and whatever the board said stand.
     if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
     else store.dispatch({ type: 'archive-failed', problem: loaded.outcome })
   } finally {
-    if (archiveRunning === mine) archiveRunning = null
+    if (archiveRunning === mine) {
+      archiveRunning = null
+      if (archiveAgain && answered) void loadArchive()
+    }
   }
 }
 store.subscribe((state, previous) => {
@@ -135,6 +157,7 @@ store.subscribe((state, previous) => {
   else {
     // Turned off: a read still paging is not wanted, and the next turn-on reads the archive afresh.
     archiving++
+    archiveAgain = false
     store.dispatch({ type: 'archive', rows: null })
   }
 })
@@ -151,7 +174,14 @@ async function choose(id: string) {
   const held = indexOf(store.getState())?.find(id) !== undefined
   store.dispatch({ type: 'cursor', id })
   store.dispatch({ type: 'detail-loading', id })
-  const loaded = await loadDetail(client, id)
+  let asked = marks
+  let loaded = await loadDetail(client, id, { epoch: asked })
+  // A read mark written while the read ran may have taken off the `unread` it printed (reloadDetail reads only a
+  // detail already drawn): a row printed unread is read again, while the pane still waits for it.
+  while (mine === choice && store.getState().shown.loading && asked !== marks && loaded.ok && isUnread(loaded.value)) {
+    asked = marks
+    loaded = await loadDetail(client, id, { epoch: asked })
+  }
   // A later choice wins: its own answer settles the detail.
   if (mine !== choice) return
   const now = store.getState()
@@ -203,34 +233,48 @@ const wiki: WikiSource = {
 }
 
 /**
- * The detail on screen again, as `show` prints it now: a read mark changes its `unread`, and nothing else reads the
- * detail again. The pane and the cursor stay as they are; a choice made meanwhile, or the pane closed, wins.
+ * The detail on screen again, as `show` prints it now, when the write marked it (`written`, as `moai read` answers): a
+ * read mark takes its `unread` off, and nothing else reads the detail again. A row `show` printed without it has
+ * nothing to lose. The pane and the cursor stay as they are; a choice made meanwhile, or the pane closed, wins.
  */
-async function reloadDetail(): Promise<void> {
+async function reloadDetail(written: ReadonlySet<string>): Promise<void> {
   const shown = store.getState().shown.value
-  if (!shown) return
+  if (!shown || !isUnread(shown.row) || !written.has(shown.id)) return
   const mine = choice
-  const loaded = await loadDetail(client, shown.id)
+  const loaded = await loadDetail(client, shown.id, { epoch: marks })
   if (!loaded.ok || mine !== choice || store.getState().shown.value?.id !== shown.id) return
   store.dispatch({ type: 'detail-loaded', data: { id: shown.id, row: loaded.value } })
 }
 
 /**
- * A read-mark write, then the list again, with the detail on screen and (a cut list's) the archive answer: the marks
- * come back with the rows (data/read.ts).
+ * A read-mark write, then the list again, with the detail on screen and (a partial list's) the archive answer: the
+ * marks come back with the rows (data/read.ts).
  */
 async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
   const done = await writing
   if (!done.ok) return done.outcome
+  marks++
+  const written = new Set(done.result.read)
   // A list read already running started before the write and cannot hold its marks. The detail's `show` row was read
-  // before it too and the list's re-read does not bring it back: read again, its NEW would outlive the mark.
-  await Promise.all([refresher.refresh({ fresh: true }), reloadDetail()])
-  // A cut list stands on prime's rows, which carry no marks; the active rows only the archive's answer holds are NEW
-  // from there (source.ts activeIds), so that answer is read again. A whole list needs none: the rows the archive adds
-  // to it are archive-only, which are never NEW.
-  const now = store.getState()
-  if (now.view.showArchived && now.board.value?.partial === true) void loadArchive()
+  // before it too and the list's re-read does not bring it back: read again, its NEW would outlive the mark. The archive
+  // follows the list's read alone, which tells whether the list is partial.
+  await Promise.all([refresher.refresh({ fresh: true }).then(() => rereadArchive(written)), reloadDetail(written)])
   return null
+}
+
+/**
+ * After a read mark and the list read again. A read of the archive still paging that was asked before the write is
+ * read again once it ends, rather than started over on each mark (a whole list's too: one that turns partial takes the
+ * active rows prime lacks from that answer, loadBoard). Else a partial list, which stands on prime's rows that carry
+ * no marks, reads the archive answer again when the write marked (`written`) a row only it holds that is drawn NEW
+ * (source.ts activeIds). A whole list needs none: the rows the archive adds to it are archive-only, never NEW.
+ */
+function rereadArchive(written: ReadonlySet<string>): void {
+  const now = store.getState()
+  const board = now.board.value
+  if (!now.view.showArchived || !board) return
+  if (archiveRunning !== null) archiveAgain ||= archiveAsked !== marks
+  else if (primeRows(board) && indexOf(now)?.rows.slice(board.rows.length).some((row) => isUnread(row) && written.has(row.id))) void loadArchive()
 }
 
 const read: ReadMarks = {

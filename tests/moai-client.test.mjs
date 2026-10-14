@@ -63,6 +63,39 @@ test('the same read asked twice while it runs is shared, not started again', asy
   assert.deepEqual(starts(bridge), [['buzzni.moai.show', 'a-1']])
 })
 
+test('a read asked after a write is not handed a run of it that already started; a queued one is shared', async () => {
+  const bridge = fakeBridge()
+  const client = createClient(bridge, { concurrency: 3, sleep: () => flush() })
+  const before = client.request('buzzni.moai.show', 'a-1')
+  await flush()
+  // The caller counts a write since `before` was asked, and that run has started: it may answer from before the write.
+  const after = client.request('buzzni.moai.show', 'a-1', { epoch: 1 })
+  assert.notEqual(after, before)
+  // Asked again at that count, or by a caller that counts none, it joins the newest run.
+  assert.equal(client.request('buzzni.moai.show', 'a-1', { epoch: 1 }), after)
+  assert.equal(client.request('buzzni.moai.show', 'a-1'), after)
+  await flush()
+  bridge.finish(1, passed({ id: 'a-1', unread: true }))
+  bridge.finish(2, passed({ id: 'a-1' }))
+  assert.deepEqual(await before, { kind: 'passed', output: { id: 'a-1', unread: true } })
+  assert.deepEqual(await after, { kind: 'passed', output: { id: 'a-1' } })
+  assert.deepEqual(starts(bridge), [['buzzni.moai.show', 'a-1'], ['buzzni.moai.show', 'a-1']])
+  // One run at a time: a read still queued has not started, so it is shared, and it then answers for that count.
+  const slow = fakeBridge()
+  const single = createClient(slow, { sleep: () => flush() })
+  const blocker = single.request('buzzni.moai.status')
+  const queued = single.request('buzzni.moai.show', 'a-2')
+  assert.equal(single.request('buzzni.moai.show', 'a-2', { epoch: 1 }), queued)
+  await flush()
+  slow.finish(1, passed({ counts: {} }))
+  await blocker
+  await flush()
+  assert.equal(single.request('buzzni.moai.show', 'a-2', { epoch: 1 }), queued)
+  slow.finish(2, passed({ id: 'a-2' }))
+  await queued
+  assert.deepEqual(starts(slow), [['buzzni.moai.status'], ['buzzni.moai.show', 'a-2']])
+})
+
 test('a subscriber that throws does not stop the queue', async () => {
   const bridge = fakeBridge()
   const client = createClient(bridge, { sleep: () => flush() })

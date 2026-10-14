@@ -458,6 +458,7 @@ test('unread: unreadBadges counts the rows the CLI marked unread, archive rows n
   const { createTabs } = await panelModule('view/tabs.ts')
   const rows = [{ id: 'a', unread: true }, { id: 'b' }, { id: 'c', unread: true }, { id: 'd', unread: true, archived: true }]
   assert.deepEqual(unreadBadges(rows), { board: 2, list: 2 })
+  assert.deepEqual(unreadBadges([...rows, { id: 'a', unread: true }]), { board: 2, list: 2 }, 'twin lines of one id count once')
   assert.deepEqual(unreadBadges([{ id: 'a' }]), { board: null, list: null }, 'a source that says nothing: no badge')
   assert.deepEqual(unreadBadges([]), { board: null, list: null })
   const doc = new JSDOM('<!doctype html><body></body>').window.document

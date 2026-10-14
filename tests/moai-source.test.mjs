@@ -247,6 +247,30 @@ test('a read the catalog lacks degrades the load instead of failing it: prime st
   assert.deepEqual(await loadAllRows(fakeClient({ [PROFILE.showAll]: passed(SHOW_ALL), [PROFILE.backlog]: declined })), { ok: false, outcome: declined })
 })
 
+test('in the fallback prime starts while the backlog read still runs, and a prime that fails calls that read off at once', async () => {
+  const lacked = { kind: 'refused', code: 'unsupported-daemon' }
+  const tick = () => new Promise((resolve) => setImmediate(resolve))
+  let answer
+  const client = fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: () => new Promise((resolve) => { answer = resolve }), [PROFILE.prime]: passed(PRIME) })
+  const loading = loadAllRows(client)
+  await tick()
+  assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.showAll, PROFILE.backlog, PROFILE.prime], 'prime is asked for before the backlog answers')
+  answer(passed(BACKLOG))
+  assert.deepEqual((await loading).value.rows.slice(-2).map((row) => row.id), ['tracker-m21g', 'tracker-zwyp'])
+  // prime declined while the backlog read still waits on its confirmation: the load ends on prime's answer without
+  // waiting, and the backlog read is called off; what it ends with still reaches compat.
+  const declined = { kind: 'refused', code: 'declined' }
+  const probe = new CompatProbe()
+  let late
+  const waiting = fakeClient({ [PROFILE.showAll]: lacked, [PROFILE.backlog]: () => new Promise((resolve) => { late = resolve }), [PROFILE.prime]: declined })
+  const ended = await Promise.race([loadAllRows(waiting, undefined, probe), new Promise((resolve) => setTimeout(() => resolve('still waiting'), 200))])
+  assert.deepEqual(ended, { ok: false, outcome: declined })
+  assert.deepEqual(waiting.cancels, [PROFILE.backlog])
+  late(lacked)
+  await tick()
+  assert.deepEqual(probe.report().degraded, ['all-rows', 'backlog'])
+})
+
 test('the probe hears every read of a degraded load, so the catalog line names what is missing', async () => {
   const lacked = { kind: 'refused', code: 'unsupported-daemon' }
   const probe = new CompatProbe()
@@ -313,7 +337,8 @@ test('loadRows still reads prime alone until the panel switches to loadAllRows',
   const client = fakeClient({ [PROFILE.prime]: passed(PRIME) })
   const loaded = await loadRows(client)
   assert.equal(loaded.ok, true)
-  assert.equal(loaded.value.truncated, false)
+  // prime's rows are not every active row (source.ts primeRows), though nothing cut them.
+  assert.deepEqual([loaded.value.truncated, loaded.value.partial], [false, true])
   assert.deepEqual(client.calls.map((call) => call.profileId), [PROFILE.prime])
 })
 
