@@ -9,8 +9,10 @@
 // open, `prompt` while a search or filter input has the caret, `wiki` on the wiki tab, `browse` otherwise.
 
 import type { Outcome } from "../data/client.ts"
+import { compatTells } from "../data/compat.ts"
 import { NO_MILESTONE, type Row } from "../data/index.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
+import { withArchive } from "../data/source.ts"
 import type { Copy } from "../i18n/index.ts"
 import type { ColumnName, State, Store } from "../store.ts"
 import { statusKeys } from "../view/board-groups.ts"
@@ -272,14 +274,17 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   }
   // ── read marks ──
   /**
-   * The row under the cursor. With archived rows shown the list draws the archive answer too (main.ts), and its
-   * active rows are in no one else's hands: they are not in the board's rows, and untagged.
+   * The row under the cursor that takes a read mark, among the rows the list draws: with archived rows shown, the
+   * archive's answer too, tagged as main.ts indexOf draws it (source.ts withArchive). An archive-only row is active
+   * only where a cut list keeps it so (source.ts activeIds); one tagged `archived: true` takes no mark, as it draws no
+   * NEW (`moai read` resolves active rows only, read.ts isUnread).
    */
   function rowHere(): Row | undefined {
     const state = store.getState()
-    if (state.cursor === null) return undefined
-    const at = (rows: readonly Row[] | null | undefined) => rows?.find((r) => r.id === state.cursor)
-    return at(state.board.value?.rows) ?? (state.view.showArchived ? at(state.archive) : undefined)
+    const board = state.board.value
+    if (state.cursor === null || !board) return undefined
+    const row = withArchive(board, state.view.showArchived ? state.archive : null).find((r) => r.id === state.cursor)
+    return row?.archived === true ? undefined : row
   }
   /** The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in. */
   function groupHere(): string | null {
@@ -297,7 +302,11 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       const writing = write(marks)
       if (!writing) return
       void writing.then((outcome) => {
-        if (outcome) shell.refuse(outcome)
+        if (!outcome) return
+        // A refusal the compatibility banner tells (moai missing, read marks the catalog lacks) is told there alone:
+        // its own words ("the runtime is too old") would contradict the banner's.
+        if (compatTells(store.getState().compat, outcome)) say("")
+        else shell.refuse(outcome)
       })
     }
   }
@@ -504,8 +513,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   })
 
   // Keys are quiet while the help is open, even when the focus has left it; Esc closes it. The help's guard stops
-  // every other key before it gets here but the Ctrl and Cmd/Meta combinations, the host's own (copy, find): those
-  // are swallowed here without preventDefault, so the panel's shortcuts stay off and the browser still acts.
+  // every other key before it gets here but the host's combinations (copy, find: Cmd/Meta, and Ctrl off macOS; see
+  // help.ts guard): those are swallowed here without preventDefault, so the panel's shortcuts stay off and the
+  // browser still acts.
   const detach = attachKeyRouter(doc, {
     ...router,
     handle(event) {

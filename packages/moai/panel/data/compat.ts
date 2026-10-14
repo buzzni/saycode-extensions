@@ -69,7 +69,7 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
  */
 const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'tallies']
 
-type Seen = 'unsupported' | 'unstarted' | 'failed-start' | 'passed'
+type Seen = 'unsupported' | 'passed'
 
 const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((item, n) => item === b[n])
 
@@ -79,15 +79,31 @@ export function sameReport(a: CompatReport, b: CompatReport): boolean {
     sameList(a.catalog.missing, b.catalog.missing) && sameList(a.degraded, b.degraded)
 }
 
+/** The refusal code an outcome names: a refusal's, or the one a start that failed named (client.ts `not-started`). */
+const codeOf = (outcome: Outcome | null): string | undefined =>
+  outcome?.kind === 'refused' || outcome?.kind === 'not-started' ? outcome.code : undefined
+
 /**
  * The compatibility banner already tells this refusal (install moai, update the catalog), so the board's own
- * banners need not tell it again. An `unsupported-daemon` the catalog line does not stand for (the daemon as a
- * whole too old, or nothing decided yet) is still the board's to tell.
+ * banners need not tell it again. A start that failed naming the code is read as the refusal is. An
+ * `unsupported-daemon` the catalog line does not stand for (the daemon as a whole too old, or nothing decided yet) is
+ * still the board's to tell. `heard`: the read that ended so was handed to the probe (the detail and the add are
+ * not): the catalog line names only profiles it heard, while moai missing is the machine's and stands for any read.
  */
-export function compatTells(report: CompatReport | null, outcome: Outcome | null): boolean {
-  if (!report || outcome?.kind !== 'refused') return false
-  if (outcome.code === 'tool-missing') return report.toolMissing
-  return outcome.code === 'unsupported-daemon' && report.catalog.state === 'missing'
+export function compatTells(report: CompatReport | null, outcome: Outcome | null, heard = true): boolean {
+  const code = codeOf(outcome)
+  if (!report || code === undefined) return false
+  if (code === 'tool-missing') return report.toolMissing
+  return heard && code === 'unsupported-daemon' && report.catalog.state === 'missing'
+}
+
+/**
+ * The banner told `outcome` under `before` ({@link compatTells}) and `after` says it was fixed: moai ran there since,
+ * or the catalog lacks nothing now. Whatever told it again would tell what is no longer so (store.ts drops it).
+ */
+export function compatFixed(before: CompatReport | null, after: CompatReport, outcome: Outcome | null, heard = true): boolean {
+  if (!compatTells(before, outcome, heard)) return false
+  return codeOf(outcome) === 'tool-missing' ? !after.toolMissing : after.catalog.state === 'ok'
 }
 
 export class CompatProbe {
@@ -105,8 +121,16 @@ export class CompatProbe {
     return () => this.listeners.delete(listener)
   }
 
+  // A listener is view code (main.ts puts the report in the store, which draws), told in the middle of a loader: one
+  // that throws must not stop the read that handed the answer over (as client.ts notify() keeps its queue going).
   private told(): void {
-    for (const listener of [...this.listeners]) listener()
+    for (const listener of [...this.listeners]) {
+      try {
+        listener()
+      } catch (error) {
+        console.error(error)
+      }
+    }
   }
 
   /** Hand over what a request to `profile` ended with. Information refusals and failures say nothing here. */
@@ -118,16 +142,11 @@ export class CompatProbe {
   private record(profile: string, outcome: Outcome): void {
     switch (outcome.kind) {
       case 'refused':
+      case 'not-started':
+        // A start that failed naming a code is read as the refusal is. Only `unsupported-daemon` is about the catalog;
+        // `binding-mismatch`, and a start that named nothing, say nothing here.
         if (outcome.code === 'tool-missing') this.toolMissing = true
         else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, 'unsupported')
-        return
-      case 'not-started':
-        // Only `unsupported-daemon` is about the catalog; `binding-mismatch` and the rest are a start that failed.
-        if (outcome.code === 'unsupported-daemon') {
-          if (this.seen.get(profile) !== 'passed' && this.seen.get(profile) !== 'unsupported') this.seen.set(profile, 'unstarted')
-        } else if (!this.seen.has(profile)) {
-          this.seen.set(profile, 'failed-start')
-        }
         return
       case 'passed':
       case 'failed':
@@ -167,12 +186,12 @@ export class CompatProbe {
   }
 
   report(): CompatReport {
-    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported' || seen === 'unstarted').map(([id]) => id)
+    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported').map(([id]) => id)
     const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
     // Refusals alone cannot tell a catalog that lacks the profiles from a daemon too old for the machine run at
     // all, so nothing is judged until a profile has run. A shipped profile refused as unsupported is the daemon as
     // a whole too old, and 13 missing profiles would say less than that.
-    const wholeDaemon = refused.some((id) => BASELINE.has(id) && this.seen.get(id) === 'unsupported')
+    const wholeDaemon = refused.some((id) => BASELINE.has(id))
     const decided = passed > 0 && !wholeDaemon
     const missing = decided ? refused : []
     const catalogState: CompatReport['catalog']['state'] = !decided ? 'unknown' : missing.length > 0 ? 'missing' : 'ok'
