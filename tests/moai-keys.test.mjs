@@ -441,3 +441,146 @@ test('attachKeyRouter: wires keydown, computes the editable flag, calls preventD
   assert.equal(detectPlatform({ platform: 'MacIntel' }), 'mac')
   assert.equal(detectPlatform({ platform: 'Linux x86_64', userAgent: 'X11' }), 'other')
 })
+
+// ------------------------------------------------------------------ SPC menu view and help overlay
+
+const menuModule = await import(new URL('view/menu.ts', panel))
+const helpModule = await import(new URL('view/help.ts', panel))
+const { createMenu, breadcrumb } = menuModule
+const { createHelp, kbdHint, focusHint } = helpModule
+
+function menuSetup (ctx = browse()) {
+  const { document } = new JSDOM('<!doctype html><body></body>').window
+  const state = { ctx }
+  const sent = []
+  const view = createMenu(document, { press: (k) => router.press(k) })
+  const router = createKeyRouter({
+    platform: 'other',
+    getContext: () => state.ctx,
+    dispatch: (a) => { sent.push(a.id); view.update(router.state().menu, state.ctx) },
+    onChange: (s) => view.update(s.menu, state.ctx)
+  })
+  document.body.append(view.el)
+  const items = () => [...view.el.querySelectorAll('.m-wk-item')]
+  const item = (k) => items().find((n) => n.dataset.key === k)
+  return { document, view, router, state, sent, items, item }
+}
+
+test('menu: hidden while closed; SPC shows the root grid with kbd keys, labels and "+" layers', () => {
+  const m = menuSetup()
+  assert.equal(m.view.el.hidden, true)
+  assert.equal(m.view.el.children.length, 0)
+  m.router.press('SPC')
+  assert.equal(m.view.el.hidden, false)
+  assert.equal(m.view.el.getAttribute('role'), 'menu')
+  const layer = menuLayer(['SPC'], browse())
+  assert.deepEqual(m.items().map((n) => n.dataset.key), layer.items.map((i) => i.key))
+  const v = m.item('v')
+  assert.equal(v.querySelector('kbd').textContent, 'v')
+  assert.equal(v.querySelector('.m-wk-label').textContent, '+보기')
+  assert.equal(m.view.el.querySelector('.m-wk-title').textContent, '메뉴')
+})
+
+test('menu: a layer shows a breadcrumb, state labels and the footer controls; hidden items are absent', () => {
+  const m = menuSetup()
+  m.router.press('SPC'); m.router.press('v')
+  assert.equal(m.view.el.querySelector('.m-wk-title').textContent, 'SPC › 보기')
+  assert.equal(breadcrumb(menuLayer(['SPC', 'v'], browse())), 'SPC › 보기')
+  const l = m.item('l')
+  assert.equal(l.querySelector('.m-wk-label').textContent, '미룸')
+  assert.equal(l.querySelector('.m-wk-state').textContent, menuLayer(['SPC', 'v'], browse()).items.find((i) => i.key === 'l').state.label)
+  assert.equal(l.getAttribute('role'), 'menuitemcheckbox')
+  assert.ok(l.hasAttribute('aria-checked'))
+  const footer = m.view.el.querySelector('.m-wk-footer').textContent
+  for (const c of MENU_CONTROLS) assert.ok(footer.includes(c.label), c.label)
+  assert.ok(footer.includes('Esc') && footer.includes('Bksp'))
+  // Wiki mode has no browse-only view toggles: the item is not drawn.
+  const w = menuSetup(browse({ mode: 'wiki', tab: 'wiki' }))
+  w.router.press('SPC'); w.router.press('v')
+  assert.equal(w.item('l'), undefined)
+})
+
+test('menu: clicking a toggle is pressing its key; the menu stays open with the new label', () => {
+  const m = menuSetup()
+  m.router.press('SPC'); m.router.press('v')
+  const before = m.item('l').querySelector('.m-wk-state').textContent
+  m.state.ctx = browse({ hidden: { deferred: true } })
+  m.item('l').click()
+  assert.deepEqual(m.sent, ['view.deferred'])
+  assert.equal(m.view.el.hidden, false)
+  assert.deepEqual(m.router.state().menu, ['SPC', 'v'])
+  const after = m.item('l').querySelector('.m-wk-state').textContent
+  assert.notEqual(after, before)
+  assert.equal(after, menuLayer(['SPC', 'v'], m.state.ctx).items.find((i) => i.key === 'l').state.label)
+})
+
+test('menu: clicking an action closes the menu; clicking a layer opens it; Backspace goes up', () => {
+  const m = menuSetup()
+  m.router.press('SPC')
+  m.item('v').click()
+  assert.equal(m.view.el.querySelector('.m-wk-title').textContent, 'SPC › 보기')
+  m.router.press('Backspace')
+  assert.equal(m.view.el.querySelector('.m-wk-title').textContent, '메뉴')
+  m.item('g').click()
+  m.item('b').click()
+  assert.deepEqual(m.sent, ['tab.board'])
+  assert.equal(m.view.el.hidden, true)
+  m.router.press('SPC')
+  m.router.press('Esc')
+  assert.equal(m.view.el.hidden, true)
+})
+
+test('help: sections, rows with kbd chips, unavailable rows dimmed', () => {
+  const { document } = new JSDOM('<!doctype html><body></body>').window
+  const help = createHelp(document, { platform: 'mac' })
+  document.body.append(help.el)
+  assert.equal(help.el.hidden, true)
+  const ctx = browse({ detail: false })
+  help.open('browse', ctx)
+  assert.equal(help.isOpen(), true)
+  assert.equal(help.el.getAttribute('role'), 'dialog')
+  const sections = helpSections('browse', ctx, 'mac')
+  assert.deepEqual([...help.el.querySelectorAll('.m-help-title')].map((n) => n.textContent), sections.map((s) => s.title))
+  const rows = [...help.el.querySelectorAll('.m-help-row')]
+  assert.equal(rows.length, sections.reduce((n, s) => n + s.rows.length, 0))
+  const first = sections[0].rows[0]
+  assert.equal(rows[0].querySelector('.m-help-label').textContent, first.label)
+  assert.deepEqual([...rows[0].querySelectorAll('kbd')].map((k) => k.textContent), first.keys.map(keyLabel))
+  const unavailable = sections.flatMap((s) => s.rows).filter((r) => !r.available)
+  assert.ok(unavailable.length > 0, 'some row is unavailable with the detail pane closed')
+  assert.equal(help.el.querySelectorAll('[data-available="false"]').length, unavailable.length)
+  // Ctrl chords print as Ctrl-.
+  assert.ok([...help.el.querySelectorAll('kbd')].some((k) => k.textContent.startsWith('Ctrl-')))
+})
+
+test('help: Esc and the close button close it and call onClose', () => {
+  const { document, KeyboardEvent } = new JSDOM('<!doctype html><body></body>').window
+  let closed = 0
+  const help = createHelp(document, { platform: 'other', onClose: () => closed++ })
+  document.body.append(help.el)
+  help.open('browse', browse())
+  help.el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  assert.equal(help.isOpen(), false)
+  assert.equal(closed, 1)
+  help.open('browse', browse())
+  const x = help.el.querySelector('button[aria-label="닫기"]')
+  assert.ok(x.querySelector('svg'))
+  x.click()
+  assert.equal(help.isOpen(), false)
+  assert.equal(closed, 2)
+  help.close()
+  assert.equal(closed, 2)
+})
+
+test('help: the router dispatches help for ?', () => {
+  const s = setup()
+  s.router.handle({ key: '?' })
+  assert.deepEqual(s.ids(), ['help'])
+})
+
+test('kbdHint: kbd chips with key labels; focus hint text', () => {
+  const { document } = new JSDOM('<!doctype html><body></body>').window
+  assert.equal(kbdHint(document, '/').querySelector('kbd').textContent, '/')
+  assert.deepEqual([...kbdHint(document, ['C-d', 'g g']).querySelectorAll('kbd')].map((k) => k.textContent), ['Ctrl-d', 'gg'])
+  assert.equal(focusHint(document).textContent, '클릭하면 키보드를 쓸 수 있습니다')
+})

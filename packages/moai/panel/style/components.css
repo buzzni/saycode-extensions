@@ -94,6 +94,26 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
 .m-menu-item[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .m-menu-sep { height: 1px; margin: 4px 0; background: var(--border); border: 0; }
 
+/* SPC which-key menu and the shortcut help overlay reuse the .m-menu surface. */
+.m-whichkey, .m-help { position: fixed; }
+.m-whichkey[hidden], .m-help[hidden] { display: none; }
+.m-whichkey { left: 50%; bottom: 12px; transform: translateX(-50%); width: min(520px, calc(100vw - 24px)); max-width: none; }
+.m-wk-title { padding: 4px 8px 6px; color: var(--muted); font: 600 12px var(--font); }
+.m-wk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px; }
+.m-wk-item { min-width: 0; }
+.m-wk-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-wk-state { flex: 0 0 auto; color: var(--muted); font: 11px var(--mono); }
+.m-wk-footer { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; padding: 6px 8px 2px; border-top: 1px solid var(--border-soft); color: var(--muted); font-size: 11px; }
+.m-wk-control { display: inline-flex; align-items: center; gap: 4px; }
+.m-help { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 24px)); max-height: 80vh; padding: 0; }
+.m-help-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--border-soft); background: var(--bg); }
+.m-help-body { padding: 4px 12px 12px; }
+.m-help-title { margin: 12px 0 4px; color: var(--muted); font: 600 12px var(--font); }
+.m-help-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; font-size: 13px; }
+.m-help-row[data-available="false"] { opacity: .45; }
+.m-help-keys, .m-kbd-hint { display: inline-flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.m-focus-hint { padding: 4px 8px; color: var(--muted); font-size: 12px; text-align: center; }
+
 /* ---- Chips (5.5) ---- */
 .m-chip {
   display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 0 8px; border: 1px solid var(--border);
