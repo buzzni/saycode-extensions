@@ -48,11 +48,14 @@ test('crumbs: hidden and sort badges only when the view hides something or the o
   assert.equal(lookBadge({ ...state, view: { ...state.view, hideDeferred: false } }, en), null)
   const busy = {
     view: { hiddenStatuses: ['done'], hideDeferred: true, hideBacklog: true, showArchived: false },
-    sort: [{ field: 'priority', descending: false }, { field: 'updated', descending: true }],
+    sort: { fields: [{ key: 'priority', dir: 'asc' }, { key: 'updated', dir: 'desc' }], reversed: false },
   }
   assert.equal(lookBadge(busy, en), 'done · deferred · backlog hidden · sort priority↑, updated↓')
   assert.equal(lookBadge(busy, ko), 'done · 미룸 · 백로그 숨김 · 정렬 우선순위↑, 고친 날↓')
-  assert.equal(sortWords([{ field: 'title', descending: false }], en), 'title↑')
+  assert.equal(sortWords({ fields: [{ key: 'title', dir: 'asc' }], reversed: false }, en), 'title↑')
+  // The column is `status`, as data/query.ts and the key table name it; a turned list says so.
+  assert.equal(sortWords({ fields: [{ key: 'status', dir: 'asc' }], reversed: true }, ko), '칸↑ (뒤집음)')
+  assert.equal(lookBadge({ view: { ...state.view, hideDeferred: false }, sort: { fields: [{ key: 'priority', dir: 'asc' }], reversed: true } }, en), 'sort priority↑ (reversed)')
 })
 
 test('crumbs: a search or filter that is on is a badge of its own; the filter wins', () => {
@@ -60,7 +63,7 @@ test('crumbs: a search or filter that is on is a badge of its own; the filter wi
   assert.equal(hungBadge({ search: 'grid' }), '/grid')
   assert.equal(hungBadge({ search: 'grid', filter: 'status=todo' }), 'status=todo')
   assert.equal(hungBadge({ search: '', filter: '   ' }), null)
-  const line = crumbLine({ ...initialState(), path: ['m:se-m1'], search: 'x' }, index, en)
+  const line = crumbLine({ ...initialState(), path: ['m:se-m1'], search: { text: 'x', scope: 'all', open: true } }, index, en)
   assert.deepEqual(line.segments.map((segment) => segment.label), ['/', 'v2.0'])
   assert.equal(line.hung, '/x')
 })
@@ -191,12 +194,14 @@ test('shell: tabs switch the pane shown and the choice is remembered', () => {
   assert.ok(panel.$('.m-pane-main[data-pane="board"] .m-board-pane .m-lane'), 'the board view drew its status columns')
   assert.equal(JSON.parse(storage.items.get(MEMORY_KEY)).tab, 'board')
 
-  // The wiki tab: no path line or add field; a placeholder until the wiki view is named in panes.ts.
+  // The wiki tab: no path line, toolbar or add field; without the wiki's reads it says it cannot read the wiki.
+  assert.equal(panel.$('.m-toolbar-slot').hidden, false)
   panel.tab('wiki').click()
   assert.equal(panel.$('.m-shell-head').hidden, true)
+  assert.equal(panel.$('.m-toolbar-slot').hidden, true)
   assert.equal(panel.$('#m-panel-wiki').hidden, false)
   assert.equal(panel.$('#m-panel-list').hidden, true)
-  assert.equal(panel.$('#m-panel-wiki .m-empty-title').textContent, en.shell.wikiPlaceholder)
+  assert.equal(panel.$('#m-panel-wiki .m-empty-title').textContent, en.shell.wikiUnavailable)
 
   // The tab bar's refresh time reads again.
   assert.match(panel.$('.moai-refresh').textContent, /^↻ \d{2}:\d{2}:\d{2}$/)

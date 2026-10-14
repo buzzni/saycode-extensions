@@ -8,7 +8,7 @@ import { isDone, type IssueIndex, type Row } from '../data/index.js'
 import type { State } from '../store.js'
 import { BACKLOG, DEFERRED, groupBoard, type BoardLane } from './board-groups.ts'
 import { segLabel } from './crumbs.ts'
-import { statusGlyph, statusOf } from './list-model.ts'
+import { narrow, statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
@@ -20,7 +20,9 @@ const priorityClass = (priority: number) => `m-p${Math.min(3, Math.max(0, Math.r
 
 function draw(ctx: ViewContext, state: State, index: IssueIndex): HTMLElement[] {
   const { document: doc, copy, intents } = ctx
-  const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort })
+  // The board is a layout of the list: the same filter and search narrow it (list-model.ts narrow).
+  const narrowed = narrow(state, index)
+  const model = groupBoard(index, { path: state.path, view: state.view, cursor: state.cursor, sort: state.sort, match: narrowed.match, reveal: narrowed.searching })
   if (!model.total) return [emptyState(doc, { icon: 'kanban', title: copy.empty })]
 
   const nameOf = (key: string) =>

@@ -80,7 +80,13 @@ test('groupBoard: the board is a layout of the list: done rows past the archive 
   assert.deepEqual(cards(groupBoard(idx, look({ cursor: 'd1' })), 'done'), ['d1', 'd2'], 'the cursor card is kept')
   // Without sort keys: (priority, id). With the list's: its order, a title without regard to case.
   assert.deepEqual(cards(hidden, 'todo'), ['t3', 't1', 't2'])
-  assert.deepEqual(cards(groupBoard(idx, look({ sort: [{ field: 'title', descending: false }] })), 'todo'), ['t2', 't1', 't3'])
+  assert.deepEqual(cards(groupBoard(idx, look({ sort: { fields: [{ key: 'title', dir: 'asc' }], reversed: false } })), 'todo'), ['t2', 't1', 't3'])
+  // The list's filter and search narrow the cards; a search also lifts the view's hiding (the archive here).
+  const lit = new Set(['t1', 'd1'].map((id) => idx.find(id)))
+  const narrowed = groupBoard(idx, look({ match: (at) => lit.has(at) }))
+  assert.deepEqual([cards(narrowed, 'todo'), cards(narrowed, 'done')], [['t1'], []])
+  const found = groupBoard(idx, look({ match: (at) => lit.has(at), reveal: true }))
+  assert.deepEqual([cards(found, 'todo'), cards(found, 'done')], [['t1'], ['d1']])
 })
 
 test('groupBoard: a thought that is closed is not a card', () => {

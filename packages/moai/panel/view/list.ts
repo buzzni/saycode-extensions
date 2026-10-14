@@ -10,13 +10,15 @@
 // handles only arrows, Home/End, Enter and Backspace, and leaves an event it handled `defaultPrevented`.
 
 import { pathKey, priorityOf, type IssueIndex, type Keep, type Order, type Path } from "../data/index.ts"
-import type { SortField, State } from "../store.ts"
+import { sortEdit, sees, type SortKey } from "../data/query.ts"
+import type { State } from "../store.ts"
 import { button, el, emptyState, icon } from "./components.ts"
 import { segLabel } from "./crumbs.ts"
 import {
-  columnSet, firstKey, folderOf, HEAD_SORT, headSort, hiddenUnder, hidesAnything, listLines, moveKey, parentLine, segKey, shortDate, SHOW_ALL,
-  sortOrder, statusGlyph, statusOf, twigText, viewKeep, windowRange, revealOffset, type ColumnSet, type ListLine, type RightColumn,
+  columnSet, firstKey, folderOf, HEAD_SORT, hiddenUnder, hidesAnything, listLines, moveKey, narrow, parentLine, segKey, shortDate, SHOW_ALL,
+  sortOrder, statusGlyph, statusOf, twigText, windowRange, revealOffset, type ColumnSet, type ListLine, type RightColumn,
 } from "./list-model.ts"
+import { highlight } from "./toolbar.ts"
 import type { MountPane, PaneView } from "./types.ts"
 
 /** Every line is this tall (look-and-feel §5.6); the virtual scroll depends on it. */
@@ -31,6 +33,8 @@ interface Model {
   /** What the lines were computed from, to skip the work when only the cursor or the detail changed. */
   key: string
   keep: Keep
+  /** Rows only the search shows (the view hides them): drawn dim and marked hidden. */
+  revealed: Keep
   order: Order
   lines: ListLine[]
   at: Map<string, number>
@@ -75,9 +79,11 @@ export const mountList: MountPane = (root, ctx): PaneView => {
   // ── model ──
 
   function compute(current: State, index: IssueIndex): Model {
-    const key = JSON.stringify([current.path, current.expanded, current.view, current.sort])
+    const key = JSON.stringify([current.path, current.expanded, current.view, current.sort, current.search.text, current.search.scope, current.filter.applied])
     if (model && model.index === index && model.key === key) return model
-    const keep = viewKeep(current.view, index)
+    // The view toggles, the applied filter and the search, through data/query.ts (list-model.ts narrow).
+    const narrowed = narrow(current, index)
+    const keep = narrowed.keep
     const order = sortOrder(current.sort, index)
     const lines = listLines(current, index, keep, order)
     const at = new Map<string, number>()
@@ -86,7 +92,7 @@ export const mountList: MountPane = (root, ctx): PaneView => {
       if (!at.has(line.key)) at.set(line.key, n)
       if (line.kind === "row") idWidth = Math.max(idWidth, line.key.length)
     })
-    return { index, key, keep, order, lines, at, hidden: hiddenUnder(index, current.path, keep), idWidth: Math.min(idWidth, 18) }
+    return { index, key, keep, revealed: narrowed.revealed, order, lines, at, hidden: hiddenUnder(index, current.path, narrowed.hidden), idWidth: Math.min(idWidth, 18) }
   }
 
   // ── places ──
@@ -144,9 +150,11 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     const index = m.index
     const row = line.kind === "row" ? index.rows[line.at]! : null
     const folder = folderOf(line)
-    const dim = line.kind === "row" && !m.keep(line.at)
+    const revealed = line.kind === "row" && m.revealed(line.at)
+    const dim = line.kind === "row" && (!m.keep(line.at) || revealed)
     const node = el(doc, "div", {
       class: `m-row moai-line${dim ? " m-row-dim" : ""}`,
+      "data-revealed": revealed ? "" : null,
       role: "row",
       id: `${uid}-${n}`,
       "aria-rowindex": n + 2,
@@ -169,7 +177,15 @@ export const mountList: MountPane = (root, ctx): PaneView => {
       node.append(el(doc, "span", { class: "moai-c-toggle", role: "gridcell" }, toggle))
     } else node.append(cell("moai-c-toggle"))
 
-    if (cols.id) node.append(cell("m-row-meta moai-c-id", row?.id ?? ""))
+    // A search paints its hits in the id and title it looks in (design §4.4).
+    const q = state?.search.text.trim() ?? ""
+    const scope = state?.search.scope ?? "all"
+    const painted = (text: string, part: "id" | "title"): Array<Node | string> => (q && sees(scope, part) ? highlight(doc, text, q) : [text])
+    if (cols.id) {
+      const id = cell("m-row-meta moai-c-id")
+      id.append(...painted(row?.id ?? "", "id"))
+      node.append(id)
+    }
     if (cols.priority) {
       const p = row ? (typeof row.priority === "number" || !folder ? priorityOf(row) : undefined) : undefined
       node.append(cell(`moai-c-p${p === undefined ? "" : ` m-p${Math.max(0, Math.min(3, p))}`}`, p === undefined ? "" : `p${p}`))
@@ -185,7 +201,8 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     const twig = line.kind === "up" ? "" : twigText(line.twig)
     if (twig) title.append(el(doc, "span", { class: "moai-twig", "aria-hidden": "true" }, twig))
     const name = line.kind === "up" ? copy.up : line.kind === "bucket" ? segLabel(line.seg, index, copy) : String(row!.title ?? row!.id)
-    title.append(`${name}${folder ? "/" : ""}`)
+    title.append(...(line.kind === "row" ? painted(name, "title") : [name]), folder ? "/" : "")
+    if (revealed) title.append(" ", el(doc, "span", { class: "m-chip moai-hidden-mark" }, words.hiddenMark))
     if (line.kind === "up") title.setAttribute("aria-label", words.upLabel)
     else title.title = name
     node.append(title)
@@ -207,18 +224,21 @@ export const mountList: MountPane = (root, ctx): PaneView => {
   }
 
   function drawHead(cols: ColumnSet, current: State) {
-    const sorted = current.sort[0]
+    const sorted = current.sort.fields[0]
+    // The whole list turned around flips what the leading field reads as.
+    const descending = sorted ? (sorted.dir === "desc") !== current.sort.reversed : false
     const headCell = (className: string, column: keyof typeof words.heads, text: string) => {
       const span = el(doc, "span", { class: `${className} moai-head`, role: "columnheader" })
-      const field = HEAD_SORT[column as keyof typeof HEAD_SORT] as SortField | undefined
+      const field = HEAD_SORT[column as keyof typeof HEAD_SORT] as SortKey | undefined
       if (!field) {
         span.append(text)
         return span
       }
-      const on = sorted?.field === field
-      if (on) span.setAttribute("aria-sort", sorted!.descending ? "descending" : "ascending")
-      const sort = el(doc, "button", { type: "button", class: "moai-head-sort", tabindex: -1, title: words.sortBy(words.heads[column]), "data-sort": field }, `${text}${on ? (sorted!.descending ? "↓" : "↑") : ""}`)
-      sort.addEventListener("click", () => keepFocus(() => intents.dispatch({ type: "sort", sort: headSort(current.sort, field) })))
+      const on = sorted?.key === field
+      if (on) span.setAttribute("aria-sort", descending ? "descending" : "ascending")
+      const sort = el(doc, "button", { type: "button", class: "moai-head-sort", tabindex: -1, title: words.sortBy(words.heads[column]), "data-sort": field }, `${text}${on ? (descending ? "↓" : "↑") : ""}`)
+      // A click is `SPC s <key>`: that field alone, its direction turned when it already is the only one.
+      sort.addEventListener("click", () => keepFocus(() => intents.dispatch({ type: "sort", sort: sortEdit(current.sort, field, "replace") })))
       span.append(sort)
       return span
     }
@@ -292,7 +312,7 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     showAll.hidden = !hidesAnything(current.view)
 
     const nothing = !model.lines.some((line) => line.kind !== "up")
-    head.hidden = !columns.header || nothing
+    head.hidden = !columns.names || nothing
     if (!head.hidden) drawHead(columns, current)
     empty.hidden = !nothing
     empty.replaceChildren(...(nothing ? [emptyState(doc, { title: copy.empty })] : []))

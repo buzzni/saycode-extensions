@@ -4,8 +4,9 @@
 // tests/moai-e3-list.test.mjs checks them.
 
 import { archiveCandidate, isBacklog, isGroup, LOST, NO_MILESTONE, pathKey, type IssueIndex, type Keep, type Order, type Path, type Row, type Seg, type Twig } from "../data/index.ts"
-import { orderBy, type SortField as QuerySortField, type SortKey as QuerySortKey } from "../data/query.ts"
-import type { ColumnName, SortField, SortKey, State, ViewSettings } from "../store.ts"
+import { applyFilter, hits, orderBy, parseFilter, type Flags, type Sort, type SortField, type SortKey } from "../data/query.ts"
+import type { HiddenReason } from "../i18n/index.ts"
+import type { ColumnName, State, ViewSettings } from "../store.ts"
 import { visibleColumns } from "./responsive.ts"
 
 /** Days a done row stands before it reads as archived (moai's `archive_days` default). */
@@ -48,24 +49,99 @@ function stamps(index: IssueIndex, at: number): Row[] {
   return out
 }
 
-/** What the view toggles keep (`SPC v`): hidden columns, deferred, backlog and archived rows go. */
-export function viewKeep(view: ViewSettings, index: IssueIndex, now: Date = new Date(), archiveDays = ARCHIVE_DAYS): Keep {
+/**
+ * Why the view toggles (`SPC v`) hide a row, or undefined when they show it: a hidden status column, a
+ * deferral, the backlog, or the archive (done rows past the archive age, unless archived rows are shown).
+ */
+export function viewHides(view: ViewSettings, index: IssueIndex, now: Date = new Date(), archiveDays = ARCHIVE_DAYS): (at: number) => HiddenReason | undefined {
   const hidden = new Set(view.hiddenStatuses)
   return (at) => {
     const row = index.rows[at]!
-    if (hidden.size && hidden.has(statusOf(row))) return false
-    if (view.hideDeferred && index.shelvedAt(at) !== undefined) return false
-    if (view.hideBacklog && isBacklog(row)) return false
-    if (view.showArchived) return true
-    return !archiveCandidate(row, now, archiveDays, isGroup(row) ? stamps(index, at) : undefined)
+    if (hidden.size && hidden.has(statusOf(row))) return "column"
+    if (view.hideDeferred && index.shelvedAt(at) !== undefined) return "deferred"
+    if (view.hideBacklog && isBacklog(row)) return "backlog"
+    if (view.showArchived) return undefined
+    return archiveCandidate(row, now, archiveDays, isGroup(row) ? stamps(index, at) : undefined) ? "archived" : undefined
   }
 }
 
-/** How many rows under `path`, at any depth, the view hides. */
-export function hiddenUnder(index: IssueIndex, path: Path, keep: Keep): number {
-  let hidden = 0
-  for (const at of index.descendants(path)) if (!keep(at)) hidden++
-  return hidden
+/** What the view toggles keep (`SPC v`): hidden columns, deferred, backlog and archived rows go. */
+export function viewKeep(view: ViewSettings, index: IssueIndex, now: Date = new Date(), archiveDays = ARCHIVE_DAYS): Keep {
+  const hides = viewHides(view, index, now, archiveDays)
+  return (at) => hides(at) === undefined
+}
+
+/**
+ * The flags the filter text is read with. The panel's view toggles do all the hiding (done by status column,
+ * deferred, backlog, the archive — {@link viewHides}), so the filter's own CLI defaults are all opened here and
+ * the two never disagree about a row. Polarity: query.ts's flags say "let in" (`archived: true` lets the
+ * archive in), as the store's `view.showArchived` does; the store's `hide*` toggles are the other way and are
+ * read only by viewHides.
+ */
+export const FILTER_FLAGS: Flags = { all: true, archived: true, backlog: true }
+
+/** The rows the list and board draw, from the view toggles, the applied filter and the search. */
+export interface Narrow {
+  /** Drawn: what the filter passes and, with a search on, what it finds whether the view hides it or not
+   *  (design §4.4: a search lifts the view's hiding); with no search, what the view keeps. */
+  keep: Keep
+  /** What the filter passes and the search (when on) finds, whatever the view hides (the board's cards). */
+  match: Keep
+  /** A drawn row that the view hides and only the search shows: drawn dim, marked hidden. */
+  revealed: Keep
+  /**
+   * The rows the "N hidden" notes count: the view hides them, and the user's own filter and search would show
+   * them. A row the filter drops is not "hidden", it is filtered; a row the CLI would hide by default but the
+   * view shows (a done row in an unhidden column) is not hidden either.
+   */
+  hidden: Keep
+  /** Why the view hides a row the search found, by the row itself (the toolbar's note); undefined otherwise. */
+  hiddenBy: (row: Row) => HiddenReason | undefined
+  searching: boolean
+}
+
+type NarrowState = Pick<State, "view"> & { search: Pick<State["search"], "text" | "scope">; filter: Pick<State["filter"], "applied"> }
+
+let narrowed: { index: IssueIndex; key: string; value: Narrow } | null = null
+
+/** {@link Narrow} for a state; the list, the board, the toolbar and main.ts share one answer per change. */
+export function narrow(state: NarrowState, index: IssueIndex, now: Date = new Date()): Narrow {
+  const key = JSON.stringify([state.view, state.search.text, state.search.scope, state.filter.applied])
+  if (narrowed && narrowed.index === index && narrowed.key === key) return narrowed.value
+  const hides = viewHides(state.view, index, now)
+  const parsed = parseFilter(state.filter.applied, FILTER_FLAGS)
+  // The store applies only a text that parses; a bad one here (set from outside) narrows nothing.
+  const passed = state.filter.applied.trim() !== "" && parsed.ok ? new Set(applyFilter(index.rows, parsed.value, { now: now.toISOString().replace(/\.\d+Z$/, "Z") })) : null
+  const q = state.search.text.trim()
+  const searching = q !== ""
+  const wanted = (at: number) => {
+    const row = index.rows[at]!
+    return (passed === null || passed.has(row)) && (!searching || hits(row, q, state.search.scope))
+  }
+  const value: Narrow = {
+    match: wanted,
+    keep: (at) => wanted(at) && (searching || hides(at) === undefined),
+    revealed: (at) => searching && wanted(at) && hides(at) !== undefined,
+    hidden: (at) => !searching && wanted(at) && hides(at) !== undefined,
+    hiddenBy: (() => {
+      let place: Map<Row, number> | null = null
+      return (row: Row) => {
+        place ??= new Map(index.rows.map((one, at) => [one, at]))
+        const at = place.get(row)
+        return at === undefined || !wanted(at) ? undefined : hides(at)
+      }
+    })(),
+    searching,
+  }
+  narrowed = { index, key, value }
+  return value
+}
+
+/** How many rows under `path`, at any depth, `hidden` holds ({@link Narrow.hidden}). */
+export function hiddenUnder(index: IssueIndex, path: Path, hidden: Keep): number {
+  let count = 0
+  for (const at of index.descendants(path)) if (hidden(at)) count++
+  return count
 }
 
 /** `SPC v a`: lift the column, deferred and backlog hiding; archived rows stay as they are. */
@@ -76,43 +152,21 @@ export const hidesAnything = (view: ViewSettings): boolean => view.hiddenStatuse
 
 // ── order ──────────────────────────────────────────────────────────────
 
-/** The direction a field sorts in when it is first chosen. */
-export const defaultDescending = (field: SortField): boolean => field === "created" || field === "updated"
-
-/** The store's sort fields under the names data/query.ts orders by (its `status` is the store's `column`). */
-const QUERY_KEY: Record<SortField, QuerySortKey> = {
-  priority: "priority",
-  created: "created",
-  updated: "updated",
-  column: "status",
-  assignee: "assignee",
-  title: "title",
-}
-
 /**
- * The rows' order for these sort keys. It is moai's `order_by` as data/query.ts ports it — the one that
+ * The rows' order for a sort. It is moai's `order_by` as data/query.ts ports it — the one that
  * tests/moai-query.test.mjs holds to the order `moai show --sort` prints: field by field (a title compares
  * without regard to case, an unassigned row goes last when ascending), then `(priority, id)`, or only the id
- * when the last field is a date. A second implementation here ordered titles by code unit (every capital
- * before every small letter) and kept a missing value last in both directions.
+ * when the last field is a date; `reversed` turns the whole list. The store keeps query.ts's {@link Sort}.
  */
-export function sortCompare(sort: ReadonlyArray<SortKey>): (a: Row, b: Row) => number {
-  // A field this table does not know (another module's name for one) orders nothing, instead of throwing.
-  const fields: QuerySortField[] = sort.flatMap((key) => (QUERY_KEY[key.field] ? [{ key: QUERY_KEY[key.field], dir: key.descending ? ("desc" as const) : ("asc" as const) }] : []))
-  return (a, b) => orderBy(a, b, fields)
+export function sortCompare(sort: Sort | ReadonlyArray<SortField>): (a: Row, b: Row) => number {
+  const { fields, reversed } = "fields" in sort ? sort : { fields: sort, reversed: false }
+  return (a, b) => orderBy(a, b, fields, reversed)
 }
 
 /** {@link sortCompare} over the index's row positions, as {@link IssueIndex.entries} takes it. */
-export function sortOrder(sort: ReadonlyArray<SortKey>, index: IssueIndex): Order {
+export function sortOrder(sort: Sort | ReadonlyArray<SortField>, index: IssueIndex): Order {
   const compare = sortCompare(sort)
   return (a, b) => compare(index.rows[a]!, index.rows[b]!)
-}
-
-/** The order after clicking a column head, as `SPC s <key>`: that field alone, flipped when it already led. */
-export function headSort(sort: ReadonlyArray<SortKey>, field: SortField): SortKey[] {
-  const first = sort[0]
-  if (first?.field === field) return [{ field, descending: !first.descending }]
-  return [{ field, descending: defaultDescending(field) }]
 }
 
 // ── lines ──────────────────────────────────────────────────────────────
@@ -197,7 +251,7 @@ export interface ColumnSet {
   priority: boolean
   counts: boolean
   /** The sticky name line on top. */
-  header: boolean
+  names: boolean
   right: RightColumn[]
 }
 
@@ -207,15 +261,15 @@ export function columnSet(columns: Record<ColumnName, boolean>, width: number): 
     id: columns.id,
     priority: columns.priority,
     counts: columns.counts,
-    header: columns.header,
+    names: columns.names,
     right: visibleColumns(width, RIGHT.filter((column) => columns[column])),
   }
 }
 
-/** The sort field a column head sorts by; heads without one do not sort. */
-export const HEAD_SORT: Partial<Record<"priority" | "status" | "title" | RightColumn, SortField>> = {
+/** The sort field a column head sorts by; heads without one do not sort. A click is `SPC s <key>` (query.ts sortEdit replace). */
+export const HEAD_SORT: Partial<Record<"id" | "priority" | "status" | "title" | RightColumn, SortKey>> = {
   priority: "priority",
-  status: "column",
+  status: "status",
   title: "title",
   assignee: "assignee",
   created: "created",

@@ -4,8 +4,9 @@
  * milestone a row stands under, `shelvedAt` for deferral. This file only sorts those answers into a grid.
  * Epics and milestones are not cards; they are lane heads.
  */
-import { archiveCandidate, displayOrder, isBacklog, isDone, isWork, LOST, NO_MILESTONE, type IssueIndex, type Path, type Row, type Seg } from '../data/index.js'
-import type { SortKey, ViewSettings } from '../store.js'
+import { archiveCandidate, displayOrder, isBacklog, isDone, isWork, LOST, NO_MILESTONE, type IssueIndex, type Keep, type Path, type Row, type Seg } from '../data/index.js'
+import type { Sort } from '../data/query.js'
+import type { ViewSettings } from '../store.js'
 import { ARCHIVE_DAYS, sortCompare } from './list-model.ts'
 
 /** The columns a board has when the project's own list of statuses is not known, in board order. */
@@ -44,8 +45,14 @@ export interface BoardLook {
   view: Pick<ViewSettings, 'hiddenStatuses' | 'hideDeferred' | 'hideBacklog'> & Partial<Pick<ViewSettings, 'showArchived'>>
   /** The id under the cursor: its column stays even when hidden, so the cursor never vanishes. */
   cursor: string | null
-  /** The list's sort keys, so a card stands where its row stands in the list; left out, moai's default order. */
-  sort?: ReadonlyArray<SortKey>
+  /** The list's order, so a card stands where its row stands in the list; left out, moai's default order. */
+  sort?: Sort
+  /**
+   * The list's filter and search (list-model.ts narrow): a card must pass it. With `reveal` (a search is on) it
+   * also lifts the view's hiding, as the list does, and a hidden column with a found card in it shows.
+   */
+  match?: Keep
+  reveal?: boolean
   /** What "now" is for the archive age; the clock when left out. */
   now?: Date
 }
@@ -96,14 +103,18 @@ export function groupBoard(index: IssueIndex, look: BoardLook, known: readonly s
   const cursorColumn = cursorAt === undefined ? undefined : columnOf(index, cursorAt)
 
   // A hidden column goes, and so does a row the list would archive; a card that has the cursor keeps its place.
+  const match = look.match ?? (() => true)
   const shown = (at: number) => {
     if (at === cursorAt) return true
+    if (!match(at)) return false
+    if (look.reveal) return true
     if (hides(columnOf(index, at))) return false
     // Cards are work and open thoughts: a group is never a card, so no members to date it by.
     return view.showArchived === true || !archiveCandidate(index.rows[at]!, now, ARCHIVE_DAYS)
   }
-  const keys = all.filter((key) => !hides(key) || key === cursorColumn)
   const kept = cards.filter(shown)
+  const found = look.reveal ? new Set(kept.map((at) => columnOf(index, at))) : null
+  const keys = all.filter((key) => !hides(key) || key === cursorColumn || found?.has(key))
 
   const compare = look.sort ? sortCompare(look.sort) : displayOrder
   const order = (a: number, b: number) => compare(index.rows[a]!, index.rows[b]!)

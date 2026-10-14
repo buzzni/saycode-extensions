@@ -8,6 +8,8 @@ import { banner, button, chip, el, emptyState, listRow, searchBox, type ChipTone
 import { githubAnchor, renderMarkdown, type LinkTarget } from "./markdown.ts"
 import { FORCE_BOTTOM_BELOW } from "./responsive.ts"
 import { createSplit, normalizeRatio } from "./split.ts"
+import type { IssueIndex } from "../data/index.ts"
+import type { MountPane, PaneView } from "./types.ts"
 
 // ---- Data shapes (`moai wiki ls --json` / `moai wiki show <slug> --json`) ----
 
@@ -1027,5 +1029,62 @@ export function createWikiView(doc: Document, props: WikiViewProps): WikiView {
       if (flashTimer) clearTimeout(flashTimer)
       split.destroy()
     },
+  }
+}
+
+// ---- The wiki tab's pane (view/panes.ts) ----
+
+/**
+ * The wiki view in the shell's wiki panel (contract: view/types.ts). Pages come from `ctx.wiki` — read once,
+ * the first time the tab shows — and the view's state is saved into the store (`wiki`) as the tab is left and
+ * given back from it when the pane is mounted again. Without a source the tab says the wiki cannot be read.
+ * The view keeps its own keydown listener (standaloneKeys) until the key router calls handleKey instead.
+ */
+export const mountWiki: MountPane = (root, ctx): PaneView => {
+  const { document: doc, copy, intents } = ctx
+  const source = ctx.wiki
+  if (!source) {
+    root.replaceChildren(emptyState(doc, { icon: "book-open", title: copy.shell.wikiUnavailable }))
+    return { render() {} }
+  }
+  let index: IssueIndex | null = null
+  let started = false
+  const view = createWikiView(doc, {
+    loadPage: (slug) => source.page(slug),
+    // An issue id in a page: the list tab, at the place the row is listed, with the row chosen.
+    onIssue: (id) => {
+      intents.dispatch({ type: "tab", tab: "list" })
+      const at = index?.find(id)
+      if (at !== undefined) intents.enter(index!.homeOf(at), id)
+      intents.choose(id)
+    },
+  })
+  root.replaceChildren(view.el)
+
+  async function list(): Promise<void> {
+    view.setLoading(true)
+    try {
+      const parsed = parseWikiLs(await source!.list())
+      if (parsed.ok) view.setPages(parsed.value.pages, parsed.value.dir)
+      else view.setError(copy.shell.wikiListFailed(parsed.error))
+    } catch (reason) {
+      view.setError(copy.shell.wikiListFailed(reason instanceof Error ? reason.message : String(reason)))
+    }
+  }
+
+  return {
+    render(state, current) {
+      index = current
+      view.setWidth(ctx.layout().width)
+      if (started) return
+      started = true
+      // The saved page first: the listing opens the first page only when no page is shown.
+      void view.restore(state.wiki).then(list)
+    },
+    focus: () => view.focusPane(view.state().pane),
+    handleKey: (event) => view.handleKey(event),
+    toggleRaw: () => view.toggleRaw(),
+    leave: () => intents.dispatch({ type: "wiki", wiki: view.state() }),
+    destroy: () => view.destroy(),
   }
 }

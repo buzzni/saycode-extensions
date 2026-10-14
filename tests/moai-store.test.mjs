@@ -14,8 +14,10 @@ test('the panel starts on the list with the TUI defaults', () => {
   assert.equal(state.cursor, null)
   assert.deepEqual(state.detail, { visible: true, position: 'bottom', ratio: { left: 0.45, bottom: 0.3 } })
   assert.equal(state.view.hideDeferred, true)
-  assert.deepEqual(state.sort, [{ field: 'priority', descending: false }])
-  assert.deepEqual(Object.entries(state.columns).filter(([, on]) => on).map(([name]) => name), ['id', 'priority', 'counts', 'header'])
+  assert.deepEqual(state.sort, { fields: [{ key: 'priority', dir: 'asc' }], reversed: false })
+  // The cells are named as the key table's CellField: the name line is `names`.
+  assert.deepEqual(Object.entries(state.columns).filter(([, on]) => on).map(([name]) => name), ['id', 'priority', 'counts', 'names'])
+  assert.deepEqual([state.search, state.filter], [{ text: '', scope: 'all', open: false }, { text: '', applied: '' }])
   assert.deepEqual(COLUMN_DEFAULTS.tags, false)
 })
 
@@ -56,8 +58,41 @@ test('a column turned off stays known and off; an empty sort falls back to prior
   let state = reduce(initialState(), { type: 'column', column: 'id', on: false })
   assert.equal(state.columns.id, false)
   assert.ok(state.columnsKnown.includes('id'))
-  state = reduce(state, { type: 'sort', sort: [] })
-  assert.deepEqual(state.sort, [{ field: 'priority', descending: false }])
+  state = reduce(state, { type: 'sort', sort: { fields: [], reversed: true } })
+  assert.deepEqual(state.sort, { fields: [{ key: 'priority', dir: 'asc' }], reversed: false })
+})
+
+test('the toolbar keeps its state in the store: search as typed, the filter on Enter, the sort through query.ts', () => {
+  const tb = (state, action) => reduce(state, { type: 'toolbar', action })
+  let state = tb(initialState(), { type: 'search-text', text: 'grid' })
+  assert.deepEqual(state.search, { text: 'grid', scope: 'all', open: true })
+  state = tb(state, { type: 'scope-next' })
+  assert.equal(state.search.scope, 'id')
+  // Typing changes the text, not the rows; Enter applies a text that parses, and only that.
+  state = tb(state, { type: 'filter-text', text: 'status=todo', cursor: 11 })
+  assert.deepEqual(state.filter, { text: 'status=todo', applied: '' })
+  assert.equal(state.toolbar.cursor, 11)
+  state = tb(state, { type: 'filter-apply' })
+  assert.deepEqual(state.filter, { text: 'status=todo', applied: 'status=todo' })
+  state = tb(tb(state, { type: 'filter-text', text: 'nope=1', cursor: 6 }), { type: 'filter-apply' })
+  assert.deepEqual(state.filter, { text: 'nope=1', applied: 'status=todo' })
+  // A chip removal applies at once; the `filter` action sets and applies (chips, keys).
+  state = reduce(state, { type: 'filter', text: 'tag=ui tag=bug' })
+  state = tb(state, { type: 'chip-remove', index: 0 })
+  assert.deepEqual(state.filter, { text: 'tag=bug', applied: 'tag=bug' })
+  state = tb(state, { type: 'sort-edit', key: 'status', how: 'replace' })
+  assert.deepEqual(state.sort, { fields: [{ key: 'status', dir: 'asc' }], reversed: false })
+  // A toolbar act that changes nothing keeps the state.
+  assert.equal(tb(state, { type: 'scope-set', scope: 'id' }), state)
+  state = tb(state, { type: 'search-close' })
+  assert.deepEqual(state.search, { text: '', scope: 'id', open: false })
+})
+
+test('the wiki state is the wiki view\'s own shape, saved by a wiki action', () => {
+  const state = initialState()
+  assert.deepEqual(state.wiki, { current: null, cursor: null, trail: [], query: '', raw: false, scrollTop: 0, selectedLink: -1, pane: 'list' })
+  const saved = { ...state.wiki, current: 'guide', trail: [{ slug: 'README', scrollTop: 40 }] }
+  assert.equal(reduce(state, { type: 'wiki', wiki: saved }).wiki, saved)
 })
 
 test('folders unfold and fold by path', () => {

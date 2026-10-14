@@ -3,25 +3,27 @@
  * time (it borrows the layout rules from view/responsive.ts and view/split.ts) — so every transition is
  * tested with `node --test`; views subscribe and render from the state they are given.
  *
- * List and board share the cursor, path, filters and detail (the board is a layout of the list); the
- * wiki tab keeps its own page, trail and search.
+ * List and board share the cursor, path, search, filter, order and detail (the board is a layout of the
+ * list); the wiki tab keeps its own page, trail and search.
+ *
+ * One vocabulary with data/query.ts and keys/table.ts: the order is query.ts's {@link Sort} (its field for the
+ * column is `status`), and the list cells are the key table's `CellField` names (the name line is `names`).
  */
 import type { Outcome } from './data/client.js'
 import { pathKey, type Path, type Row } from './data/index.js'
+import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
+import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
+import type { WikiState } from './view/wiki.js'
 // The split owns the layout rules (the 640px rule, the ratio bounds and defaults); the store keeps the choices.
 import { effectivePosition, type DetailPosition } from './view/responsive.js'
 import { DEFAULT_RATIO, normalizeRatio } from './view/split.js'
 
-export type { DetailPosition }
+export type { DetailPosition, Sort, WikiState }
+export { DEFAULT_SORT }
 export type Tab = 'board' | 'list' | 'wiki'
 export type Focus = 'list' | 'detail'
-export type SortField = 'priority' | 'created' | 'updated' | 'column' | 'assignee' | 'title'
-export type ColumnName = 'id' | 'priority' | 'counts' | 'header' | 'tags' | 'epic' | 'assignee' | 'created' | 'updated'
-
-export interface SortKey {
-  field: SortField
-  descending: boolean
-}
+/** A list cell (`SPC c`), named as keys/table.ts's `CellField`: `names` is the sticky name line on top. */
+export type ColumnName = 'id' | 'priority' | 'counts' | 'names' | 'tags' | 'epic' | 'assignee' | 'created' | 'updated'
 
 export interface ViewSettings {
   /** Status columns hidden from the list and board (`SPC v 1~9`). */
@@ -57,10 +59,26 @@ export interface DetailData {
   row: Row
 }
 
-export interface WikiState {
-  page: string | null
-  trail: { slug: string; scroll: number }[]
-  query: string
+/** The search (`/`): applies as it is typed and lifts the view's hiding (design §4.4). */
+export interface SearchState {
+  text: string
+  scope: GrepScope
+  /** The search row is shown in the toolbar. */
+  open: boolean
+}
+
+/** The filter (`SPC f`): the text as typed, and the text that narrows the rows — Enter or a chip applies it (§4.5). */
+export interface FilterState {
+  text: string
+  applied: string
+}
+
+/** What only the toolbar's drawing needs: the filter caret its hints follow, the hint list, the sort popover. */
+export interface ToolbarUi {
+  cursor: number
+  hintsOpen: boolean
+  hintIndex: number
+  sortOpen: boolean
 }
 
 export interface State {
@@ -76,10 +94,13 @@ export interface State {
   columns: Record<ColumnName, boolean>
   /** Columns the user has seen; a column added later starts at its default, one turned off stays off. */
   columnsKnown: ColumnName[]
-  sort: SortKey[]
-  search: string
+  sort: Sort
+  search: SearchState
+  filter: FilterState
+  toolbar: ToolbarUi
   board: Loadable<BoardData>
   shown: Loadable<DetailData>
+  /** The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left and given back on its return. */
   wiki: WikiState
 }
 
@@ -93,11 +114,43 @@ export interface Remembered {
 }
 
 export const COLUMN_DEFAULTS: Record<ColumnName, boolean> = {
-  id: true, priority: true, counts: true, header: true,
+  id: true, priority: true, counts: true, names: true,
   tags: false, epic: false, assignee: false, created: false, updated: false,
 }
 
-export const DEFAULT_SORT: SortKey[] = [{ field: 'priority', descending: false }]
+export const initialWiki = (): WikiState => ({ current: null, cursor: null, trail: [], query: '', raw: false, scrollTop: 0, selectedLink: -1, pane: 'list' })
+
+const copySort = (sort: Sort): Sort => ({ fields: sort.fields.map((field) => ({ ...field })), reversed: sort.reversed })
+
+/** The toolbar's state as view/toolbar.ts reduces and draws it, read from the store's fields (the one source). */
+export function toolbarOf(state: Pick<State, 'search' | 'filter' | 'sort' | 'toolbar'>): ToolbarState {
+  return {
+    searchOpen: state.search.open,
+    searchText: state.search.text,
+    scope: state.search.scope,
+    filterText: state.filter.text,
+    filterApplied: state.filter.applied,
+    sort: state.sort,
+    ...state.toolbar,
+  }
+}
+
+/** A reduced toolbar state put back into the store's fields; a field that did not change keeps its object. */
+function withToolbar(state: State, next: ToolbarState): State {
+  const search = next.searchText === state.search.text && next.scope === state.search.scope && next.searchOpen === state.search.open
+    ? state.search
+    : { text: next.searchText, scope: next.scope, open: next.searchOpen }
+  const filter = next.filterText === state.filter.text && next.filterApplied === state.filter.applied
+    ? state.filter
+    : { text: next.filterText, applied: next.filterApplied }
+  const ui = state.toolbar
+  const toolbar = next.cursor === ui.cursor && next.hintsOpen === ui.hintsOpen && next.hintIndex === ui.hintIndex && next.sortOpen === ui.sortOpen
+    ? ui
+    : { cursor: next.cursor, hintsOpen: next.hintsOpen, hintIndex: next.hintIndex, sortOpen: next.sortOpen }
+  const sort = next.sort === state.sort ? state.sort : next.sort.fields.length ? copySort(next.sort) : copySort(DEFAULT_SORT)
+  if (search === state.search && filter === state.filter && toolbar === state.toolbar && sort === state.sort) return state
+  return { ...state, search, filter, toolbar, sort }
+}
 
 const idle = <T>(): Loadable<T> => ({ value: null, loading: false, problem: null })
 
@@ -112,11 +165,13 @@ export function initialState(): State {
     view: { hiddenStatuses: [], hideDeferred: true, hideBacklog: false, showArchived: false },
     columns: { ...COLUMN_DEFAULTS },
     columnsKnown: Object.keys(COLUMN_DEFAULTS) as ColumnName[],
-    sort: DEFAULT_SORT.map((key) => ({ ...key })),
-    search: '',
+    sort: copySort(DEFAULT_SORT),
+    search: { text: '', scope: 'all', open: false },
+    filter: { text: '', applied: '' },
+    toolbar: { cursor: 0, hintsOpen: false, hintIndex: -1, sortOpen: false },
     board: idle(),
     shown: idle(),
-    wiki: { page: null, trail: [], query: '' },
+    wiki: initialWiki(),
   }
 }
 
@@ -132,8 +187,16 @@ export type Action =
   | { type: 'detail-ratio'; ratio: number; position?: DetailPosition }
   | { type: 'view'; view: Partial<ViewSettings> }
   | { type: 'column'; column: ColumnName; on: boolean }
-  | { type: 'sort'; sort: SortKey[] }
-  | { type: 'search'; text: string }
+  /** The order (`SPC s`, a name-line click); no fields at all is the default order. */
+  | { type: 'sort'; sort: Sort }
+  /** Search text (and scope); a text opens the search row. */
+  | { type: 'search'; text: string; scope?: GrepScope }
+  /** Set the filter text and apply it at once (a chip, the key router); typing goes through `toolbar`. */
+  | { type: 'filter'; text: string }
+  /** Anything the toolbar did (view/toolbar.ts ToolbarAction), reduced by its own reducer over {@link toolbarOf}. */
+  | { type: 'toolbar'; action: ToolbarAction }
+  /** The wiki view's state, saved as its tab is left. */
+  | { type: 'wiki'; wiki: WikiState }
   | { type: 'board-loading' }
   /** `order` is the ids in the order they were drawn before this read, to place the cursor after it. */
   | { type: 'board-loaded'; data: BoardData; order?: string[] }
@@ -200,9 +263,18 @@ export function reduce(state: State, action: Action): State {
         columnsKnown: state.columnsKnown.includes(action.column) ? state.columnsKnown : [...state.columnsKnown, action.column],
       }
     case 'sort':
-      return { ...state, sort: action.sort.length ? action.sort.map((key) => ({ ...key })) : DEFAULT_SORT.map((key) => ({ ...key })) }
-    case 'search':
-      return { ...state, search: action.text }
+      return { ...state, sort: action.sort.fields.length ? copySort(action.sort) : copySort(DEFAULT_SORT) }
+    case 'search': {
+      const scope = action.scope ?? state.search.scope
+      if (action.text === state.search.text && scope === state.search.scope) return state
+      return { ...state, search: { text: action.text, scope, open: state.search.open || action.text !== '' } }
+    }
+    case 'filter':
+      return withToolbar(state, toolbarReduce({ ...toolbarOf(state), filterText: action.text, cursor: action.text.length }, { type: 'filter-apply' }))
+    case 'toolbar':
+      return withToolbar(state, toolbarReduce(toolbarOf(state), action.action))
+    case 'wiki':
+      return { ...state, wiki: action.wiki }
     case 'board-loading':
       return { ...state, board: { ...state.board, loading: true } }
     case 'board-loaded': {

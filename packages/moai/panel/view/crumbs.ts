@@ -5,7 +5,8 @@
 
 import { LOST, NO_MILESTONE, type IssueIndex, type Path, type Seg } from "../data/index.ts"
 import type { Copy } from "../i18n/index.ts"
-import { DEFAULT_SORT, type SortKey, type State } from "../store.ts"
+import type { Sort } from "../data/query.ts"
+import { DEFAULT_SORT, type State } from "../store.ts"
 import { chip, el } from "./components.ts"
 
 export interface CrumbSegment {
@@ -14,8 +15,8 @@ export interface CrumbSegment {
   path: Path
 }
 
-/** What the path line reads from the state. `filter` is the applied filter text, once the store has one (E4). */
-export type CrumbState = Pick<State, "path" | "view" | "sort" | "search"> & { filter?: string }
+/** What the path line reads from the state: the search text and the applied filter text hang as a badge. */
+export type CrumbState = Pick<State, "path" | "view" | "sort" | "search" | "filter">
 
 export interface CrumbLine {
   segments: CrumbSegment[]
@@ -42,13 +43,15 @@ export function crumbSegments(path: Path, index: IssueIndex | null, copy: Copy):
   ]
 }
 
-/** `priority↑, updated↓` — the TUI's order words. */
-export function sortWords(sort: ReadonlyArray<SortKey>, copy: Copy): string {
-  return sort.map((key) => `${copy.shell.sortFields[key.field]}${key.descending ? "↓" : "↑"}`).join(", ")
+/** `priority↑, updated↓` — the TUI's order words, and `(reversed)` when the whole list is turned. */
+export function sortWords(sort: Sort, copy: Copy): string {
+  const words = sort.fields.map((field) => `${copy.shell.sortFields[field.key]}${field.dir === "desc" ? "↓" : "↑"}`).join(", ")
+  return sort.reversed ? `${words} ${copy.shell.reversed}` : words
 }
 
-const isDefaultSort = (sort: ReadonlyArray<SortKey>): boolean =>
-  sort.length === DEFAULT_SORT.length && sort.every((key, n) => key.field === DEFAULT_SORT[n]!.field && key.descending === DEFAULT_SORT[n]!.descending)
+const isDefaultSort = (sort: Sort): boolean =>
+  !sort.reversed && sort.fields.length === DEFAULT_SORT.fields.length &&
+  sort.fields.every((field, n) => field.key === DEFAULT_SORT.fields[n]!.key && field.dir === DEFAULT_SORT.fields[n]!.dir)
 
 /** What the view hides, then a non-default order, as one badge; null when there is neither. */
 export function lookBadge(state: Pick<CrumbState, "view" | "sort">, copy: Copy): string | null {
@@ -61,15 +64,15 @@ export function lookBadge(state: Pick<CrumbState, "view" | "sort">, copy: Copy):
   return parts.length ? parts.join(" · ") : null
 }
 
-/** The search or filter that narrows the rows now. A filter wins: the TUI hangs one at a time. */
-export function hungBadge(state: Pick<CrumbState, "search" | "filter">): string | null {
+/** The search or filter that narrows the rows now (their texts). A filter wins: the TUI hangs one at a time. */
+export function hungBadge(state: { search: string; filter?: string }): string | null {
   const filter = state.filter?.trim()
   if (filter) return filter
   return state.search ? `/${state.search}` : null
 }
 
 export function crumbLine(state: CrumbState, index: IssueIndex | null, copy: Copy): CrumbLine {
-  return { segments: crumbSegments(state.path, index, copy), look: lookBadge(state, copy), hung: hungBadge(state) }
+  return { segments: crumbSegments(state.path, index, copy), look: lookBadge(state, copy), hung: hungBadge({ search: state.search.text, filter: state.filter.applied }) }
 }
 
 export interface Crumbs {

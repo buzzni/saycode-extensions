@@ -10,7 +10,7 @@ import { createRefresher } from './data/refresh.js'
 import { addTask, loadDetail, loadRows } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { createStore, type State } from './store.js'
-import { listLines, sortOrder, viewKeep } from './view/list-model.js'
+import { listLines, narrow, sortOrder } from './view/list-model.js'
 import { PANES } from './view/panes.js'
 import { mountShell, type Activity } from './view/shell.js'
 
@@ -38,12 +38,12 @@ function indexOf(state: State): IssueIndex | null {
   return indexed.index
 }
 
-/** The ids in the order the list draws them now (its hiding, order and unfolded folders), so a reload can keep the cursor near where it was. */
+/** The ids in the order the list draws them now (its hiding, filter, search, order and unfolded folders), so a reload can keep the cursor near where it was. */
 function drawnOrder(): string[] {
   const state = store.getState()
   const index = indexOf(state)
   if (!index) return []
-  const lines = listLines(state, index, viewKeep(state.view, index), sortOrder(state.sort, index))
+  const lines = listLines(state, index, narrow(state, index).keep, sortOrder(state.sort, index))
   return lines.flatMap((line) => (line.kind === 'row' ? [line.key] : []))
 }
 
@@ -122,6 +122,10 @@ const shell = mountShell(root, {
   panes: PANES,
   index: indexOf,
   activity,
+  // hookup: data layer (se-2c0z) wiki-ls / wiki-show — give the wiki tab its reads here, as
+  // `{ list: () => <wiki ls --json>, page: (slug) => <wiki show <slug> --json> }` (view/types.ts WikiSource).
+  // Until then the wiki tab says it cannot read the wiki.
+  wiki: undefined,
   intents: {
     refresh: () => void refresher.refresh(),
     choose: (id) => void choose(id),

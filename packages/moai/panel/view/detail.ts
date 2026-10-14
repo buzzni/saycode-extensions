@@ -6,6 +6,7 @@
  */
 import { isInformation } from '../data/client.js'
 import type { IssueIndex, Row } from '../data/index.js'
+import { sees } from '../data/query.js'
 import type { State } from '../store.js'
 import { banner, button, chip, el, emptyState } from './components.ts'
 import {
@@ -24,6 +25,7 @@ import {
   workOf,
 } from './detail-format.ts'
 import { renderMarkdown } from './markdown.ts'
+import { highlight } from './toolbar.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
 /** The body as markdown (view/markdown.ts: raw HTML stays text, links are only recorded, never followed). */
@@ -109,7 +111,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
   let shownId: string | null = null
   /** What the pane was drawn from: it is drawn again only when one of them changed (a redraw loses a text
    *  selection and the focus on a folded section's summary, and the shell renders it on every store change). */
-  let drawn: { shown: State['shown']; index: IssueIndex | null } | null = null
+  let drawn: { shown: State['shown']; index: IssueIndex | null; search: State['search'] } | null = null
 
   function closeButton() {
     const close = button(doc, { label: d.close, variant: 'ghost', small: true, icon: 'x', onClick: () => intents.closeDetail() })
@@ -117,7 +119,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     return close
   }
 
-  function content(row: Row, index: IssueIndex | null): Node[] {
+  function content(row: Row, index: IssueIndex | null, search: State['search']): Node[] {
     const head = headOf(row, copy)
     const chips = el(doc, 'div', { class: 'moai-detail-chips' })
     if (head.status) chips.append(chip(doc, { label: head.statusLabel, tone: head.tone }))
@@ -129,8 +131,8 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     const out: Node[] = [
       el(doc, 'div', { class: 'moai-detail-head' },
         el(doc, 'div', { class: 'moai-detail-headtext' },
-          el(doc, 'div', { class: 'moai-detail-id' }, head.id),
-          el(doc, 'h2', { class: 'moai-detail-title' }, head.title),
+          el(doc, 'div', { class: 'moai-detail-id' }, ...painted(head.id, 'id', search)),
+          el(doc, 'h2', { class: 'moai-detail-title' }, ...painted(head.title, 'title', search)),
           chips),
         closeButton()),
     ]
@@ -180,9 +182,13 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     return out
   }
 
+  /** A search paints its hits in the id and title it looks in (design §4.4); the body is drawn as it is. */
+  const painted = (text: string, part: 'id' | 'title', search: State['search']): Array<Node | string> =>
+    search.text.trim() && sees(search.scope, part) ? highlight(doc, text, search.text) : [text]
+
   function render(state: State, index: IssueIndex | null) {
-    if (drawn && drawn.shown === state.shown && drawn.index === index) return
-    drawn = { shown: state.shown, index }
+    if (drawn && drawn.shown === state.shown && drawn.index === index && drawn.search === state.search) return
+    drawn = { shown: state.shown, index, search: state.search }
     const { value, loading, problem } = state.shown
     // Another row's detail starts at the top; the same row redrawn (a refresh) keeps its place.
     const id = value?.id ?? null
@@ -195,7 +201,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
       const said = problemText(problem, copy)
       children.push(banner(doc, isInformation(problem) ? 'info' : 'danger', said ? `${d.problem} ${said}` : d.problem))
     }
-    if (value) children.push(...content(value.row, index))
+    if (value) children.push(...content(value.row, index, state.search))
     else if (loading) children.push(el(doc, 'p', { class: 'moai-detail-loading', role: 'status' }, copy.loading))
     else if (!problem) children.push(emptyState(doc, { title: d.none }))
     view.replaceChildren(...children)

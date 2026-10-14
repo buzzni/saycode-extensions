@@ -1,5 +1,5 @@
-// The panel's frame (design §1): the tab bar (board, list, wiki; the refresh time, the detail toggles), a
-// slot for the toolbar, the path line, the banners, the add field, the run's activity, and under them the
+// The panel's frame (design §1): the tab bar (board, list, wiki; the refresh time, the detail toggles), the
+// search / filter / sort toolbar (view/toolbar.ts, its state in the store), the path line, the banners, the add field, the run's activity, and under them the
 // split holding the list or board beside the detail. The panes are filled by the views named in
 // view/panes.ts through the contract in view/types.ts; the shell renders the panes that show on every store
 // change, and moves the split to the panel's width as it changes.
@@ -11,14 +11,15 @@ import { isInformation, type Outcome } from "../data/client.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
 import type { Copy } from "../i18n/index.ts"
-import type { Focus, State, Store, Tab } from "../store.ts"
+import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
 import { mountCrumbs } from "./crumbs.ts"
 import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
-import { segKey } from "./list-model.ts"
+import { narrow, segKey } from "./list-model.ts"
 import { createPositionToggle, createSplit } from "./split.ts"
 import { createTabs, panelDomId, tabDomId } from "./tabs.ts"
-import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents } from "./types.ts"
+import { createToolbar } from "./toolbar.ts"
+import type { PaneLayout, PaneView, Panes, ViewContext, ViewIntents, WikiSource } from "./types.ts"
 
 export interface Activity {
   /** 'starting' while Desktop may show its confirmation, 'running' once the machine runs it. */
@@ -45,6 +46,8 @@ export interface ShellOptions {
   /** The index of the state's rows; the caller builds it once per read. */
   index(state: State): IssueIndex | null
   activity(): Activity
+  /** The wiki's reads, handed to the wiki pane; without them the wiki tab says it cannot read the wiki. */
+  wiki?: WikiSource
 }
 
 export interface Shell {
@@ -60,8 +63,9 @@ export interface Shell {
   /** The add field; the caller clears it after an add went through. */
   input: HTMLInputElement
   /**
-   * Places other parts mount into: `toolbar` under the tab bar (view/toolbar.ts), `actions` at the end of the
-   * tab bar (the help button). Both are empty and take no room until something is put in them.
+   * Places other parts mount into: `toolbar` under the tab bar (holds the search / filter / sort toolbar, which
+   * the shell mounts; hidden on the wiki tab), `actions` at the end of the tab bar (the help button, empty and
+   * taking no room until something is put in it).
    */
   slots: { toolbar: HTMLElement; actions: HTMLElement }
   /** The panel's width changed. A ResizeObserver on the shell calls this; tests call it by hand. */
@@ -145,7 +149,11 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     el(doc, "div", { class: "m-tabbar-actions" }, refresh, visibility, position.el, actions))
 
   // ── under the tab bar: toolbar slot, path line, activity, banners, add field ──
-  const toolbar = el(doc, "div", { class: "m-toolbar-slot" })
+  const toolbar = el(doc, "div", { class: "m-toolbar-slot", hidden: state.tab === "wiki" })
+  // The toolbar is built once and brought to the store's state on every render (its inputs are never rebuilt
+  // under the caret or an IME composition); what it does goes back to the store as a `toolbar` action.
+  const bar = createToolbar({ doc, copy: copy.toolbar }, { dispatch: (action) => store.dispatch({ type: "toolbar", action }) })
+  toolbar.append(bar.el)
   const crumbs = mountCrumbs(doc, copy, (path) => {
     // Going up lands on the place just left, as Backspace does (list.ts leave()).
     const from = store.getState().path
@@ -239,7 +247,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     const view = mainViews[now.tab]
     return view.focus ? view.focus() : mainRoots[now.tab].focus()
   }
-  const ctx: ViewContext = { document: doc, copy, language, intents: viewIntents, layout, focusPane }
+  const ctx: ViewContext = { document: doc, copy, language, intents: viewIntents, layout, focusPane, wiki: options.wiki }
   const mainViews: Record<"list" | "board", PaneView> = {
     list: options.panes.list(mainRoots.list, ctx),
     board: options.panes.board(mainRoots.board, ctx),
@@ -247,6 +255,14 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const detailView = options.panes.detail(detailRoot, ctx)
   const wikiView = options.panes.wiki?.(wiki, ctx) ?? null
   if (!wikiView) wiki.append(emptyState(doc, { icon: "book-open", title: copy.shell.wikiPlaceholder }))
+  // Inside the wiki, Tab cycles the page's links, so a keyboard cannot Tab out of it: an Esc the wiki did not
+  // use (no link selected, no search to clear — its handleKey returned false and left the event alone) moves
+  // the focus to the tab bar instead.
+  wiki.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return
+    event.preventDefault()
+    tabs.el.querySelector<HTMLElement>(`#${tabDomId(store.getState().tab)}`)?.focus()
+  })
 
   // ── tab switching: each tab keeps its scroll offsets (display:none drops them) ──
   const containers: Record<Tab, HTMLElement> = { list: mainRoots.list, board: mainRoots.board, wiki }
@@ -262,6 +278,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     containers[tab].hidden = false
     work.hidden = tab === "wiki"
     head.hidden = tab === "wiki"
+    toolbar.hidden = tab === "wiki"
     shownTab = tab
     const offsets = saved.get(tab) ?? []
     restoreScroll(offsets.slice(0, 1))
@@ -312,6 +329,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     const index = options.index(state)
     if (tabs.selected() !== state.tab) tabs.setSelected(state.tab)
     work.setAttribute("aria-labelledby", tabDomId(state.tab === "board" ? "board" : "list"))
+    const left = shownTab
     const putBack = showTab(state.tab)
 
     const loadedAt = state.board.value?.loadedAt
@@ -332,11 +350,14 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     if (state.tab === "wiki") {
       wikiView?.render(state, index)
     } else {
+      bar.update(toolbarOf(state), { rows: index?.rows ?? [], hiddenBy: index ? narrow(state, index).hiddenBy : undefined })
       crumbs.render(state, index)
       mainViews[state.tab].render(state, index)
       if (state.detail.visible) detailView.render(state, index)
     }
     putBack()
+    // Last, as it dispatches (and so renders again): the wiki saves its page and trail into the store.
+    if (left === "wiki" && state.tab !== "wiki") wikiView?.leave?.()
   }
 
   function setWidth(next: number) {
@@ -387,6 +408,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
       mainViews.board.destroy?.()
       detailView.destroy?.()
       wikiView?.destroy?.()
+      bar.destroy()
     },
   }
 }
