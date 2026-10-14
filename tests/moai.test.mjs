@@ -851,6 +851,23 @@ test('compatibility: a profile the daemon catalog lacks asks to update the catal
 // A status without the `milestones[]`/`epics[]` tallies: the board counts its own rows, which leave archived ones out.
 const STATUS_NO_TALLIES = JSON.stringify({ counts: { done: 0, in_progress: 1, review: 1, todo: 1 }, total: 3 })
 
+test('compatibility: a backlog refusal that lands after the load ended still reaches the banner, with no read again', async () => {
+  let refuse
+  const answer = board({ 'buzzni.moai.status': STATUS_ASSUMED })
+  answer.start = (args) => {
+    if (args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
+    if (args[0] === 'buzzni.moai.backlog-all') return new Promise((resolve) => { refuse = () => resolve({ action: 'start', state: 'refused', code: 'unsupported-daemon' }) })
+    return null
+  }
+  const panel = await runPanel(answer)
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
+  const before = panel.starts().length
+  refuse()
+  await flush()
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  assert.equal(panel.starts().length, before, 'nothing is read again')
+})
+
 test('compatibility: moai 0.16 (no statuses[], the tallies printed) is not asked to upgrade', async () => {
   const panel = await runPanel(board())
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])

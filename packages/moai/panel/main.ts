@@ -35,13 +35,10 @@ remember(store, createMemory(() => window.localStorage))
 const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
 // What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): the list, archive and wiki
 // reads and the read marks hand it their outcomes (the detail and the add do not), and the shell's banner says what
-// to upgrade, update or install.
+// to upgrade, update or install. Its report goes in the store after each answer it is handed, one that lands after
+// its read was given up on too (the backlog read beside a failed `show --all`); the store keeps only a changed one.
 const probe = new CompatProbe()
-
-/** `loading`, with the probe's report put in the store once it settles (the store keeps only a changed one). */
-function probed<T>(loading: Promise<T>): Promise<T> {
-  return loading.finally(() => store.dispatch({ type: 'compat', report: probe.report() }))
-}
+probe.subscribe(() => store.dispatch({ type: 'compat', report: probe.report() }))
 
 // The index is built once per read, not per render: again when the rows, the status counts or the archive shown change.
 let indexed: { rows: Row[]; tallies: BoardData['tallies']; archive: Row[] | null; index: IssueIndex } | null = null
@@ -71,8 +68,8 @@ async function loadBoard(): Promise<void> {
   // still be open): a failure is told at once, rows are drawn at once, and the counts are put on them when they come.
   // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
   // still running (client.ts); none of the panel's writes — an add with no group, read marks — moves a count.
-  const listing = probed(loadAllRows(client, PRIORITY.list, probe))
-  const counting = probed(loadTallies(client, PRIORITY.list, probe))
+  const listing = loadAllRows(client, PRIORITY.list, probe)
+  const counting = loadTallies(client, PRIORITY.list, probe)
   let counted: Awaited<typeof counting> | undefined
   void counting.then((tallies) => { counted = tallies })
   const loaded = await listing
@@ -122,7 +119,7 @@ async function loadArchive(): Promise<void> {
   try {
     // Read untagged: withArchive tags the archive-only rows against the rows held when it draws, and a cut list
     // needs the archive's own rows to judge by (source.ts activeIds).
-    const loaded = await probed(loadArchived(client, { probe, cancelled: () => mine !== archiving }))
+    const loaded = await loadArchived(client, { probe, cancelled: () => mine !== archiving })
     if (mine !== archiving) return
     // The archive's own problem: the board's rows and whatever the board said stand.
     if (loaded.ok) store.dispatch({ type: 'archive', rows: loaded.value })
@@ -200,13 +197,13 @@ function answer(loaded: Loaded<unknown>): unknown {
 }
 
 const wiki: WikiSource = {
-  list: async () => answer(await probed(loadWikiListing(client, probe))),
-  page: async (slug) => answer(await probed(loadWikiPage(client, slug, probe))),
+  list: async () => answer(await loadWikiListing(client, probe)),
+  page: async (slug) => answer(await loadWikiPage(client, slug, probe)),
 }
 
 /** A read-mark write, then the list again: the marks come back with the rows (data/read.ts). */
 async function marked(writing: Promise<Marked>): Promise<Outcome | null> {
-  const done = await probed(writing)
+  const done = await writing
   if (!done.ok) return done.outcome
   // A list read already running started before the write and cannot hold its marks.
   await refresher.refresh({ fresh: true })

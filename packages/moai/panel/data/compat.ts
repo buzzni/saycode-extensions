@@ -2,16 +2,19 @@
  * Compatibility: what the panel can tell about the `moai` CLI and the Happy daemon's catalog from what they
  * answered, so a banner can say "upgrade moai" or "update the daemon catalog" instead of a broken screen.
  * No DOM here, and nothing in this module asks anything: loaders hand it the outcomes and shapes they already
- * read ({@link CompatProbe}), and {@link CompatProbe.report} judges them. The banner is drawn elsewhere.
+ * read ({@link CompatProbe}), and {@link CompatProbe.report} judges them. The probe's listeners
+ * ({@link CompatProbe.subscribe}) hear of each thing handed over, a late one too, so the caller can put the new
+ * report where it is drawn. The banner is drawn elsewhere.
  *
  * Extension and moai versions are independent (README, Compatibility); the extension assumes upstream
  * improvements (se-0g4a) and a catalog of 13 profiles (se-0g4a.anz). Features that still work keep working:
  * the fallbacks are in source.ts, this only names which ones are in use.
  *
  * What is evidence of what:
- * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it (or the daemon is too
- *   old for the machine run at all, when the baseline profiles refuse too: the catalog is then `unknown`
- *   as a whole, not 13 missing ones). `tool-missing`: `moai` is not installed there.
+ * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it, or the daemon is too
+ *   old for the machine run at all. Only a profile that ran tells the two apart: until one has, and whenever a
+ *   baseline profile is refused as unsupported, the catalog is `unknown` as a whole, not 13 missing ones.
+ *   `tool-missing`: `moai` is not installed there.
  * - A start that failed comes back `not-started` (client.ts), with the code it named when it named one: an older
  *   host may name `unsupported-daemon` in a thrown start's message, which is read as the refusal is. A profile
  *   read as missing stays so until one pass of the same profile clears it. `binding-mismatch` (a refusal the
@@ -36,7 +39,7 @@ export interface CompatReport {
   /** `moai` is not installed where the daemon runs: a `tool-missing` refusal, and no run started there since. */
   toolMissing: boolean
   catalog: {
-    /** `missing`: `missing` names profile ids; `unknown`: nothing asked yet, or the daemon refused everything. */
+    /** `missing`: `missing` names profile ids; `unknown`: nothing has run yet, or the daemon refused a baseline profile. */
     state: 'ok' | 'missing' | 'unknown'
     missing: string[]
   }
@@ -94,9 +97,25 @@ export class CompatProbe {
   private statusShape: { statuses: boolean; tallies: boolean } | undefined
   private rowsSeen = 0
   private unreadSeen = false
+  private readonly listeners = new Set<() => void>()
+
+  /** `listener` is called after each thing handed over; the report may say what it said before. Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private told(): void {
+    for (const listener of [...this.listeners]) listener()
+  }
 
   /** Hand over what a request to `profile` ended with. Information refusals and failures say nothing here. */
   observe(profile: string, outcome: Outcome): void {
+    this.record(profile, outcome)
+    this.told()
+  }
+
+  private record(profile: string, outcome: Outcome): void {
     switch (outcome.kind) {
       case 'refused':
         if (outcome.code === 'tool-missing') this.toolMissing = true
@@ -132,6 +151,7 @@ export class CompatProbe {
       this.rowsSeen += 1
       if ('unread' in row) this.unreadSeen = true
     }
+    this.told()
   }
 
   /** The `status --json` output; anything that is not the counts object (the project list) is not read. */
@@ -143,16 +163,19 @@ export class CompatProbe {
       statuses: Array.isArray(record.statuses) && record.statuses.length > 0,
       tallies: Array.isArray(record.milestones) || Array.isArray(record.epics),
     }
+    this.told()
   }
 
   report(): CompatReport {
     const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported' || seen === 'unstarted').map(([id]) => id)
     const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
-    // A shipped profile refused as unsupported, or nothing passed while a shipped one was refused: the daemon as
-    // a whole is too old (or bound wrong), and 13 missing profiles would say less than that.
-    const wholeDaemon = refused.some((id) => BASELINE.has(id) && (this.seen.get(id) === 'unsupported' || passed === 0))
-    const missing = wholeDaemon ? [] : refused
-    const catalogState: CompatReport['catalog']['state'] = wholeDaemon ? 'unknown' : missing.length > 0 ? 'missing' : passed > 0 ? 'ok' : 'unknown'
+    // Refusals alone cannot tell a catalog that lacks the profiles from a daemon too old for the machine run at
+    // all, so nothing is judged until a profile has run. A shipped profile refused as unsupported is the daemon as
+    // a whole too old, and 13 missing profiles would say less than that.
+    const wholeDaemon = refused.some((id) => BASELINE.has(id) && this.seen.get(id) === 'unsupported')
+    const decided = passed > 0 && !wholeDaemon
+    const missing = decided ? refused : []
+    const catalogState: CompatReport['catalog']['state'] = !decided ? 'unknown' : missing.length > 0 ? 'missing' : 'ok'
 
     const old = this.statusShape !== undefined && (!this.statusShape.statuses || !this.statusShape.tallies)
     let moai: CompatReport['moai'] = 'unknown'

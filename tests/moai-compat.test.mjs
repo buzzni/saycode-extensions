@@ -193,3 +193,27 @@ test('the banner tells moai missing and a profile the catalog lacks; other refus
   }
   assert.equal(compatTells(null, refused('tool-missing')), false)
 })
+
+test('refusals before anything has run leave the catalog unknown: a daemon too old for machine.run refuses them too', () => {
+  const probe = new CompatProbe()
+  probe.observe(PROFILE.showAll, refused('unsupported-daemon'))
+  probe.observe(PROFILE.backlog, { kind: 'not-started', code: 'unsupported-daemon' })
+  assert.deepEqual(probe.report().catalog, { state: 'unknown', missing: [] })
+  // An added profile still counts as off, whatever the catalog turns out to be.
+  assert.deepEqual(probe.report().degraded, ['all-rows', 'backlog'])
+  probe.observe(PROFILE.status, passed({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] }))
+  assert.deepEqual(probe.report().catalog, { state: 'missing', missing: [PROFILE.showAll, PROFILE.backlog] })
+})
+
+test('the probe tells its listeners after each thing handed over, until unsubscribed', () => {
+  const probe = new CompatProbe()
+  let told = 0
+  const unsubscribe = probe.subscribe(() => { told += 1 })
+  probe.observe(PROFILE.status, refused('tool-missing'))
+  probe.observeStatus({ counts: { todo: 0 }, statuses: ['todo'], milestones: [], epics: [] })
+  probe.observeRows([{ id: 'a' }])
+  assert.equal(told, 3)
+  unsubscribe()
+  probe.observe(PROFILE.status, passed({ counts: { todo: 0 } }))
+  assert.equal(told, 3)
+})
