@@ -162,6 +162,33 @@ export function statusesFrom(output: unknown): Loaded<string[]> {
   return { ok: true, value: [...known, ...names.filter((name) => !DEFAULT_STATUSES.includes(name))] }
 }
 
+/**
+ * `[done, total]` per milestone and epic id from `status --json` (`milestones[]` and `epics[]`). These count the
+ * rows the clock has archived too, which `show --all` omits; hand the map to `new IssueIndex(rows, tallies)` so
+ * the board's n/n equals `moai status`. Entries without a string id and numeric `done` and `total` are skipped.
+ */
+export function talliesFrom(output: unknown): Map<string, [number, number]> {
+  const tallies = new Map<string, [number, number]>()
+  if (!isRecord(output)) return tallies
+  for (const list of [output.milestones, output.epics]) {
+    if (!Array.isArray(list)) continue
+    for (const entry of list) {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || entry.id === '') continue
+      const { done, total } = entry
+      if (typeof done !== 'number' || typeof total !== 'number' || !Number.isFinite(done) || !Number.isFinite(total)) continue
+      tallies.set(entry.id, [done, total])
+    }
+  }
+  return tallies
+}
+
+/** The same `status` request as {@link loadStatuses}, which the client shares; read once, used for both. */
+export async function loadTallies(client: Client, priority: number = PRIORITY.list): Promise<Loaded<Map<string, [number, number]>>> {
+  const outcome = await client.request(PROFILE.status, undefined, { priority })
+  const output = answerOf(outcome)
+  return output === undefined ? { ok: false, outcome } : { ok: true, value: talliesFrom(output) }
+}
+
 export async function loadStatuses(client: Client, priority: number = PRIORITY.list): Promise<Loaded<string[]>> {
   const outcome = await client.request(PROFILE.status, undefined, { priority })
   const output = answerOf(outcome)
@@ -174,6 +201,17 @@ export interface ArchiveOptions {
   /** Asked between pages; true stops the paging with a `cancelled` outcome. */
   cancelled?: () => boolean
   priority?: number
+  /**
+   * Ids of the active rows already held (`show --all`). `--archived` lists active rows too, and `moai read`
+   * resolves only active rows, so a row whose id is not here is tagged `archived: true` (read.ts then never
+   * draws NEW on it, se-fvou). Without this the rows are returned untagged.
+   */
+  active?: ReadonlySet<string>
+}
+
+/** `rows` with `archived: true` on those whose id is not in `active`. */
+export function markArchived(rows: readonly Row[], active: ReadonlySet<string>): Row[] {
+  return rows.map((row) => (active.has(row.id) ? row : { ...row, archived: true }))
 }
 
 /**
@@ -194,7 +232,7 @@ export async function loadArchived(client: Client, options: ArchiveOptions = {})
     const output = answerOf(outcome)
     if (output === undefined) return { ok: false, outcome }
     if (!Array.isArray(output)) return { ok: false, outcome: { kind: 'unreadable' } }
-    const page = items(output)
+    const page = options.active ? markArchived(items(output), options.active) : items(output)
     rows.push(...page)
     if (page.length > 0) options.onPage?.(page)
     const last = page.at(-1)?.id

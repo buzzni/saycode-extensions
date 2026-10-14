@@ -241,3 +241,23 @@ test('without the field, archiveCandidate follows report::archived: off at 0 day
   assert.equal(archiveCandidate({ ...epic, status: 'todo', derived_status: 'done' }, now, 14, members), false, 'a member done 4 days ago keeps it')
   assert.equal(archiveCandidate({ ...epic, status: 'done', derived_status: 'in_progress' }, now, 14, members.slice(0, 1)), false)
 })
+
+test('milestone and epic tallies take the counts `moai status` gave; buckets and no-count ids keep their own (se-tcd4)', () => {
+  const epicAt = index.find(idOf('Epic in release one'))
+  const epic = index.dirPath(epicAt)
+  const release = index.dirPath(index.find(idOf('Release one')))
+  const counts = new Map([[rows[epicAt].id, [3, 9]], [rows[index.find(idOf('Release one'))].id, [4, 12]]])
+  const counted = new IssueIndex(rows, counts)
+  assert.deepEqual(counted.tally(epic), [3, 9])
+  assert.deepEqual(counted.tally(release), [4, 12])
+  // Without counts, or for an id they lack, the old count.
+  assert.deepEqual(new IssueIndex(rows).tally(epic), [1, 6])
+  assert.deepEqual(new IssueIndex(rows, new Map()).tally(release), [1, 8])
+  assert.deepEqual(new IssueIndex(rows, new Map([['other', [9, 9]]])).tally(epic), [1, 6])
+  // Buckets are never replaced, whatever the map holds; progress() stays the drawn rows.
+  const withBucket = new IssueIndex(rows, new Map([['', [99, 99]], ['lost', [99, 99]]]))
+  assert.deepEqual(withBucket.tally([NO_MILESTONE]), index.tally([NO_MILESTONE]))
+  assert.deepEqual(withBucket.tally([LOST]), index.tally([LOST]))
+  assert.deepEqual(counted.tally([]), index.tally([]))
+  assert.equal(counted.progress(epic).work.length, 6)
+})

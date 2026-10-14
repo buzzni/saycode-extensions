@@ -131,3 +131,13 @@ test('failures come back as outcomes', async () => {
   assert.equal(failed.ok, false)
   assert.equal(failed.outcome.kind, 'failed')
 })
+
+test('archive-only rows never draw NEW: moai read cannot clear them (se-fvou)', () => {
+  const mixed = [{ id: 'a', unread: true }, { id: 'b', unread: true, archived: true }]
+  assert.equal(isUnread(mixed[1]), false)
+  assert.deepEqual(unreadIds(mixed), ['a'])
+  assert.equal(unreadCount(mixed), 1)
+  assert.equal(knowsUnread([mixed[1]]), false)
+  const index = new IssueIndex([{ id: 'g', kind: 'epic', unread: true }, { id: 'x', epic: 'g', unread: true, archived: true }, { id: 'y', epic: 'g', unread: true }])
+  assert.equal(unreadUnder(index, 'g'), 2)
+})

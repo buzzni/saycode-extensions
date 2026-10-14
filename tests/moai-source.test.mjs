@@ -18,7 +18,7 @@ const cli = join(root, 'packages/sdk/dist/cli.js')
 const manifest = JSON.parse(await readFile(new URL('../packages/moai/extension.json', import.meta.url)))
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/moai/${name}`, import.meta.url), 'utf8'))
 
-const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
+const { PROFILE, ARCHIVE_PAGE, loadAllRows, loadArchived, loadRows, loadStatuses, loadTallies, markArchived, talliesFrom, loadWikiListing, loadWikiPage, rowsFromLists, statusesFrom } =
   await panelModule('data/source.ts')
 const { IssueIndex, LOST } = await panelModule('data/index.ts')
 
@@ -342,4 +342,22 @@ test('the wiki listing and pages come back as Moai printed them, at wiki priorit
   assert.deepEqual(client.calls.map((call) => [call.profileId, call.value, call.priority]), [
     [PROFILE.wikiLs, undefined, 1], [PROFILE.wikiShow, 'home', 1], [PROFILE.wikiShow, 'nope', 1],
   ])
+})
+
+test('status epics[] and milestones[] become [done, total] per id; malformed entries are skipped (se-tcd4)', async () => {
+  const status = { counts: { done: 2 }, milestones: [{ id: 'm1', done: 4, total: 7 }, { id: 5, done: 1, total: 1 }], epics: [{ id: 'e1', done: 2, total: 3 }, { id: 'e2', done: '2', total: 3 }, null, { id: 'e3', total: 3 }] }
+  assert.deepEqual([...talliesFrom(status)], [['m1', [4, 7]], ['e1', [2, 3]]])
+  assert.equal(talliesFrom('x').size, 0)
+  assert.equal(talliesFrom({ counts: {} }).size, 0)
+  const real = JSON.parse(await readFile(new URL('./fixtures/moai/status-v016.json', import.meta.url), 'utf8'))
+  for (const group of [...(real.epics ?? []), ...(real.milestones ?? [])]) assert.deepEqual(talliesFrom(real).get(group.id), [group.done, group.total])
+  assert.deepEqual(await loadTallies(fakeClient({ [PROFILE.status]: passed(status) })), { ok: true, value: talliesFrom(status) })
+  assert.deepEqual(await loadTallies(fakeClient({ [PROFILE.status]: { kind: 'not-initialized' } })), { ok: false, outcome: { kind: 'not-initialized' } })
+})
+
+test('archive rows absent from the active set are tagged archived; loadArchived does so on request (se-fvou)', async () => {
+  assert.deepEqual(markArchived([{ id: 'a' }, { id: 'b' }], new Set(['a'])), [{ id: 'a' }, { id: 'b', archived: true }])
+  const loaded = await loadArchived(fakeClient(archive(3)), { active: new Set(['r-0001']) })
+  assert.deepEqual(loaded.value.map((row) => row.archived === true), [true, false, true])
+  assert.equal((await loadArchived(fakeClient(archive(1)))).value[0].archived, undefined)
 })

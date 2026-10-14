@@ -152,8 +152,16 @@ export class IssueIndex {
   private readonly shelved: (string | undefined)[]
   private readonly places = new Map<string, Place>()
 
-  constructor(rows: readonly Row[]) {
+  private readonly counts: ReadonlyMap<string, readonly [number, number]>
+
+  /**
+   * `counts` are the milestone and epic `[done, total]` that `moai status` prints (`talliesFrom` in source.ts).
+   * They include the rows the clock has archived, which `show --all` leaves out, so {@link tally} of a milestone
+   * or epic place prefers them to its own count. Without them (or for an id they lack) the index counts its rows.
+   */
+  constructor(rows: readonly Row[], counts: ReadonlyMap<string, readonly [number, number]> = new Map()) {
     this.rows = rows
+    this.counts = counts
     // The later row wins an id, as in moai.
     rows.forEach((row, at) => {
       this.byId.set(row.id, at)
@@ -568,8 +576,17 @@ export class IssueIndex {
     return { kids: kids.length, work, done: work.filter((at) => isDone(this.rows[at]!)).length }
   }
 
-  /** `[done, work]` under a place. */
+  /**
+   * `[done, work]` under a place. A milestone or epic place (its last segment `m:<id>` / `e:<id>`) takes the
+   * count `moai status` gave for that id when the index was built with one; the (none) and (lost) buckets and
+   * places of parent-folded rows always keep their own count.
+   */
   tally(path: Path): [number, number] {
+    const last = path[path.length - 1]
+    if (last !== undefined && last !== NO_MILESTONE && (last.startsWith('m:') || last.startsWith('e:'))) {
+      const given = this.counts.get(last.slice(2))
+      if (given) return [given[0], given[1]]
+    }
     const place = this.places.get(pathKey(path))
     return place ? [place.done, place.work] : [0, 0]
   }
