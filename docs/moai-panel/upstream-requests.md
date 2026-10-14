@@ -331,7 +331,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
-| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`. **0.17.0 확인됨** | NEW 뱃지가 꺼진다. 오류는 아니고 배너도 없다(`se-hd7v`: 배너는 패널이 쓰는 기능만 말한다). 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
+| 1 | `show --json`의 **`unread`** | 행과 `show <id>`에 `"unread": true`. 안 읽음이 아니면 키가 없고, 사람을 모르면 어디에도 없다. 판정(내게 온 것·내 에픽의 멤버·마일스톤 제외·`updated_at > seen`)은 CLI 한 곳에서 한다. 구현은 moa-issue `moai-cqwy`. **0.17.0 확인됨** | NEW 칩과 탭 뱃지가 꺼진다. 오류는 아니고, 이제 NEW를 그리므로 호환 배너가 "Upgrade moai (NEW marks)"로 말한다(`se-hd7v`: 배너는 패널이 쓰는 기능만 말한다). 키가 없는 것만으로는 "낡음"이 아니라 "모름"으로 읽는다 |
 | 2 | `status --json`의 **`statuses[]`** (설정 순서) | `statuses: string[]`, `.moai/config.toml` 순서. **0.17.0 확인됨** | `counts` 키를 기본 순서(`todo, in_progress, review, done`)에 맞추고 모르는 칸은 뒤에 붙인다. 설정 순서를 잃는다. 배너는 없다(`se-hd7v`) |
 | 3 | **설정 읽기 JSON** | 칸 이름·`archive_days` 같은 값을 JSON으로. **0.17.0 확인됨**(`config --json`). 패널은 아직 읽지 않는다(선언한 프로필에 없음) | 코드의 기본값(`archive_days = 14`, 칸 4개) |
 | 4 | 파생값 **`derived_milestone`·`shelved_by`·`archived`** (요청 때 이름은 `derived_deferred`·`archive_candidate`) | **0.17.0 확인됨, 이름이 다름.** 행에 `derived_milestone`(문자열), `shelved_by`(행을 계획에서 뺀 가장 가까운 행의 id, 스스로 미뤘으면 자기 id), `archived`(`show --all`이 아카이브로 숨기는 행에 `true`). 셋 다 해당할 때만 키가 있고 `false`·`null`은 나오지 않는다 | `nav.rs` 규칙을 이식한 인덱스가 클라이언트에서 직접 계산한다. 있으면 그 값이 이긴다 |
@@ -352,7 +352,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 | 구분 | 항목 |
 |---|---|
-| 없으면 기능이 꺼짐 | 1(NEW 뱃지), 6(아카이브) |
+| 없으면 기능이 꺼짐 | 1(NEW 칩·뱃지), 6(아카이브) |
 | 없으면 값이 어긋나거나 순서를 잃음 | 2, 7 |
 | 없어도 같은 결과를 클라이언트가 낸다 | 3, 4, 5 |
 | 릴리스와 따로 | 8 |
@@ -376,6 +376,123 @@ moai 상류 릴리스 ─┐
 - 확장 코드는 번호를 비교하지 않고 모양만 본다(2.1절). 0.17.0의 `status --json`(`statuses[]`와 집계)은 `moai: ok`로 읽힌다(`tests/moai-compat.test.mjs`, 실제 출력 픽스처 `tests/fixtures/moai/*-v017.json`).
 - 8번(`read --seen`)은 0.17.0에 들어오지 않았다. 들어오면 표의 그 줄과 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)을 고친다.
 
+## 4. SDK·Desktop 설정 저장 API (`se-dnas`)
+
+패널이 설정을 Desktop을 다시 켜도 남기려면 SDK와 Desktop에 저장 API가 있어야 한다. 사람이 정했다(2026-10-14): 패널 localStorage는 불가능하고(`se-vpav`) SDK에 요청한다. 이 절은 **요청서**이고, 이 저장소의 코드는 바꾸지 않는다. 표기: **[읽음]**은 코드에서 직접 읽은 것(`aplus-dev-studio-desktop` 9086c62ed, 읽기 전용), **[추정]**은 읽은 것에서 이끌어 낸 제안이다.
+
+### 4.1 왜 필요한가 — 지금 상태 [읽음]
+
+| 사실 | 근거 |
+|---|---|
+| 패널 iframe은 `sandbox="allow-scripts"`뿐이라 opaque origin이다. localStorage는 SecurityError이고 다시 열면 비어 있다 | `src/components/extensions/useExtensionPanelFrame.tsx:122`, 조사 `se-vpav` |
+| CSP가 `connect-src 'none'`이라 패널이 스스로 어디에도 쓸 수 없다 | `src/domain/extensionPanel.ts:67`(`EXTENSION_PANEL_CSP`) |
+| 패널이 호스트에 부를 수 있는 것은 `invokeCommand(commandId, args)` 하나다. 요청은 키 `args,commandId,kind,requestId`만 허용하고 64 KiB를 넘지 못한다 | `src/domain/extensionPanel.ts:41-67`, `extensionPanelBootstrap.ts:8,33-37` |
+| 호스트→패널 포트는 테마만 싣는다 | `extensionPanelPort.ts:66-78` |
+| `storage.read`·`storage.write`는 권한 이름으로 **선언만 있다**. 처리기가 없어 브로커가 `CAPABILITY_UNAVAILABLE`을 던진다 | `src/domain/extensionManifest.ts:31-32`, `electron/extensions/capabilityBroker.ts:46-50`, 이 저장소 `packages/sdk/src/manifest.ts:5` |
+| 확장 코드(`index.js`)는 `context.invokeCapability(permission, action, args)`로 권한 기능을 부른다. 지금 쓰는 것은 `machine.run`의 `start`·`status` 등이다 | `packages/sdk/src/index.ts:71,122` |
+| 호스트는 확장마다 `CapabilityBroker`를 만들고 `handlers` 표에 권한별 처리기를 등록한다. 선언(`declaredPermissions`)과 사용자 승인(`approvedPermissions`)을 둘 다 본다 | `electron/main.ts:1764-1786` |
+
+그래서 지금 패널은 `data/memory.ts`가 **세션 메모리**에 두고(`createMemory`의 localStorage getter가 던지면 메모리로 떨어진다), 다시 열면 기본값이다.
+
+### 4.2 패널이 저장하려는 것과 크기
+
+| 항목 | 값 | 현재(2.0.x) | 크기 |
+|---|---|---|---|
+| 마지막 탭 | `board`·`list`·`wiki` | 키 `buzzni.moai.panel`(`MEMORY_KEY`), 세션만 | 수십 B |
+| 상세 표시·위치·위치별 비율 | `visible`, `position`, `ratio.left`·`ratio.bottom` | 같은 키, 세션만 | 수십 B |
+| 정렬 | 키 목록(최대 몇 개)과 방향 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
+| 필터 | `key=value` 문법 문자열 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
+| 열 | 켠 열 id 목록 | 영속 안 됨(`se-cv7w.lca`) | 수백 B |
+| 보이기 토글 | 칸별 숨김, 미룸·backlog·아카이브 표시, 상세·원문 | 영속 안 됨(`se-cv7w.lca`) | 수십 B |
+| **기본 정렬**(`se-5air`) | 정렬 편집기 `D`가 저장하는 값 | 저장처가 없어 "사용 불가" | 수백 B |
+
+합계는 **4 KiB 아래**로 본다 **[추정]**. 값은 JSON 한 덩어리(`{version, tab, detail, sort, filter, columns, view, defaultSort}`)이고 `version`으로 옛 모양을 올린다(`MEMORY_VERSION`, `normalizeMemory`가 모르는 키·틀린 값을 기본값으로 바꾼다 — 이 점은 저장소가 어떻게 바뀌어도 그대로다). 세션 한정이 맞는 것(검색어·커서·접힘)은 저장하지 않는다.
+
+### 4.3 제안 API
+
+#### 권한
+
+`storage.read`, `storage.write`를 **그대로** 쓴다(새 이름 없음). 매니페스트의 `permissions`에 선언하고 사용자가 승인한다. 승인 대화 문구는 "이 확장이 자기 설정을 이 기기에 저장"이면 된다 **[추정]**.
+
+#### 확장 쪽 액션 (`context.invokeCapability`)
+
+| 권한 | 액션 | args | 결과 |
+|---|---|---|---|
+| `storage.read` | `get` | `{ scope, key }` | `{ found: boolean, value?: JsonValue, rev: number }` |
+| `storage.read` | `list` | `{ scope, prefix?: string }` | `{ keys: string[] }` |
+| `storage.write` | `set` | `{ scope, key, value: JsonValue, ifRev?: number }` | `{ rev: number }` |
+| `storage.write` | `delete` | `{ scope, key }` | `{ deleted: boolean }` |
+
+- `scope`는 `"workspace"`(이 확장 × **이 작업 폴더**) 또는 `"global"`(이 확장 × 모든 작업 폴더). 패널은 탭·레이아웃을 `global`에, 정렬·필터·열·기본 정렬을 `workspace`에 둔다 **[추정]**: 사람이 프로젝트마다 다른 정렬을 쓰고, 레이아웃은 기기 취향이다.
+- `key`: `^[a-z0-9][a-z0-9._-]{0,63}$`. `value`: JSON, 직렬화 **16 KiB 이하**. 요청 전체는 패널 메시지 한도 64 KiB 안에 있다 **[읽음]** (`MAX_EXTENSION_PANEL_MESSAGE_BYTES`).
+- `ifRev`는 선택이다. 같은 작업 폴더를 두 창이 열었을 때 마지막 쓴 쪽이 이긴다는 것을 알리려는 것이고, 패널은 처음에는 쓰지 않고 `rev`만 읽는다 **[추정]**.
+- 값은 **JsonValue**여서 `assertSafeExtensionDto`를 그대로 지난다 **[읽음]** (`capabilityBroker.invoke`가 이미 거친다).
+
+#### 패널에서 어떻게 닿는가 — 두 길
+
+1. **명령 경유(권장, 호스트 변경 최소)**: 확장이 `storage-get`·`storage-set`·`storage-delete` 명령을 `context.commands.register`로 등록하고 안에서 `invokeCapability('storage.read'|'storage.write', …)`를 부른다. 패널은 지금 쓰는 `invokeCommand`만 쓴다. **패널 계약과 CSP는 바뀌지 않는다.** 권한 검사·승인은 브로커가 한다 **[읽음]**. 대가: 확장 `index.js`에 얇은 명령 세 개가 늘고, 호스트 스레드를 한 번 더 거친다.
+2. **패널 직접(선택)**: `window.saycodePanel.storage.get/set/delete/list`를 부트스트랩(`extensionPanelBootstrap.ts`)이 내놓고 내부에서 `invokeCommand`와 같은 포트 메시지(`kind: 'storage'`)로 호스트에 보낸다. 패널이 승인 없이 쓰지 못하도록 호스트가 같은 `CapabilityBroker`를 지나가게 해야 한다 **[추정]**. `parseExtensionPanelCommandRequest`의 키 목록 검사가 새 `kind`를 막으므로 파서 확장이 따른다 **[읽음]**.
+
+moai는 **1번**으로 시작한다. 2번은 이 요청의 필수 조건이 아니다.
+
+#### 쓰는 때
+
+패널은 설정이 바뀔 때마다 `store.subscribe`로 알지만(`remember()`), **300~500 ms 디바운스**하고 값이 이전과 같으면 쓰지 않는다 **[추정]**. 닫힐 때(`pagehide`)는 보장하지 않는다 — 샌드박스 프레임의 비동기 호출은 신뢰할 수 없다. 읽기는 패널이 뜰 때 한 번이고, 응답이 오기 전에는 기본값으로 그리고 도착하면 `restore`한다(깜박임 허용). 응답이 오기 전에 사람이 바꾼 설정은 읽은 값이 덮지 않는다 **[추정]**.
+
+#### 한도와 오류
+
+| 코드 | 언제 |
+|---|---|
+| `PERMISSION_NOT_DECLARED`, `PERMISSION_NOT_APPROVED` | 브로커가 이미 던지는 것 **[읽음]** |
+| `CAPABILITY_UNAVAILABLE` | 처리기가 없는 옛 Desktop **[읽음]** — 패널은 세션 폴백으로 간다 |
+| `STORAGE_QUOTA` | 확장당 합계 한도 초과(제안: **256 KiB**, 키 **128개**) **[추정]** |
+| `STORAGE_VALUE_TOO_LARGE` | 값 16 KiB 초과 **[추정]** |
+| `STORAGE_KEY_INVALID` | 키 패턴 위반 **[추정]** |
+| `STORAGE_CONFLICT` | `ifRev` 불일치 **[추정]** |
+| `STORAGE_UNAVAILABLE` | 디스크를 못 쓴다 **[추정]** |
+
+오류 코드는 `machine.run`이 쓰는 방식을 따라 `error.code`로 낸다(`refusalCode`, `packages/sdk/src/index.ts:111-120` **[읽음]**). SDK에는 `machineRun`처럼 얇은 `storageGet/Set/Delete/List(context, …)`와 코드 목록(`STORAGE_ERROR_CODES`)을 더하자는 것이 제안이다 **[추정]**.
+
+#### 프라이버시
+
+- 값은 **이 기기에만** 둔다. 계정·원격 카탈로그·동기화로 올리지 않는다. 올리려면 별도 권한과 사용자 표시가 있어야 한다.
+- 다른 확장은 읽을 수 없다(확장 id가 키 공간의 일부다). 확장을 지우면 값도 지운다.
+- 값에는 비밀·토큰을 넣지 않는다고 확장이 약속한다. moai 패널은 정렬·필터·레이아웃만 저장한다.
+
+### 4.4 Desktop에서 닿을 곳 **[읽음 + 추정]**
+
+| 일 | 곳 |
+|---|---|
+| 처리기 등록: `handlers` 표에 `'storage.read'`·`'storage.write'`를 `extensionManifest.id`에 묶어 더한다 | `electron/main.ts:1764-1786`(다른 처리기가 있는 같은 블록) |
+| 처리기 구현 · 저장 파일 | 새 `electron/extensions/extensionStorageService.ts` 같은 모듈 **[추정]**. 기존 `extensionStore.ts`·`extensionRevocationStore.ts`가 있는 곳 옆. 작업 폴더 범위는 `projects`/scope 정보를 처리기에 묶어야 한다(이 저장소 조사에서는 확인하지 못함) |
+| 승인 문구·권한 목록 | `src/domain/extensionManifest.ts:31-32`(이름은 이미 있다), 승인 UI와 i18n(`en/ko/ja/zh`) |
+| 1번 길을 쓰면 | 패널 계약 변경 없음 |
+| 2번 길을 쓰면 | `src/domain/extensionPanel.ts:41-67`(요청 키 목록), `extensionPanelBootstrap.ts`, `extensionPanelPort.ts` |
+| 채널 게이트웨이 | `electron/channelGateway/gatewayRuntime.ts:206`에서도 같은 `CapabilityBroker`를 만들므로 처리기를 공유하려면 `capabilityHandlersFor`에 같은 표가 있는지 확인해야 한다 |
+| `apiVersion` | 새 SDK 액션을 쓰면 확장 `apiVersion`을 올려야 하는지는 Desktop 규칙(ADR-049, 최소 2·현재 4)에 달렸다. moai는 지금 3이다 |
+
+### 4.5 받기 전까지 패널이 하는 것 (폴백)
+
+- 지금 그대로 둔다: `createMemory`의 세션 메모리. `storage-*` 명령이 `CAPABILITY_UNAVAILABLE`·권한 거부로 돌아오면 같은 폴백으로 내려가고, 배너는 따로 말하지 않는다(설정이 안 남는 것은 오류가 아니다).
+- 패널은 응답으로 기능을 판별한다: 읽기 성공 → 영속, 실패 → 세션. 버전 번호를 비교하지 않는다(2.1절과 같은 원칙).
+- `se-cv7w.lca`(검색·필터·정렬·열·보기 영속화)와 `se-5air`(기본 정렬)는 이 API를 기다린다. 그 전에는 세션 한정이다.
+
+### 4.6 SDK·Desktop 담당에게 붙여 줄 짧은 요청
+
+> **요청: 확장용 설정 저장 API (`storage.read` / `storage.write` 처리기)**
+>
+> moai 패널은 마지막 탭·상세 위치·분할 비율·정렬·필터·열·보기 토글을 Desktop을 다시 켜도 남기고 싶습니다. 패널 iframe은 `sandbox="allow-scripts"`라 localStorage를 못 쓰고 CSP가 `connect-src 'none'`이라, 확장 호스트를 거치는 길밖에 없습니다.
+>
+> 매니페스트에 이름(`storage.read`, `storage.write`)은 이미 있지만 `electron/main.ts`의 `CapabilityBroker.handlers`에 처리기가 없어 `CAPABILITY_UNAVAILABLE`이 납니다. 다음을 부탁합니다.
+>
+> - `storage.read`: `get {scope,key}`, `list {scope,prefix?}` / `storage.write`: `set {scope,key,value,ifRev?}`, `delete {scope,key}`.
+> - `scope`는 `workspace`(확장×작업 폴더)와 `global`(확장×모든 폴더). 값은 JSON, 16 KiB 이하. 확장당 256 KiB·128키.
+> - 오류는 `error.code`: `STORAGE_QUOTA`, `STORAGE_VALUE_TOO_LARGE`, `STORAGE_KEY_INVALID`, `STORAGE_CONFLICT`, `STORAGE_UNAVAILABLE`.
+> - 이 기기에만 저장, 다른 확장은 못 읽음, 확장을 지우면 함께 지움.
+> - 패널은 확장의 `invokeCommand` 명령을 거치므로 패널 계약 변경은 필요 없습니다. SDK에는 `machineRun` 같은 얇은 도우미를 더해 주시면 좋습니다.
+>
+> 받기 전까지 moai는 세션 메모리로 동작합니다(오류 아님). 받으면 `se-cv7w.lca`·`se-5air`를 이 API로 닫습니다.
+
 ## Desktop 저장소 후속
 
 `aplus-dev-studio-desktop`을 읽기만 해서 정리했다(`se-vpav`). 이 저장소에서 고칠 것은 없고, **확장 2.0.0 태그가 나온 뒤** Desktop 쪽에서 할 일이다. 순서는 위 3절의 릴리스 순서 끝에 붙는다.
@@ -386,4 +503,4 @@ moai 상류 릴리스 ─┐
 4. 서명된 원격 카탈로그로 기존 사용자에게 2.0.0을 보낸다면 그 설명자(`id`, `version`, `releaseUrl`, `archiveUrl`, `sha256`)에도 새 항목이 필요하다. 번들 카탈로그는 부트스트랩용이다.
 5. 1.1.1 → 2.0.0은 자동 교체가 아니라 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동). 실행 중에는 거부된다.
 6. 매니페스트는 `apiVersion 3`, `engines ^1.2.0`이라 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. 이 뱃지를 피하려면 API 4 기능을 쓰는 확장 버전이 따로 필요하다.
-7. 열어 둘 요청(선택): 패널에 가시성·포커스 신호를 주는 포트 메시지, `allow-same-origin` 또는 패널용 저장 API. 지금은 iframe이 `sandbox="allow-scripts"`뿐이라 `localStorage`가 세션 한정이고, 숨은 탭은 0×0 뷰포트로만 짐작한다.
+7. 열어 둘 요청(선택): 패널에 가시성·포커스 신호를 주는 포트 메시지, `allow-same-origin` 또는 패널용 저장 API(요청서는 [4절](#4-sdkdesktop-설정-저장-api-se-dnas)). 지금은 iframe이 `sandbox="allow-scripts"`뿐이라 `localStorage`가 세션 한정이고, 숨은 탭은 0×0 뷰포트로만 짐작한다.

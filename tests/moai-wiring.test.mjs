@@ -14,6 +14,7 @@ const { mountShell } = await panelModule('view/shell.ts')
 const { PANES } = await panelModule('view/panes.ts')
 const { mountWiki } = await panelModule('view/wiki.ts')
 const { wireKeys } = await panelModule('keys/wiring.ts')
+const { createSortDefault } = await panelModule('data/memory.ts')
 
 const en = copyFor('en')
 const old = new Date(Date.now() - 40 * 86_400_000).toISOString()
@@ -44,7 +45,7 @@ function boot({ rows = ROWS, wiki, store = createStore() } = {}) {
   })
   store.dispatch({ type: 'board-loaded', data: { rows, more: 0, loadedAt: Date.now() } })
   // The one keydown listener, as main.ts wires it.
-  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other' })
+  const keys = wireKeys({ document: doc, store, shell, copy: en, platform: 'other', sortDefault: createSortDefault() })
   const $ = (selector) => doc.querySelector(selector)
   const listed = () => [...doc.querySelectorAll('.m-pane-main[data-pane="list"] .moai-line')].map((line) => line.dataset.key)
   const type = (input, text) => {

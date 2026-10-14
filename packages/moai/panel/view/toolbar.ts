@@ -343,7 +343,7 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
   // the input (their mousedown is prevented below), so it is still taken. When the whole window loses the focus the
   // input stays the document's active element and has it back on return, so the suggestions stay open with it.
   filterInput.addEventListener("blur", () => {
-    if (filterInput.ownerDocument.activeElement === filterInput) return
+    if (doc.activeElement === filterInput) return
     if (state.hintsOpen) dispatch({ type: "hints-close" })
   })
   filterInput.addEventListener("keydown", (event) => {
@@ -480,6 +480,8 @@ export function createToolbar(deps: Pick<ToolbarDeps, "doc" | "copy" | "lang">, 
           }
           pop.append(rowEl)
         }
+        // i18n pass: toolbar.sortDefaultSessionNote. Said plainly until a settings storage keeps the default.
+        pop.append(el(doc, "div", { class: "m-sort-note", "data-sort-note": "default" }, "D: 기본 정렬로 저장 — 이 세션에서만 유지됩니다."))
         sortWrap.append(pop)
         sortPop = pop
       }

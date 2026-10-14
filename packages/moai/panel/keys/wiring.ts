@@ -11,6 +11,7 @@
 import type { Outcome } from "../data/client.ts"
 import { compatTells } from "../data/compat.ts"
 import { NO_MILESTONE, type Row } from "../data/index.ts"
+import { sortDefault, type SortDefault } from "../data/memory.ts"
 import { SORT_KEYS, sortEdit, type Sort, type SortKey } from "../data/query.ts"
 import { withArchive } from "../data/source.ts"
 import type { Copy } from "../i18n/index.ts"
@@ -68,9 +69,7 @@ export function keyContext(state: State, env: ContextEnv): KeyContext {
  * Table actions that do nothing yet, and why. Their keys stay in the table (the help lists them as usable), so a
  * dispatch that reaches one only says so.
  */
-export const NOT_WIRED: Readonly<Record<string, string>> = {
-  "sorter.default": "no place keeps a default sort yet (data/memory.ts)",
-}
+export const NOT_WIRED: Readonly<Record<string, string>> = {}
 
 /**
  * The read-mark writes (data/read.ts markRead, markAllRead, markGroupRead), each answering null when it went
@@ -85,6 +84,10 @@ export interface ReadMarks {
   group(id: string): Promise<Outcome | null>
 }
 
+// i18n pass: keys.sortDefaultSaved / keys.sortDefaultSavedSession (Korean literals until then).
+const SORT_DEFAULT_SAVED = "기본 정렬로 저장했습니다."
+const SORT_DEFAULT_SAVED_SESSION = "기본 정렬로 저장했습니다. 설정 저장소가 생기기 전까지는 이 세션에서만 유지됩니다."
+
 export interface KeyWiringOptions {
   document: Document
   store: Store
@@ -94,6 +97,8 @@ export interface KeyWiringOptions {
   platform?: Platform
   /** The read-mark writes; without them `r` and `SPC m` are not offered (KeyContext.readable). */
   read?: ReadMarks
+  /** Where `D` saves the default sort and an emptied order returns to; defaults to the panel's shared one. */
+  sortDefault?: SortDefault
 }
 
 export interface KeyWiring {
@@ -162,6 +167,9 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
    */
   let promptFrom: string | null | undefined
   const forgetPrompt = () => {
+    // The whole window losing the focus blurs the search too, but leaves it the active element: the caret has not
+    // left it, and it is back there on return (as the filter's suggestions stay open then, toolbar.ts).
+    if (doc.activeElement === bar.searchInput) return
     promptFrom = undefined
   }
   bar.searchInput.addEventListener("blur", forgetPrompt)
@@ -184,18 +192,21 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
 
   /** The suggestions the filter has for its caret, shown or not (Tab opens a closed list on its first one). */
   const hintCount = () => bar.hintCount
+  /** On the wiki tab, where the only prompt is the wiki's own search. */
+  const inWiki = () => store.getState().tab === "wiki"
   /**
    * A prompt key in the wiki's search goes to the wiki (its handleKey reads Esc, Enter and ↓ there). What it does not
    * read (Tab, S-Tab, ↑) is reported unused, so Tab moves the focus and ↑ the caret as in any input.
    */
-  const inWiki = () => store.getState().tab === "wiki"
   const wikiKey = (): boolean => (current ? panes().wiki?.handleKey?.(current) ?? false : false)
 
   // ── sort editor (sorter mode) ──
   let sorterAt = 0
   let sorterFrom: Sort | null = null
   const sortKey = (): SortKey => SORT_KEYS[sorterAt]!
-  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort })
+  const defaults = options.sortDefault ?? sortDefault
+  // An order emptied of every field is the reset: it goes back to the saved default, else the store's own.
+  const setSort = (sort: Sort) => store.dispatch({ type: "sort", sort: sort.fields.length ? sort : (defaults.get() ?? sort) })
 
   function paintSorter() {
     for (const row of bar.el.querySelectorAll<HTMLElement>(".m-sort-pop .m-menu-item[data-key]")) {
@@ -274,23 +285,34 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   }
   // ── read marks ──
   /**
-   * The row under the cursor that takes a read mark, among the rows the list draws: with archived rows shown, the
-   * archive's answer too, tagged as main.ts indexOf draws it (source.ts withArchive). An archive-only row is active
-   * only where a cut list keeps it so (source.ts activeIds); one tagged `archived: true` takes no mark, as it draws no
-   * NEW (`moai read` resolves active rows only, read.ts isUnread).
+   * The row under the cursor, among the rows the list draws: with archived rows shown, the archive's answer too,
+   * tagged as main.ts indexOf draws it (source.ts withArchive). An archive-only row is active only beside a list of
+   * prime's rows (`partial`, or `truncated`: a cut one), and only when it does not stand done (source.ts activeIds);
+   * any other is tagged `archived: true`.
    */
-  function rowHere(): Row | undefined {
+  function rowAt(): Row | undefined {
     const state = store.getState()
     const board = state.board.value
     if (state.cursor === null || !board) return undefined
-    const row = withArchive(board, state.view.showArchived ? state.archive : null).find((r) => r.id === state.cursor)
+    return withArchive(board, state.view.showArchived ? state.archive : null).find((r) => r.id === state.cursor)
+  }
+  /**
+   * The row under the cursor that takes a read mark: an archived one takes none, as it draws no NEW (`moai read`
+   * resolves active rows only, read.ts isUnread).
+   */
+  function rowHere(): Row | undefined {
+    const row = rowAt()
     return row?.archived === true ? undefined : row
   }
-  /** The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in. */
-  function groupHere(): string | null {
+  /**
+   * The group `SPC m g` marks: the milestone or epic under the cursor, else the innermost one the list stands in.
+   * Undefined when the group under the cursor is archived: it takes no mark, and the place around it is not marked
+   * in its stead (the cursor named the group, not the place).
+   */
+  function groupHere(): string | null | undefined {
     const state = store.getState()
-    const row = rowHere()
-    if (row && (row.kind === "milestone" || row.kind === "epic")) return row.id
+    const row = rowAt()
+    if (row && (row.kind === "milestone" || row.kind === "epic")) return row.archived === true ? undefined : row.id
     // The "(no milestone)" bucket (`m:`, NO_MILESTONE) is a place, not a group: it has no id to mark.
     const place = [...state.path].reverse().find((segment) => (segment.startsWith("m:") && segment !== NO_MILESTONE) || segment.startsWith("e:"))
     return place ? place.slice(2) : null
@@ -317,6 +339,8 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   const readAll = marking((marks) => marks.all())
   const readGroup = marking((marks) => {
     const id = groupHere()
+    // An archived group under the cursor: nothing to mark, as `r` on an archived row.
+    if (id === undefined) return null
     if (id === null) {
       say(copy.keys.readNoGroup)
       return null
@@ -452,8 +476,12 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     },
     "sorter.flip": () => setSort(sortEdit(store.getState().sort, sortKey(), "flip")),
     "sorter.apply": () => closeSorter(true),
-    // hookup: no place keeps a default sort yet — save store.getState().sort as the default here.
-    "sorter.default": () => say(copy.keys.sortDefaultUnavailable),
+    "sorter.default": () => {
+      defaults.set(store.getState().sort)
+      say(defaults.persistent ? SORT_DEFAULT_SAVED : SORT_DEFAULT_SAVED_SESSION)
+      // As in the TUI: D applies the order, saves it and leaves the editor (Esc after it must not undo it).
+      closeSorter(true)
+    },
     "sorter.cancel": () => closeSorter(false),
     "wiki.enter": wiki,
     "wiki.back": wiki,
@@ -466,7 +494,13 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
 
   // ── router, menu, help, focus hint ──
   const menu: MenuView = createMenu(doc, { press: (key) => void router.press(key) })
-  const redraw = () => menu.update(router.state().menu, context())
+  const redraw = () => {
+    const path = router.state().menu
+    // A closed menu draws nothing from the context: it is not built (every row read for the status columns) on every
+    // store change and every key while no menu is open.
+    if (path === null && menu.el.hidden) return
+    menu.update(path, context())
+  }
   const router = createKeyRouter({
     platform,
     getContext: context,
@@ -490,11 +524,11 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
   win?.addEventListener("focus", showHint)
   win?.addEventListener("blur", showHint)
   doc.addEventListener("focusin", showHint)
-  // A click that puts the caret in an input (prompt) or leaves one changes the mode without a key: a menu or
-  // sequence held in the old mode is dropped then, not left drawn with items that no longer run.
+  // A click that puts the caret in an input (prompt) changes the mode without a key: a menu or sequence held in the
+  // old mode is dropped then, not left drawn with items that no longer run. Leaving an input needs no listener:
+  // nothing is ever held in prompt mode (its keys are single keys), and the other modes follow the store (below).
   const settle = () => router.settle()
   doc.addEventListener("focusin", settle)
-  doc.addEventListener("focusout", settle)
 
   const unsubscribe = store.subscribe((state, previous) => {
     if (state.toolbar.sortOpen && !previous.toolbar.sortOpen) {
@@ -513,10 +547,12 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
     redraw()
   })
 
-  // Keys are quiet while the help is open, even when the focus has left it; Esc closes it. The help's guard stops
-  // every other key before it gets here but the host's combinations (copy, find: Cmd/Meta, and Ctrl off macOS; see
-  // help.ts guard): those are swallowed here without preventDefault, so the panel's shortcuts stay off and the
-  // browser still acts.
+  // Keys are quiet while the help is open, even when the focus has left it. The help's guard stops every key pressed
+  // outside it (Esc closing it there) and the overlay's own keydown takes Esc inside it, so what gets here is a key
+  // inside the overlay (left to it: attachKeyRouter skips a modal's keys) or one of the host's combinations it lets
+  // pass (copy, find: Cmd/Meta, and Ctrl off macOS; see help.ts guard). Those are swallowed here without
+  // preventDefault, so the panel's shortcuts stay off and the browser still acts. The Esc branch below is a fallback
+  // only: no Esc reaches it while the guard is attached.
   const detach = attachKeyRouter(doc, {
     ...router,
     handle(event) {
@@ -553,7 +589,6 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       win?.removeEventListener("blur", showHint)
       doc.removeEventListener("focusin", showHint)
       doc.removeEventListener("focusin", settle)
-      doc.removeEventListener("focusout", settle)
       help.close()
       menu.el.remove()
       help.el.remove()

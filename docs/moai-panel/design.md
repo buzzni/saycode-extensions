@@ -16,14 +16,14 @@
 | 3.1 `statuses`를 얻을 `config` 프로필 | 만들지 않았다. `status --json`의 `statuses` 배열을 읽고, 없으면(옛 moai) `counts` 키를 기본 순서에 맞춘다 | 머지됨. 상류 moai 0.17.0에서 확인 |
 | 3.2 동시 상한 "스파이크로 정함" | 동시 3, `workspace-busy`는 큐로 되돌려 최대 3번(1초씩 늘려) 재시도 | 머지됨(`main.ts`가 `PANEL_CLIENT_OPTIONS` 사용), 라이브 확인 대기 |
 | 3.2 폴링 500ms | 그대로 | 머지됨 |
-| 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리면 `prime`으로 물러나 배너를 단다 | 머지됨(`se-bco3`). `main.ts`가 `loadAllRows`를 쓰고 잘림 배너를 단다 |
+| 3.3 시작 때 `show-all`·`backlog`·`status` | `loadAllRows`가 `show-all`과 `backlog-all`을 나란히 읽는다. 잘리거나 거부되면 `prime`으로 물러난다: `show-all`이 없으면 `prime`+backlog, `backlog-all`만 없으면 backlog 없는 목록, 둘 다 없으면 `prime`. 카탈로그 줄이 없는 것을 말한다(`se-mt96`, `se-haiw`) | 머지됨(`se-bco3`). `main.ts`가 `loadAllRows`를 쓰고 잘림 배너를 단다 |
 | 3.4 셈(n/n)을 행에서 계산 | `status --json`의 `milestones[]`·`epics[]`의 `done/total`을 받아 `IssueIndex(rows, tallies)`에 넘긴다. 시간으로 아카이브된 행이 `show --all`에 없기 때문이다 | 머지됨(`se-tcd4`, 연결 `se-poaz`) |
 | 3.4 마일스톤 소속·상속 미룸·아카이브 후보를 인덱스가 계산 | 상류 moai 0.17.0이 행에 `derived_milestone`, `shelved_by`, `archived`를 해당할 때만 준다(요청 때 이름은 `derived_deferred`·`archive_candidate`). 있으면 그것을 우선하고, 없을 때만 `nav.rs` 규칙으로 계산한다 | 머지됨(`se-ydco`). 상류 0.17.0에서 확인 |
 | 4.4 검색 범위 `note` | 매처는 노트를 `notes`(id → 텍스트들)로 따로 받고, 없으면 `note` 범위는 아무것도 찾지 못한다. 행에 노트가 없으므로 이 맵을 채우는 연결은 없고, `note` 범위는 조용히 아무것도 못 찾는다 | 매처만 머지됨. 2.0 툴바에서는 `note`를 범위 순환에서 뺐다(`se-thyl`, `31ad3a2`). 되살리기는 `se-qxeh`(`show -g` 연결) |
 | 4.9 안 읽음은 클라이언트가 `seen`으로 판정 | CLI가 `unread`를 찍어 주고 패널은 읽기만 한다. 사람을 모르면 NEW가 꺼진다 | 머지됨. 상류 `moai-cqwy`, 0.17.0에서 확인 |
 | 4.9 쓰는 값은 그린 행의 `updated_at` | CLI는 값을 받지 않고 **현재** `updated_at`을 쓴다. 쓰기 뒤 다시 읽어 `staleAgainst`로만 비교한다 | 달라짐. 상류 요청은 backlog `se-a5wl` |
 | 4.9 NEW 모든 행 | **아카이브에서만 온 행은 NEW를 그리지 않는다.** `moai read`가 활성 행만 풀기 때문이다 | 머지됨(`se-fvou`) |
-| 4.9 탭 뱃지·NEW 칩 | 판정·쓰기와 읽음 키(`r`, `SPC m a`, `SPC m g`)는 이어졌고 칩과 뱃지는 아직 없다 | 열림(`se-ehdi.zcx`) |
+| 4.9 탭 뱃지·NEW 칩 | 목록 행·칸반 카드·상세 머리에 NEW 칩, 칸반·목록 탭에 프로젝트 전체 안 읽음 수 뱃지. 읽음 표시 뒤 열린 상세도 다시 읽는다 | 머지됨(`se-ehdi.zcx`, `se-ehdi.aka`) |
 | 4.11 렌더러 지원 목록 | 엔티티·참조 링크·취소선·작업 목록이 더해졌다. 이미지는 여전히 지원하지 않는다 | 머지됨 |
 | 5 설정 영속화 범위 "탭: 프로젝트" | 기억은 키 `buzzni.moai.panel` 하나에 **전역**으로 둔다. 항목은 탭·상세 표시·위치·위치별 비율뿐이다 | 머지됨 |
 | 5 정렬·열·보기·위키 분할 기억 | 아직 기억하지 않는다 | 대기(`se-cv7w.lca` ← 스파이크 `se-0g4a.y91`) |
@@ -43,7 +43,7 @@
 
 ### 아직 열려 있는 것
 
-`se-mzlx`(칸반 j/k·검색 시 다시 그리기 비용), `se-ehdi.zcx`(NEW 뱃지), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-5air`·`se-q0u4`. 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
+`se-qxeh`(note 검색 범위, 사람이 정한다), i18n(`se-bz5y.m35`, `se-ti70`), 릴리스 밖 backlog `se-5air`(기본 정렬 저장, 저장소 결정을 기다린다). 상세는 [현황 2.0.8절](current-state.md#208-아직-열려-있는-것-2026-10-14)에 있다.
 
 ## 1. 화면 구성
 
@@ -296,7 +296,7 @@ TUI와의 차이:
 - 판정:
   - 대상은 "내게 온 것"뿐이다. 담당이 나인 행, 그 `.자식`, 내 에픽의 멤버가 여기에 든다. 마일스톤 축은 세지 않는다.
   - `seen[id]`가 없거나 `updated_at > seen[id]`이면 안 읽음이다.
-  - 데이터는 상류 제안(`se-0g4a.l89`)으로 받는다. 받기 전까지는 NEW 표시를 끈다.
+  - 데이터는 상류 제안(`se-0g4a.l89`)으로 받는다. 받기 전까지는 NEW 표시를 끈다(옛 moai면 호환 배너가 말한다).
 - 표시:
   - 목록 행과 칸반 카드의 제목 앞에 `NEW` 칩(`--warn-soft` 배경, `--warn` 글자)을 붙인다.
   - 탭 라벨에는 안 읽은 수 뱃지를 붙인다. TUI에는 없는 웹 확장이다.
