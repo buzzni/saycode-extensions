@@ -188,7 +188,7 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     const idLine = el(doc, 'span', { class: 'moai-detail-id' }, ...painted(head.id, 'id', search))
     // The status glyph before the id, as the list and the board draw it, and turning while the work is held.
     const { glyph, tone } = statusGlyph(head.status)
-    const moving = head.status === 'in_progress' && listed !== undefined && spins(index!, listed)
+    const moving = head.status !== 'todo' && head.status !== 'done' && listed !== undefined && spins(index!, listed)
     const glyphNode = el(doc, 'span', { class: `moai-detail-glyph m-st-${tone}${moving ? ' m-spin' : ''}`, 'aria-hidden': 'true' }, glyph)
     // The worktree the row came from, after the id, as the TUI's detail (`Origin::branch`, se-etwu): `show --worktree`
     // carries it, and so does the list's row when the detail was read plain.

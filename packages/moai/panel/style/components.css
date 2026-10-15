@@ -191,6 +191,8 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
     content: "\280B"; position: absolute; inset: 0; color: var(--warn); text-align: center;
     animation: m-spin 1.2s step-start infinite;
   }
+  /* The spinner takes its column's colour, as the TUI's glyph does: review turns in its magenta. */
+  .m-st-review.m-spin::before { color: var(--review); }
   .m-glint {
     --glint-band: 3ch;
     color: transparent;

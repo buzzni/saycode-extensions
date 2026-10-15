@@ -458,3 +458,18 @@ test('board view: a card another worktree holds carries ⎇ and its branch on it
   assert.equal(root.querySelector('.m-card[data-id="h1"] .m-card-line .m-branch').textContent, '⎇ wt-h1')
   assert.equal(root.querySelector('.m-card[data-id="d1"] .m-branch'), null)
 })
+
+test('board view: review moves too, as every started column does in the TUI (Config::is_started); to do and done stand still', () => {
+  const rows = [
+    { id: 'r1', kind: 'issue', title: 'Waiting on a review', status: 'review', priority: 1 },
+    { id: 't1', kind: 'issue', title: 'Not started', status: 'todo', priority: 1 },
+    { id: 'd1', kind: 'issue', title: 'Finished', status: 'done', priority: 1 },
+  ]
+  const { root } = mount({ ...initialState(), tab: 'board', view: { ...initialState().view, hiddenStatuses: [] } }, rows)
+  const card = (id) => root.querySelector(`.m-card[data-id="${id}"]`)
+  assert.ok(card('r1').querySelector('.m-st-review.m-spin'), 'its glyph turns, in its own colour')
+  assert.equal(card('r1').querySelector('.m-glint').textContent, 'Waiting on a review')
+  assert.equal(card('t1').querySelector('.m-spin, .m-glint'), null)
+  assert.equal(card('d1').querySelector('.m-spin, .m-glint'), null)
+  assert.ok(root.querySelector('.m-lane[data-status="review"] .m-lane-head .m-spin'))
+})

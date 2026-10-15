@@ -1,8 +1,8 @@
 /**
  * What someone holds moves, as it does in the TUI (se-gowr.oie): its status glyph turns through the braille spinner
- * and a yellow band runs over its title. Which rows move is the TUI's rule (`tui::App::spins`): work in progress, and
- * a group whose work is, unless deferral took it out of the plan. The motion itself is components.css; this file
- * marks what moves and times the band.
+ * and a yellow band runs over its title. Which rows move is the TUI's rule (`tui::App::spins`): work in a started
+ * column (in progress, review), and a group whose work is, unless deferral took it out of the plan. The motion itself
+ * is components.css; this file marks what moves and times the band.
  */
 import type { IssueIndex } from '../data/index.js'
 import { el } from './components.ts'
@@ -14,10 +14,18 @@ const STEP_MS = 120
 const BAND = 3
 const REST = 8
 
-/** Does the row at `at` move? A group's status is the one derived from its members (statusOf). */
+/**
+ * Does the row at `at` move? The TUI's rule (`Config::is_started`): a column that is neither the first nor done is a
+ * started one — in progress, review, and a column of the project's own between them — so review moves too. A group's
+ * status is the one derived from its members (statusOf). Deferred work stands still.
+ */
 export function spins(index: IssueIndex, at: number): boolean {
-  return statusOf(index.rows[at]!) === 'in_progress' && index.shelvedAt(at) === undefined
+  const status = statusOf(index.rows[at]!)
+  return status !== '' && status !== FIRST && status !== 'done' && index.shelvedAt(at) === undefined
 }
+
+/** The first column, where nothing has started (`Config::first_status`); moai's default and the panel's. */
+const FIRST = 'todo'
 
 /** Wide letters (Hangul, CJK, full-width forms) take two cells, as in the terminal. */
 const WIDE = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦]/u
