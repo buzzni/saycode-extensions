@@ -16,6 +16,7 @@ import { PROFILE } from "../data/source.ts"
 import { notStartedText, type Copy } from "../i18n/index.ts"
 import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
+import { mountBrand } from "./brand.ts"
 import { mountCrumbs } from "./crumbs.ts"
 import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
 import { narrow, segKey } from "./list-model.ts"
@@ -264,7 +265,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
   // The activity stays on every tab (the wiki's reads wait for the confirmation too), floating over the foot of the
   // panes so a run never pushes them (shell.css, se-24ey.14i).
-  const shell = el(doc, "div", { class: "m-shell" }, tabbar, toolbar, head, body, status)
+  // The TUI's header (view/brand.ts): the logo, then who and which moai.
+  const brand = mountBrand(doc, copy.shell.version)
+  const shell = el(doc, "div", { class: "m-shell" }, brand.el, tabbar, toolbar, head, body, status)
   root.replaceChildren(shell)
 
   // ── panes ──
@@ -482,6 +485,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
     explainSkills(state.skills)
+    brand.render(state.about)
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

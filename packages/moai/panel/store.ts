@@ -13,6 +13,7 @@ import type { Outcome } from './data/client.js'
 import { compatFixed, sameReport, type CompatReport } from './data/compat.js'
 import { pathKey, type Path, type Row } from './data/index.js'
 import type { Installed, SkillReport } from './data/skills.js'
+import { sameAbout, type About } from './data/about.js'
 import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
 import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
 import type { WikiState } from './view/wiki.js'
@@ -141,6 +142,8 @@ export interface State {
   /** What the answers so far tell of the moai CLI and the daemon's catalog (data/compat.ts); null before any. */
   compat: CompatReport | null
   skills: SkillsState
+  /** The header's user and version, from the last `status` read (data/about.ts); null before one answered. */
+  about: About | null
   /**
    * The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left; a wiki pane mounted on this
    * store starts from it (the mounted pane keeps its own state across tab switches).
@@ -220,6 +223,7 @@ export function initialState(): State {
     archiveProblem: null,
     compat: null,
     skills: { report: null, installing: false, installed: null, problem: null, dismissed: false },
+    about: null,
     wiki: initialWiki(),
   }
 }
@@ -279,6 +283,8 @@ export type Action =
   | { type: 'skills-installed'; installed: Installed; report?: SkillReport }
   | { type: 'skills-failed'; problem: Outcome }
   | { type: 'skills-dismissed' }
+  /** A `status` read answered; one that says what the last said changes nothing. */
+  | { type: 'about'; about: About }
   /** Settings read back at boot (already cleaned by data/memory.ts); what is left out keeps its value. */
   | { type: 'restore'; settings: Partial<Remembered> }
 
@@ -410,6 +416,8 @@ export function reduce(state: State, action: Action): State {
       return { ...state, skills: { ...state.skills, installing: false, problem: action.problem } }
     case 'skills-dismissed':
       return { ...state, skills: { ...state.skills, dismissed: true } }
+    case 'about':
+      return sameAbout(state.about, action.about) ? state : { ...state, about: action.about }
     case 'restore': {
       const { tab, detail } = action.settings
       if (tab === undefined && detail === undefined) return state

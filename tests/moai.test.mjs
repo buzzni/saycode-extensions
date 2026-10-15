@@ -246,7 +246,9 @@ test('the packed panel is one file: inline script and style only, under the 512 
   assert.doesNotMatch(packed.panelHtml, /innerHTML|insertAdjacentHTML|outerHTML|electron|ipcRenderer/)
   // The sandboxed panel cannot submit forms; the host draws the title; init stays a user action, never a chat request.
   assert.doesNotMatch(packed.panelHtml, /<form|'submit'|<h1/)
-  assert.doesNotMatch(packed.panelHtml, /\bAI\b|chat|채팅|チャット|聊天/i)
+  // The header's tagline is moai's own (the TUI's LOGO, se-qkga), not a request to a chat: it is the one AI allowed.
+  assert.equal(packed.panelHtml.split('Issue tracker for AI agent').length, 2, 'the tagline, once')
+  assert.doesNotMatch(packed.panelHtml.replace('Issue tracker for AI agent', ''), /\bAI\b|chat|채팅|チャット|聊天/i)
 })
 
 test('opening the board reads the list once, draws it by priority and shows when it was read', async () => {
@@ -1794,4 +1796,18 @@ test('skills: a catalog without the profile shows nothing and asks for no catalo
   const partial = await runPanel(board({ 'buzzni.moai.show-all': cut, 'buzzni.moai.prime': PRIME }))
   await flush()
   assert.deepEqual(skillsStarts(partial), [])
+})
+
+// ── the header: the TUI's logo, then who and which moai, from `status --json` (se-qkga) ──
+test('header: the logo, then the user and the version status prints; an older moai that prints neither gets dashes', async () => {
+  const status = JSON.stringify({ ...JSON.parse(STATUS), user: { name: 'Raven', email: 'raven@buzzni.com', label: 'Raven <raven@buzzni.com>' }, version: { current: '0.18.0', latest: { state: 'same', tag: 'v0.18.0' } } })
+  const panel = await runPanel(board({ 'buzzni.moai.status': status }), 'ko')
+  await until(() => panel.$('.m-brand-info').textContent.includes('Raven'))
+  assert.deepEqual([...panel.window.document.querySelectorAll('.m-brand-line')].map((line) => line.textContent), ['User    : Raven <raven@buzzni.com>', 'Version : 0.18.0 · 최신 (v0.18.0)'])
+  assert.match(panel.$('.m-brand-logo').textContent, /Issue tracker for AI agent$/)
+  // It stands above the tab bar, as the TUI's stands above everything.
+  assert.equal(panel.$('.m-shell').firstElementChild, panel.$('.m-brand'))
+  const older = await runPanel(board())
+  await flush()
+  assert.deepEqual([...older.window.document.querySelectorAll('.m-brand-line')].map((line) => line.textContent), ['User    : —', 'Version : —'])
 })

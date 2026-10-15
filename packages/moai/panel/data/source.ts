@@ -247,11 +247,15 @@ export function sameTallies(a: ReadonlyMap<string, readonly [number, number]>, b
   return true
 }
 
-/** The same `status` request as {@link loadStatuses}, which the client shares; read once, used for both. */
-export async function loadTallies(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Map<string, [number, number]>>> {
+/**
+ * The same `status` request as {@link loadStatuses}, which the client shares; read once, used for both. `heard` gets the
+ * output as it is, for what else it says (data/about.ts: the header's user and version).
+ */
+export async function loadTallies(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe, heard?: (output: unknown) => void): Promise<Loaded<Map<string, [number, number]>>> {
   const outcome = seen(probe, PROFILE.status, await client.request(PROFILE.status, undefined, { priority }))
   const output = answerOf(outcome)
   if (output !== undefined) probe?.observeStatus(output)
+  if (output !== undefined) heard?.(output)
   return output === undefined ? { ok: false, outcome } : { ok: true, value: talliesFrom(output) }
 }
 

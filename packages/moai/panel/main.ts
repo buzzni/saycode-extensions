@@ -4,6 +4,7 @@
  * Built by build.mjs into the single file dist/panel.html.
  */
 import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Client, type Outcome } from './data/client.js'
+import { aboutFrom } from './data/about.js'
 import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
@@ -92,7 +93,7 @@ async function loadBoard(automatic = false): Promise<void> {
   // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
   // still running (client.ts); the panel's one write — read marks — moves no count.
   const listing = loadAllRows(client, PRIORITY.list, probe)
-  const counting = loadTallies(client, PRIORITY.list, probe)
+  const counting = loadTallies(client, PRIORITY.list, probe, (output) => store.dispatch({ type: 'about', about: aboutFrom(output) }))
   let counted: Awaited<typeof counting> | undefined
   void counting.then((tallies) => {
     counted = tallies

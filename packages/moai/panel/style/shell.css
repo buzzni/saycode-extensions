@@ -5,6 +5,23 @@
 
 #moai-app { height: 100%; }
 
+/* ---- The header (view/brand.ts, se-qkga): the TUI's own. The logo's six lines dim, a line down, then User and
+   Version in the TUI's columns. One line height for both sides, so the info lines stand beside the logo's rows. A
+   short panel leaves it out and a narrow one the logo, as the TUI does (HEADER_MIN_H; the logo yields first). ---- */
+.m-brand {
+  flex: none; display: flex; align-items: flex-start; gap: 1ch; padding: 6px 10px; border-bottom: 1px solid var(--border-soft);
+  /* A terminal's: the block letters of the logo come from Menlo (SF Mono lacks them, and a fallback font sets them at
+     other widths), and 1.17 is Menlo's own line height, at which the blocks of one row meet the next as in the TUI. */
+  font: 12px/1.17 Menlo, "DejaVu Sans Mono", ui-monospace, monospace; color: var(--text);
+  container-type: inline-size; container-name: m-brand;
+}
+.m-brand-logo { flex: none; margin: 0; font: inherit; color: var(--muted); white-space: pre; }
+.m-brand-info { flex: 1 1 auto; min-width: 0; align-self: stretch; padding-left: 1ch; border-left: 1px solid var(--border); }
+.m-brand-line { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.m-brand-label { color: var(--muted); }
+@container m-brand (max-width: 459px) { .m-brand-logo { display: none; } .m-brand-info { padding-left: 1ch; } }
+@media (max-height: 599px) { .m-brand { display: none; } }
+
 /* Slots other parts mount into take no room while empty. */
 .m-toolbar-slot:empty, .m-tabbar-slot:empty { display: none; }
 .m-tabbar-slot { display: flex; align-items: center; gap: 4px; }

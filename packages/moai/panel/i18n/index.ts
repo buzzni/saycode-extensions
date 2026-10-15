@@ -5,6 +5,7 @@
  * areas add their words inside their own group without touching another's lines.
  */
 import type { RefusalCode } from '../data/client.js'
+import type { VersionCopy } from '../data/about.js'
 import type { Feature } from '../data/compat.js'
 import type { GrepScope, SortKey } from '../data/query.js'
 import type { CellField, HelpGroupId, KeyLabel, LayerId, SortField, StateId } from '../keys/table.js'
@@ -92,6 +93,30 @@ const SKILLS_ZH: SkillsCopy = {
   copy: '复制', copied: '已复制',
 }
 
+/**
+ * The header's Version line in moai's own words (its `tui.version.*` keys, se-qkga). moai has them in English and
+ * Korean only and falls back to English elsewhere, so Japanese and Chinese read the English, as the TUI does.
+ */
+const VERSION_EN: VersionCopy = {
+  newer: '{tag} is out', same: 'latest ({tag})', ahead: 'ahead of the latest release ({tag})', unchecked: 'latest not checked',
+  uncheckedFor: {
+    offline: 'latest not checked (no network)', timeout: 'latest not checked (timed out)', rate_limited: 'latest not checked (throttled)',
+    http: 'latest not checked (HTTP error)', tls: 'latest not checked (TLS failed)', garbled: 'latest not checked (bad answer)',
+    odd_tag: 'latest not checked (odd tag)', failed: 'latest not checked (call failed)',
+  },
+  seenToday: '{tag} seen today', seenDay: '{tag} seen 1 day ago', seenDays: '{tag} seen {d} days ago', seenEarlier: '{tag} seen earlier',
+}
+
+const VERSION_KO: VersionCopy = {
+  newer: '새 판 {tag}', same: '최신 ({tag})', ahead: '릴리스보다 앞선 판 ({tag})', unchecked: '최신 확인 안 함',
+  uncheckedFor: {
+    offline: '최신 확인 안 함 (네트워크 없음)', timeout: '최신 확인 안 함 (타임아웃)', rate_limited: '최신 확인 안 함 (요청 한도 초과)',
+    http: '최신 확인 안 함 (서버 오류)', tls: '최신 확인 안 함 (TLS 실패)', garbled: '최신 확인 안 함 (응답을 못 읽음)',
+    odd_tag: '최신 확인 안 함 (태그 꼴이 아님)', failed: '최신 확인 안 함 (호출 실패)',
+  },
+  seenToday: '오늘 본 판 {tag}', seenDay: '1일 전에 본 판 {tag}', seenDays: '{d}일 전에 본 판 {tag}', seenEarlier: '전에 본 판 {tag}',
+}
+
 const COMPAT_EN: CompatCopy = {
   toolMissing: 'Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.',
   oldMoai: (features) => `That machine's moai is older than this panel expects${features.length ? ` (on a fallback: ${features.join(', ')})` : ''}. Upgrade moai.`,
@@ -175,6 +200,7 @@ export interface ShellCopy {
   backlogFailed: string
   compat: CompatCopy
   skills: SkillsCopy
+  version: VersionCopy
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -206,6 +232,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
     skills: SKILLS_EN,
+    version: VERSION_EN,
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -235,6 +262,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: '백로그를 읽지 못했습니다:',
     compat: COMPAT_KO,
     skills: SKILLS_KO,
+    version: VERSION_KO,
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -264,6 +292,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: 'バックログを読めませんでした:',
     compat: COMPAT_JA,
     skills: SKILLS_JA,
+    version: VERSION_EN,
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -293,6 +322,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: '无法读取待办池:',
     compat: COMPAT_ZH,
     skills: SKILLS_ZH,
+    version: VERSION_EN,
   },
 }
 
