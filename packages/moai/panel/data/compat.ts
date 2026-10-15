@@ -7,19 +7,24 @@
  * report where it is drawn. The banner is drawn elsewhere.
  *
  * Extension and moai versions are independent (README, Compatibility); the extension relies on the upstream
- * improvements moai 0.17.0 brought (se-0g4a) and assumes a catalog of 13 profiles (se-0g4a.anz). Features that
+ * improvements moai 0.17.0 brought (se-0g4a) and assumes a catalog of 12 profiles (se-0g4a.anz). Features that
  * still work keep working: the fallbacks are in source.ts, this only names which ones are in use.
  *
  * What is evidence of what:
  * - `refused` `unsupported-daemon` on a profile: the daemon's catalog does not have it, or the daemon is too
  *   old for the machine run at all. Only a profile that ran tells the two apart: until one has, and whenever a
- *   baseline profile is refused as unsupported, the catalog is `unknown` as a whole, not 13 missing ones.
+ *   baseline profile is refused as unsupported, the catalog is `unknown` as a whole, not 12 missing ones.
  *   `tool-missing`: `moai` is not installed there.
  * - A start that failed comes back `not-started` (client.ts), with the code it named when it named one: an older
  *   host may name `unsupported-daemon` in a thrown start's message, which is read as the refusal is. A profile
  *   read as missing stays so until one pass of the same profile clears it. `binding-mismatch` (a refusal the
  *   panel does not list; the extension answers every SDK refusal code, src/index.ts) says the binding or the
  *   approval changed, nothing of the catalog: it counts as a start that failed, as one naming no code does.
+ * - The profiles 2.0 added (se-0g4a.anz: the whole list, the backlog, the archive, the read marks) reach a daemon's
+ *   catalog together. Once the whole list is read as missing, the rest of them are taken as missing too and not run
+ *   ({@link CompatProbe.lacks}): Desktop puts its confirmation up before it asks the daemon, so each would ask the
+ *   person to approve a command the daemon then refuses (se-24ey.dcj). The whole list itself is still run, so a
+ *   catalog updated meanwhile is found on the next read.
  * - The shape of `status --json` is the strong sign of an old moai: new moai prints `statuses[]` and the
  *   `milestones[]`/`epics[]` tallies, old moai (0.16) prints `counts` and no `statuses`.
  * - `degraded` names only what the panel uses ({@link ORDER}): moai 0.16 prints the tallies, and `statuses[]` it lacks
@@ -47,7 +52,12 @@ export interface CompatReport {
 }
 
 /** The profiles a daemon of the shipped catalog already has (source.ts header); the rest are the assumed ones. */
-const BASELINE: ReadonlySet<string> = new Set([PROFILE.status, PROFILE.prime, PROFILE.show, PROFILE.add, PROFILE.wikiLs, PROFILE.wikiShow])
+const BASELINE: ReadonlySet<string> = new Set([PROFILE.status, PROFILE.prime, PROFILE.show, PROFILE.wikiLs, PROFILE.wikiShow])
+
+/** The profiles 2.0 added, which a catalog gains together: one of them missing tells the others' state. */
+const ADDED: ReadonlySet<string> = new Set([
+  PROFILE.showAll, PROFILE.backlog, PROFILE.showArchived, PROFILE.showArchivedAfter, PROFILE.read, PROFILE.readAll, PROFILE.readGroup,
+])
 
 const FEATURE_OF: Readonly<Record<string, Feature>> = {
   [PROFILE.showAll]: 'all-rows',
@@ -83,7 +93,7 @@ export function sameReport(a: CompatReport, b: CompatReport): boolean {
  * The compatibility banner already tells this refusal (install moai, update the catalog), so the board's own
  * banners need not tell it again. A start that failed naming the code is read as the refusal is. An
  * `unsupported-daemon` the catalog line does not stand for (the daemon as a whole too old, or nothing decided yet) is
- * still the board's to tell. `heard`: the read that ended so was handed to the probe (the detail and the add are
+ * still the board's to tell. `heard`: the read that ended so was handed to the probe (the detail is
  * not): the catalog line names only profiles it heard, while moai missing is the machine's and stands for any read.
  */
 export function compatTells(report: CompatReport | null, outcome: Outcome | null, heard = true): boolean {
@@ -125,6 +135,16 @@ export class CompatProbe {
         console.error(error)
       }
     }
+  }
+
+  /**
+   * Not worth running there: an added profile other than the whole list, once the whole list was refused as
+   * unsupported there (its other added profiles come with it; a daemon too old for the machine run refuses them all
+   * the same), unless it has run there already — that is proof it is there. The caller answers such a request
+   * `unsupported-daemon` itself.
+   */
+  lacks(profile: string): boolean {
+    return profile !== PROFILE.showAll && ADDED.has(profile) && this.seen.get(profile) !== 'passed' && this.seen.get(PROFILE.showAll) === 'unsupported'
   }
 
   /** Hand over what a request to `profile` ended with. Information refusals and failures say nothing here. */
@@ -174,7 +194,7 @@ export class CompatProbe {
     const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
     // Refusals alone cannot tell a catalog that lacks the profiles from a daemon too old for the machine run at
     // all, so nothing is judged until a profile has run. A shipped profile refused as unsupported is the daemon as
-    // a whole too old, and 13 missing profiles would say less than that.
+    // a whole too old, and 12 missing profiles would say less than that.
     const wholeDaemon = refused.some((id) => BASELINE.has(id))
     const decided = passed > 0 && !wholeDaemon
     const missing = decided ? refused : []

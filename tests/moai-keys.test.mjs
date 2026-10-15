@@ -117,8 +117,8 @@ test('table: 대체 — Ctrl-w forms only on macOS, SPC w and Alt-Backspace ever
   const word = KEY_TABLE.prompt.find((b) => b.action === 'prompt.deleteWord')
   assert.deepEqual(bindingKeys(word, 'other'), ['A-Backspace'])
   assert.deepEqual(bindingKeys(word, 'mac'), ['A-Backspace', 'C-w'])
-  // 변경: SPC n opens the add input, SPC o d toggles left/bottom.
-  assert.equal(KEY_TABLE.menu.find((b) => b.keys.includes('SPC n')).action, 'add.open')
+  // 변경: SPC o d toggles left/bottom. SPC n (add) is gone: the panel reads only (se-24ey.oxd).
+  assert.equal(KEY_TABLE.menu.find((b) => b.keys.includes('SPC n')), undefined)
   assert.equal(KEY_TABLE.menu.find((b) => b.keys.includes('SPC o d')).action, 'option.detailAt')
 })
 
@@ -341,8 +341,11 @@ test('menu: unknown keys are ignored and swallowed; action items close, toggle i
   key(' '); key('g')
   assert.equal(key('b').action.id, 'tab.board')
   assert.equal(router.state().menu, null)
+  // SPC n added a task once; the panel reads only now (se-24ey.oxd), so it is an unknown key there.
   key(' ')
-  key('n')
+  assert.deepEqual(key('n'), { handled: true, preventDefault: true })
+  assert.deepEqual(router.state().menu, ['SPC'])
+  key('Escape')
   assert.deepEqual(sent.map((a) => [a.id, a.args, a.fromMenu]), [
     ['view.deferred', undefined, true],
     ['view.detail', undefined, true],
@@ -350,7 +353,6 @@ test('menu: unknown keys are ignored and swallowed; action items close, toggle i
     ['sort.add', { field: 'priority' }, true],
     ['sort.edit', undefined, true],
     ['tab.board', undefined, true],
-    ['add.open', undefined, true]
   ])
   assert.deepEqual(sent[0].keys, ['SPC', 'v', 'l'])
 })
@@ -456,7 +458,7 @@ test('menuLayer: root items and layers with titles; state labels; availability h
   })
   const root = menuLayer(['SPC'], ctx)
   assert.equal(root.title, '메뉴')
-  assert.deepEqual(root.items.map((i) => i.key), ['/', 'f', 'n', 'g', 'v', 's', 'c', 'm', 'o', 'w', '?'])
+  assert.deepEqual(root.items.map((i) => i.key), ['/', 'f', 'g', 'v', 's', 'c', 'm', 'o', 'w', '?'])
   const g = root.items.find((i) => i.key === 'g')
   assert.equal(g.kind, 'layer')
   assert.equal(g.label, '+이동')

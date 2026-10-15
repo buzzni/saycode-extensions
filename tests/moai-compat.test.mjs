@@ -138,7 +138,26 @@ test('unsupported-daemon on added profiles names them; their features degrade, t
   assert.deepEqual(report.degraded, ['all-rows', 'backlog', 'archive'])
 })
 
-test('a shipped profile refused as unsupported means the daemon as a whole, not 13 missing profiles', async () => {
+test('once the whole list is missing, the other added profiles are lacked unrun; a pass of the list lifts it (se-24ey.dcj)', () => {
+  const probe = new CompatProbe()
+  const others = [PROFILE.backlog, PROFILE.showArchived, PROFILE.showArchivedAfter, PROFILE.read, PROFILE.readAll, PROFILE.readGroup]
+  // Nothing heard of the whole list yet: nothing is lacked, the reads go out.
+  assert.deepEqual(others.filter((profile) => probe.lacks(profile)), [])
+  // The whole list refused as unsupported is enough: a catalog without it lacks the rest, and a daemon too old for the
+  // machine run refuses them all the same.
+  probe.observe(PROFILE.showAll, refused('unsupported-daemon'))
+  assert.deepEqual(others.filter((profile) => probe.lacks(profile)), others)
+  // The whole list itself is still asked (an updated catalog is found that way), and the shipped profiles never lacked.
+  for (const profile of [PROFILE.showAll, PROFILE.status, PROFILE.prime, PROFILE.show, PROFILE.wikiLs, PROFILE.wikiShow]) assert.equal(probe.lacks(profile), false, profile)
+  // One that has run there is there, whatever the rest says.
+  probe.observe(PROFILE.backlog, passed([]))
+  assert.equal(probe.lacks(PROFILE.backlog), false)
+  assert.equal(probe.lacks(PROFILE.read), true)
+  probe.observe(PROFILE.showAll, passed([]))
+  assert.deepEqual(others.filter((profile) => probe.lacks(profile)), [])
+})
+
+test('a shipped profile refused as unsupported means the daemon as a whole, not 12 missing profiles', async () => {
   const probe = new CompatProbe()
   const client = clientOf({ [PROFILE.status]: refused('unsupported-daemon'), [PROFILE.showAll]: refused('unsupported-daemon') })
   await loadStatuses(client, undefined, probe)

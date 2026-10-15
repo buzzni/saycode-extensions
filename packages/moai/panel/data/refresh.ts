@@ -1,6 +1,6 @@
 /**
- * Automatic refresh: while the panel is visible the list is read again every `intervalMs` (60 s by
- * default); while it is hidden it does not poll, and becoming visible after the interval has passed reads at
+ * Automatic refresh: while the panel is visible the list is read again every `intervalMs` (10 s by
+ * default, se-24ey.14i; 0 turns it off); while it is hidden it does not poll, and becoming visible after the interval has passed reads at
  * once. Visible means both `isVisible` and the `visibility` signal say so. The host sends no visibility signal
  * of its own, so in a page the default signal is `panelVisibility()`: `document.visibilityState` follows the
  * Desktop window, and an inactive tool tab stays mounted with the panel's iframe under a hidden parent, where
@@ -28,7 +28,8 @@ export interface Clock {
 }
 
 export interface RefresherOptions {
-  load: () => Promise<void>
+  /** `automatic`: the clock (or the panel shown again) started this read, not a person or a write. */
+  load: (how: { automatic: boolean }) => Promise<void>
   intervalMs?: number
   isVisible?: () => boolean
   /** Defaults to `panelVisibility()` where there is a document, and to none elsewhere; `null` turns it off. */
@@ -50,7 +51,7 @@ export interface Refresher {
   readonly lastLoaded: number | null
 }
 
-export const DEFAULT_INTERVAL_MS = 60_000
+export const DEFAULT_INTERVAL_MS = 10_000
 
 /** How often a panel hidden by a 0×0 viewport looks at its size again, in case no resize event reaches it. */
 export const HIDDEN_PROBE_MS = 5_000
@@ -95,18 +96,22 @@ export function createRefresher(options: RefresherOptions): Refresher {
   }
 
   // A read nobody awaits must not end as an unhandled rejection; the load reports its own failures.
-  const background = () => void refresh().catch(() => {})
+  const background = () => void run({}, true).catch(() => {})
 
   function refresh(how: { fresh?: boolean } = {}): Promise<void> {
+    return run(how, false)
+  }
+
+  function run(how: { fresh?: boolean }, automatic: boolean): Promise<void> {
     if (inFlight && how.fresh) {
-      const after = () => refresh()
+      const after = () => run({}, automatic)
       return inFlight.then(after, after)
     }
     if (inFlight) return inFlight
     clear()
     inFlight = (async () => {
       try {
-        await options.load()
+        await options.load({ automatic })
       } finally {
         lastLoaded = clock.now()
         inFlight = null
@@ -120,7 +125,8 @@ export function createRefresher(options: RefresherOptions): Refresher {
     if (stopped) return
     if (!isVisible()) return clear()
     if (inFlight) return
-    if (lastLoaded !== null && clock.now() - lastLoaded >= interval) background()
+    // Off (interval 0) stays off: being shown again reads nothing either.
+    if (interval > 0 && lastLoaded !== null && clock.now() - lastLoaded >= interval) background()
     else schedule()
   }
   const unwatch = signal?.watch(visibilityChanged)

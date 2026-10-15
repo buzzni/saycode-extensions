@@ -5,7 +5,7 @@
  */
 import { isDone, isGroup, type IssueIndex, type Progress, type Row } from '../data/index.ts'
 import type { Outcome } from '../data/client.ts'
-import type { Copy } from '../i18n/index.ts'
+import { notStartedText, type Copy } from '../i18n/index.ts'
 
 /** The columns in moai's default order; a column the config adds stands after them. */
 const STATUS_ORDER = ['todo', 'in_progress', 'review', 'done']
@@ -269,7 +269,7 @@ export function problemText(outcome: Outcome, copy: Copy): string | null {
     case 'moai-error': return copy.moaiError(outcome.message)
     case 'cancelled': return outcome.mayContinue ? `${copy.cancelled} ${copy.mayContinue}` : copy.cancelled
     case 'unreadable': return copy.unreadable
-    case 'not-started': return copy.notStarted
+    case 'not-started': return notStartedText(copy, outcome.code)
     case 'failed': return copy.failed
     case 'passed': return null
   }

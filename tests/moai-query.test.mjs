@@ -18,9 +18,12 @@ const filterOf = (items, flags) => {
   return built.value
 }
 
+/** The reader's wall clock, as the panel hands it to applyFilter (view/list-model.ts readerClock). */
+const readerClock = (epoch) => epoch - new Date(epoch * 1000).getTimezoneOffset() * 60
+
 /** What the panel does for one case: filter, then order (the default order when none is given). */
-function run(item, list = rows) {
-  const kept = q.applyFilter(list, filterOf(item.filter, item.flags))
+function run(item, list = rows, context) {
+  const kept = q.applyFilter(list, filterOf(item.filter, item.flags), context)
   const fields = item.sort === undefined ? q.DEFAULT_SORT.fields : q.parseSort(item.sort).value
   return ids(q.sortRows(kept, { fields, reversed: Boolean(item.reverse) }))
 }
@@ -66,7 +69,9 @@ test('the same cases against the real binary, when it is installed', { skip: !mo
     writeFileSync(join(dir, '.moai', 'issues.jsonl'), fixture.issues.map((row) => JSON.stringify(row)).join('\n') + '\n')
     for (const item of fixture.cases) {
       const out = JSON.parse(execFileSync('moai', ['-C', dir, ...cliArgs(item)], { encoding: 'utf8' }))
-      assert.deepEqual(run(item), ids(out), item.name)
+      // The CLI reads a wall time (`2026-10-07 01:00`) on this machine's clock, as the panel does (list-model.ts
+      // readerClock); the fixture's ids were taken in UTC, so the other tests read without `local` (se-24ey.1z5).
+      assert.deepEqual(run(item, rows, { local: readerClock }), ids(out), item.name)
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })

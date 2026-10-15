@@ -1,17 +1,18 @@
 // The panel's frame (design §1): the tab bar (board, list, wiki; the refresh time, the detail toggles), the
-// search / filter / sort toolbar (view/toolbar.ts, its state in the store), the path line, the banners, the add field, the run's activity, and under them the
+// search / filter / sort toolbar (view/toolbar.ts, its state in the store), the path line, the banners, the result line, the run's activity, and under them the
 // split holding the list or board beside the detail. The panes are filled by the views named in
 // view/panes.ts through the contract in view/types.ts; the shell renders the panes that show on every store
 // change, and moves the split to the panel's width as it changes.
 //
-// The shell reads and dispatches to the store; it does no I/O. Reads, adds and cancels are the caller's
+// The shell reads and dispatches to the store; it does no I/O. Reads, read marks and cancels are the caller's
 // (main.ts) and arrive as ShellIntents.
 
 import { isInformation, type Outcome } from "../data/client.ts"
 import { compatTells, type CompatReport, type Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
-import type { Copy } from "../i18n/index.ts"
+import { PROFILE } from "../data/source.ts"
+import { notStartedText, type Copy } from "../i18n/index.ts"
 import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
 import { mountCrumbs } from "./crumbs.ts"
@@ -39,7 +40,6 @@ export interface ShellIntents {
   refresh(): void
   /** Cursor on the row and its detail read. */
   choose(id: string): void
-  add(title: string): void
   cancel(): void
 }
 
@@ -63,12 +63,12 @@ export interface Shell {
   render(): void
   /** The activity line and Cancel alone: they are all that follows the request queue, so nothing else redraws for it. */
   activity(current: Activity): void
-  /** One line under the add field: the added task, or why nothing was added. */
+  /** One line under the banners: what a read mark did, or why it did nothing. */
   say(text: string, problem?: boolean): void
-  /** Why an add did nothing, on that same line. The banners belong to the reads and redraw with them. */
+  /** Why a read mark did nothing, on that same line. The banners belong to the reads and redraw with them. */
   refuse(outcome: Outcome): void
-  /** The add field; the caller clears it after an add went through. */
-  input: HTMLInputElement
+  /** Automatic refresh held after a declined read (main.ts holdClock), on a line of its own until it starts again. */
+  held(on: boolean): void
   /**
    * Places other parts mount into: `toolbar` under the tab bar (holds the search / filter / sort toolbar, which
    * the shell mounts; hidden on the wiki tab), `actions` at the end of the tab bar (the help button, empty and
@@ -103,7 +103,7 @@ export function describe(outcome: Outcome, copy: Copy, doc: Document): { parts: 
     case "unreadable":
       return { parts: [copy.unreadable], info: false }
     case "not-started":
-      return { parts: [copy.notStarted], info: false }
+      return { parts: [notStartedText(copy, outcome.code)], info: false }
     case "failed":
       return { parts: [copy.failed], info: false }
     case "passed":
@@ -185,7 +185,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     tabs.el, el(doc, "div", { class: "m-tabbar-spacer" }),
     el(doc, "div", { class: "m-tabbar-actions" }, refresh, visibility, position.el, actions))
 
-  // ── under the tab bar: toolbar slot, path line, activity, banners, add field ──
+  // ── under the tab bar: toolbar slot, path line, banners, result line ──
   const toolbar = el(doc, "div", { class: "m-toolbar-slot", hidden: state.tab === "wiki" })
   // The toolbar is built once and brought to the store's state on every render (its inputs are never rebuilt
   // under the caret or an IME composition); what it does goes back to the store as a `toolbar` action.
@@ -207,8 +207,8 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const notice = el(doc, "div", { class: "m-banner moai-notice", role: "status" })
   const error = el(doc, "div", { class: "m-banner m-banner-danger moai-error", role: "alert" })
   const more = el(doc, "p", { class: "moai-more" })
-  // The list stands on prime's rows: `show --all` was cut at the output limit (BoardData.truncated), or the catalog
-  // lacks it while the compat banner cannot name that yet (primeOnly).
+  // The list stands on prime's rows: `show --all` was cut at the output limit (BoardData.truncated), or it cannot be
+  // read there (primeOnly), which says what the board then leaves out.
   const truncated = el(doc, "div", { class: "m-banner m-banner-warn moai-truncated", role: "status" })
   // What to upgrade, update or install on that machine (data/compat.ts): the reads that work keep showing.
   const compat = el(doc, "div", { class: "m-banner m-banner-warn moai-compat", role: "status" })
@@ -219,28 +219,12 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   // Why the backlog is missing beside prime's rows (BoardData.backlogProblem): the same pair as the archive's.
   const backlogNotice = el(doc, "div", { class: "m-banner moai-backlog-problem", role: "status" })
   const backlogError = el(doc, "div", { class: "m-banner m-banner-danger moai-backlog-problem", role: "alert" })
-  const input = el(doc, "input", { type: "text", class: "m-input", "aria-label": copy.shell.addLabel, placeholder: copy.placeholder, autocomplete: "off", maxlength: 512 })
-  const submit = () => intents.add(input.value)
-  const addButton = button(doc, { label: copy.add, variant: "primary", small: true, onClick: submit })
-  addButton.classList.add("moai-add-button")
-  // The panel iframe has no allow-forms, so Enter is handled here — and not while an IME composes. Esc leaves the
-  // field for the list (keybindings.md 3.5: in an input it blurs), its text kept: the key router leaves an editable
-  // target that is not a search or filter prompt alone, so nothing else would take the caret out (`SPC n` put it in).
-  input.addEventListener("keydown", (event) => {
-    if (event.isComposing) return
-    if (event.key === "Enter") {
-      event.preventDefault()
-      submit()
-    } else if (event.key === "Escape") {
-      event.preventDefault()
-      focusPane("list")
-    }
-  })
-  const add = el(doc, "div", { class: "m-addbar moai-add" }, input, addButton)
-  // A live region from the start: what an add did (or why it did nothing) is read out when it is written.
+  // A live region from the start: what a read mark did (or why it did nothing) is read out when it is written.
   const result = el(doc, "p", { class: "moai-result", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, backlogNotice, backlogError, archiveNotice, archiveError, more, add, result)
-  // The path, banners and add field belong to the list and board; the wiki tab brings its own head. A panel
+  // Its own line, so neither a read mark's words nor clearing them takes the "refresh is held" notice with them.
+  const heldNote = el(doc, "div", { class: "m-banner moai-held", role: "status" })
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, backlogNotice, backlogError, archiveNotice, archiveError, heldNote, more, result)
+  // The path and banners belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
 
@@ -270,8 +254,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const wiki = el(doc, "div", { class: "m-tabpanel m-pane-wiki", role: "tabpanel", id: panelDomId("wiki"), "aria-labelledby": tabDomId("wiki"), tabindex: -1, hidden: state.tab !== "wiki" })
   const body = el(doc, "div", { class: "m-body" }, work, wiki)
 
-  // The activity line stays on every tab: the wiki's reads wait for the confirmation too.
-  const shell = el(doc, "div", { class: "m-shell" }, tabbar, toolbar, head, status, body)
+  // The activity stays on every tab (the wiki's reads wait for the confirmation too), floating over the foot of the
+  // panes so a run never pushes them (shell.css, se-24ey.14i).
+  const shell = el(doc, "div", { class: "m-shell" }, tabbar, toolbar, head, body, status)
   root.replaceChildren(shell)
 
   // ── panes ──
@@ -425,14 +410,16 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explain(untold(state.board.problem) ?? (state.detail.visible ? null : untold(state.shown.problem, false)))
     const hiddenRows = state.board.value?.more ?? 0
     more.textContent = hiddenRows > 0 ? copy.more(hiddenRows) : ""
-    // Written only when it changes: it is a live region. A cut list says so here; one the catalog left to prime's rows
-    // (BoardData.partial without `truncated`) is told by the compat banner when it names the list, and here while it
-    // cannot (no report yet, or the catalog `unknown`). A catalog `ok`, or `missing` without the whole list, says a
-    // read since found `show --all` (a refresh still waiting on its backlog read, or one that failed on it): the rows
-    // on screen are older than that, and "cannot be read on this machine" is no longer so.
+    // Written only when it changes: it is a live region. A cut list says so here, and so does one left to prime's rows
+    // (BoardData.partial without `truncated`), beside the compat banner that names the whole list: that one says what
+    // to fix, this one what the board leaves out (done, deferred and the other to-do rows; se-24ey.s6v), or the empty
+    // Done column reads as nothing done. A catalog `ok`, or `missing` without the whole list, says a read since found
+    // `show --all` (a refresh still waiting on its backlog read, or one that failed on it): the rows on screen are older
+    // than that, and "cannot be read on this machine" is no longer so.
     const board = state.board.value
-    const undecided = state.compat === null || state.compat.catalog.state === "unknown"
-    const cut = board?.truncated === true ? copy.shell.truncated : board?.partial === true && undecided ? copy.shell.primeOnly : ""
+    const catalog = state.compat?.catalog
+    const listFound = catalog?.state === "ok" || (catalog?.state === "missing" && !catalog.missing.includes(PROFILE.showAll))
+    const cut = board?.truncated === true ? copy.shell.truncated : board?.partial === true && !listFound ? copy.shell.primeOnly : ""
     if (truncated.textContent !== cut) truncated.textContent = cut
     explainBacklog(untold(board?.backlogProblem ?? null))
     explainArchive(untold(state.archiveProblem))
@@ -489,7 +476,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
       result.replaceChildren(...(said ? [el(doc, "span", {}, ...said.parts)] : []))
       result.className = said && !said.info ? "moai-result m-banner m-banner-danger" : "moai-result m-banner"
     },
-    input,
+    held(on) {
+      const text = on ? copy.autoHeld : ""
+      if (heldNote.textContent !== text) heldNote.textContent = text
+    },
     slots: { toolbar, actions },
     setWidth,
     layout,

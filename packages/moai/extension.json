@@ -67,21 +67,6 @@
         "descendantAllowlist": ["git"]
       },
       {
-        "id": "buzzni.moai.add",
-        "executable": "moai",
-        "argv": ["--json", "-C", "{{workspaceRoot}}", "add", "{{title}}"],
-        "parameters": {
-          "title": { "type": "string", "maxLength": 512 }
-        },
-        "cwd": "workspaceRoot",
-        "envAllowlist": ["HOME"],
-        "timeoutMs": 120000,
-        "outputLimitBytes": 1048576,
-        "stdin": "none",
-        "writeScope": "moai",
-        "descendantAllowlist": ["git"]
-      },
-      {
         "id": "buzzni.moai.show-all",
         "executable": "moai",
         "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "--all"],

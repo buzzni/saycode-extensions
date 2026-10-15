@@ -11,7 +11,7 @@ import type { CellField, HelpGroupId, KeyLabel, LayerId, SortField, StateId } fr
 
 export type Language = 'en' | 'ko' | 'ja' | 'zh'
 
-// ── shell: tab bar, toggles, path line, add field (E2 se-qwkz.2v9) ────────────────────────────────────
+// ── shell: tab bar, toggles, path line, banners (E2 se-qwkz.2v9) ────────────────────────────────────
 
 /** The compatibility banner (data/compat.ts report): one sentence per thing to fix on that machine (se-93p3). */
 export interface CompatCopy {
@@ -92,7 +92,6 @@ export interface ShellCopy {
   reversed: string
   /** After a search or filter badge: how to take it off. */
   clearHint: string
-  addLabel: string
   wikiPlaceholder: string
   /** The wiki tab with no wiki reads to call (the data layer has not given them). */
   wikiUnavailable: string
@@ -102,7 +101,7 @@ export interface ShellCopy {
   truncated: string
   /** The archive read failed (`SPC v o`); why follows. The board's rows stand. */
   archiveFailed: string
-  /** The catalog lacks `show --all` and the compat banner cannot name it yet: the list stands on prime's rows. */
+  /** The list stands on prime's rows because `show --all` cannot be read there; says what that leaves out (se-24ey.s6v). */
   primeOnly: string
   /** The backlog read beside prime's rows was declined or failed; why follows. The rows stand without the backlog. */
   backlogFailed: string
@@ -129,13 +128,12 @@ const SHELL: Record<Language, ShellCopy> = {
     sortFields: { priority: 'priority', created: 'created', updated: 'updated', status: 'status', assignee: 'assignee', title: 'title', id: 'id' },
     reversed: '(reversed)',
     clearHint: 'Esc clears it',
-    addLabel: 'New task title',
     wikiPlaceholder: 'The wiki is not here yet.',
     wikiUnavailable: 'The wiki cannot be read here yet.',
     wikiListFailed: (reason) => `The wiki pages could not be read: ${reason}`,
     truncated: 'The whole list was too large to read, so only the tasks held and ready to pick up are shown, with the backlog when it could be read.',
     archiveFailed: 'Archived rows could not be read:',
-    primeOnly: 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up are shown, with the backlog when it could be read.',
+    primeOnly: 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up are shown. Done, deferred and the other to-do tasks are left out, and the backlog shows only when it could be read.',
     backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
   },
@@ -158,13 +156,12 @@ const SHELL: Record<Language, ShellCopy> = {
     sortFields: { priority: '우선순위', created: '만든 날', updated: '고친 날', status: '칸', assignee: '담당', title: '제목', id: 'ID' },
     reversed: '(뒤집음)',
     clearHint: 'Esc로 해제',
-    addLabel: '새 할 일 제목',
     wikiPlaceholder: '위키는 아직 준비 중입니다.',
     wikiUnavailable: '아직 여기서는 위키를 읽을 수 없습니다.',
     wikiListFailed: (reason) => `위키 페이지 목록을 읽지 못했습니다: ${reason}`,
     truncated: '전체 목록이 너무 커서 다 읽지 못했습니다. 잡고 있는 일과 바로 잡을 수 있는 일만 보입니다. 백로그는 읽은 경우에만 함께 보입니다.',
     archiveFailed: '아카이브된 항목을 읽지 못했습니다:',
-    primeOnly: '이 환경에서는 전체 목록을 읽을 수 없어 잡고 있는 일과 바로 잡을 수 있는 일만 보입니다. 백로그는 읽은 경우에만 함께 보입니다.',
+    primeOnly: '이 환경에서는 전체 목록을 읽을 수 없어 잡고 있는 일과 바로 잡을 수 있는 일만 보입니다. 완료·미룬 일과 나머지 할 일은 보이지 않고, 백로그는 읽은 경우에만 보입니다.',
     backlogFailed: '백로그를 읽지 못했습니다:',
     compat: COMPAT_KO,
   },
@@ -187,13 +184,12 @@ const SHELL: Record<Language, ShellCopy> = {
     sortFields: { priority: '優先度', created: '作成', updated: '更新', status: '列', assignee: '担当', title: 'タイトル', id: 'ID' },
     reversed: '(逆順)',
     clearHint: 'Esc で解除',
-    addLabel: '新しいタスクのタイトル',
     wikiPlaceholder: 'Wiki はまだ準備中です。',
     wikiUnavailable: 'ここではまだ Wiki を読めません。',
     wikiListFailed: (reason) => `Wiki のページ一覧を読めませんでした: ${reason}`,
     truncated: '一覧全体が大きすぎて読み切れませんでした。手元のタスクとすぐ着手できるタスクだけを表示しています。バックログは読めた場合にだけ表示します。',
     archiveFailed: 'アーカイブ済みの項目を読めませんでした:',
-    primeOnly: 'この環境では一覧全体を読めないため、手元のタスクとすぐ着手できるタスクだけを表示しています。バックログは読めた場合にだけ表示します。',
+    primeOnly: 'この環境では一覧全体を読めないため、手元のタスクとすぐ着手できるタスクだけを表示しています。完了・保留のタスクとその他の未着手タスクは表示されず、バックログは読めた場合にだけ表示します。',
     backlogFailed: 'バックログを読めませんでした:',
     compat: COMPAT_JA,
   },
@@ -216,13 +212,12 @@ const SHELL: Record<Language, ShellCopy> = {
     sortFields: { priority: '优先级', created: '创建', updated: '更新', status: '列', assignee: '负责人', title: '标题', id: 'ID' },
     reversed: '(反向)',
     clearHint: '按 Esc 清除',
-    addLabel: '新任务标题',
     wikiPlaceholder: 'Wiki 尚未就绪。',
     wikiUnavailable: '这里暂时无法读取 Wiki。',
     wikiListFailed: (reason) => `无法读取 Wiki 页面列表: ${reason}`,
     truncated: '完整列表太大，未能全部读取，因此只显示已领取和可以开始的任务；待办池仅在读取成功时一并显示。',
     archiveFailed: '无法读取已归档的条目:',
-    primeOnly: '此环境无法读取完整列表，因此只显示已领取和可以开始的任务；待办池仅在读取成功时一并显示。',
+    primeOnly: '此环境无法读取完整列表，因此只显示已领取和可以开始的任务。已完成、已推迟的任务和其他待办任务不显示，待办池仅在读取成功时显示。',
     backlogFailed: '无法读取待办池:',
     compat: COMPAT_ZH,
   },
@@ -593,7 +588,7 @@ const TABLE_EN: KeyTableCopy = {
     enter: 'Go in (a leaf row opens its details)', leave: 'Up one level',
     expand: 'Expand (board: column to the right)', collapse: 'Collapse (board: column to the left)', expandAll: 'Expand or collapse all under a group',
     search: 'Search', clear: 'Clear the search and filter', read: 'Mark the cursor row read', help: 'Keyboard shortcuts',
-    filter: 'Filter', add: 'Add a task', 'tab.list': 'List', 'tab.board': 'Board', 'tab.wiki': 'Wiki',
+    filter: 'Filter', 'tab.list': 'List', 'tab.board': 'Board', 'tab.wiki': 'Wiki',
     'view.deferred': 'Deferred', 'view.backlog': 'Backlog', 'view.archived': 'Archive',
     'view.all': 'All but archived', 'view.allHelp': 'Show all (archive stays hidden)',
     'view.detail': 'Details', 'view.raw': 'Raw', 'view.rawHelp': 'Raw or rendered', 'sort.edit': 'Edit the order…',
@@ -638,7 +633,7 @@ const TABLE_KO: KeyTableCopy = {
     enter: '들어가기 (잎 행이면 상세로)', leave: '한 층 나가기',
     expand: '펼침 (칸반: 오른쪽 칸)', collapse: '접음 (칸반: 왼쪽 칸)', expandAll: '그룹 밑을 모두 펼침·접음',
     search: '검색', clear: '걸린 검색·필터 해제', read: '커서 행 읽음', help: '단축키 도움말',
-    filter: '필터', add: '할 일 추가', 'tab.list': '목록', 'tab.board': '칸반', 'tab.wiki': '위키',
+    filter: '필터', 'tab.list': '목록', 'tab.board': '칸반', 'tab.wiki': '위키',
     'view.deferred': '미룸', 'view.backlog': '백로그', 'view.archived': '아카이브',
     'view.all': '아카이브 빼고 모두', 'view.allHelp': '모두 보이기 (아카이브 제외)',
     'view.detail': '상세', 'view.raw': '원문', 'view.rawHelp': '원문 또는 렌더링', 'sort.edit': '정렬 편집…',
@@ -683,7 +678,7 @@ const TABLE_JA: KeyTableCopy = {
     enter: '入る (末端の行なら詳細へ)', leave: '一つ上の階層へ',
     expand: '展開 (カンバン: 右の列)', collapse: '折りたたむ (カンバン: 左の列)', expandAll: 'グループの下をすべて展開・折りたたみ',
     search: '検索', clear: '検索・フィルターを解除', read: 'カーソル行を既読に', help: 'ショートカット',
-    filter: 'フィルター', add: 'タスクを追加', 'tab.list': '一覧', 'tab.board': 'カンバン', 'tab.wiki': 'Wiki',
+    filter: 'フィルター', 'tab.list': '一覧', 'tab.board': 'カンバン', 'tab.wiki': 'Wiki',
     'view.deferred': '保留', 'view.backlog': 'バックログ', 'view.archived': 'アーカイブ',
     'view.all': 'アーカイブ以外', 'view.allHelp': 'すべて表示 (アーカイブは除く)',
     'view.detail': '詳細', 'view.raw': '原文', 'view.rawHelp': '原文またはレンダリング', 'sort.edit': '並べ替えを編集…',
@@ -728,7 +723,7 @@ const TABLE_ZH: KeyTableCopy = {
     enter: '进入 (叶子行则打开详情)', leave: '返回上一层',
     expand: '展开 (看板: 右侧列)', collapse: '折叠 (看板: 左侧列)', expandAll: '展开或折叠分组下的全部',
     search: '搜索', clear: '清除搜索和筛选', read: '将光标所在行标为已读', help: '键盘快捷键',
-    filter: '筛选', add: '添加任务', 'tab.list': '列表', 'tab.board': '看板', 'tab.wiki': 'Wiki',
+    filter: '筛选', 'tab.list': '列表', 'tab.board': '看板', 'tab.wiki': 'Wiki',
     'view.deferred': '推迟', 'view.backlog': '待办池', 'view.archived': '归档',
     'view.all': '除归档外全部', 'view.allHelp': '全部显示 (归档除外)',
     'view.detail': '详情', 'view.raw': '原文', 'view.rawHelp': '原文或渲染', 'sort.edit': '编辑排序…',
@@ -939,12 +934,12 @@ export interface Copy {
   cancel: string
   cancelled: string
   mayContinue: string
-  placeholder: string
-  add: string
-  titleRequired: string
-  added: (task: { id: string; title?: string }) => string
   stats: Record<string, string>
   notStarted: string
+  /** A start that failed naming a code the panel lists no refusal for (client.ts REFUSAL_CODES): what it means (se-24ey.dcj). */
+  notStartedFor: Record<'binding-mismatch' | 'invalid-request', string>
+  /** Automatic refresh held after a list read was declined or left unanswered (main.ts holdIfAsked). */
+  autoHeld: string
   moaiError: (message: string) => string
   failed: string
   unreadable: string
@@ -961,14 +956,18 @@ export interface Copy {
 }
 
 const en: Copy = {
-  hint: "Runs in this project's folder. A confirmation showing the machine and folder appears once per session each for the list and details, and every time you add a task.",
+  hint: "Runs in this project's folder, reading only. Each kind of read asks once per session in a confirmation that shows the machine and folder.",
   refreshedAt: (time) => `Updated ${time}`, empty: 'Nothing here.', more: (n) => `${n} more not shown`,
   up: '..', root: 'All', noMilestone: '(no milestone)', lost: '(lost)', loading: 'Loading…',
   starting: 'Starting… approve the confirmation if it is showing.', running: 'Running on the machine…',
   cancel: 'Cancel', cancelled: 'The run was cancelled.', mayContinue: 'Processes on the machine may not have finished yet.',
-  placeholder: 'New task title', add: 'Add task', titleRequired: 'Enter a task title.', added: (t) => `Added: ${t.title} (${t.id})`,
   stats: { todo: 'To do', in_progress: 'In progress', review: 'Review', done: 'Done' },
-  notStarted: 'The run did not start. It may have been declined, or this machine does not support Moai yet.',
+  notStarted: 'The run did not start, and Desktop gave no reason. Click the refresh time to try again; if it keeps happening, restart Desktop.',
+  notStartedFor: {
+    'binding-mismatch': 'The run did not start: Desktop could not match this panel to its machine and project folder (the selection changed, or the machine reconnected). Open the project conversation again, or restart Desktop, then try again.',
+    'invalid-request': 'The run did not start: Desktop did not accept the request. Update the Moai extension.',
+  },
+  autoHeld: 'Automatic refresh is paused so the confirmation does not come back by itself. Click the refresh time to read again.',
   moaiError: (message) => `Moai reported an error: ${message}`, failed: 'The run failed.', unreadable: 'The run finished, but its result could not be read.',
   refused: {
     declined: 'The run did not start: the confirmation was declined.',
@@ -984,14 +983,18 @@ const en: Copy = {
 }
 
 const ko: Copy = {
-  hint: '이 프로젝트 폴더에서 실행됩니다. 목록·상세는 앱을 켜 둔 동안 각각 처음 한 번, 할 일 추가는 매번 머신과 폴더를 보여주는 확인 창이 뜹니다.',
+  hint: '이 프로젝트 폴더에서 읽기만 합니다. 읽는 명령마다 앱을 켜 둔 동안 처음 한 번, 머신과 폴더를 보여주는 확인 창이 뜹니다.',
   refreshedAt: (time) => `${time} 갱신`, empty: '항목이 없습니다.', more: (n) => `그 밖에 ${n}개는 표시하지 않았습니다`,
   up: '..', root: '전체', noMilestone: '(마일스톤 없음)', lost: '(길 잃음)', loading: '불러오는 중…',
   starting: '시작하는 중… 확인 창이 떠 있으면 승인하세요.', running: '머신에서 실행하는 중…',
   cancel: '취소', cancelled: '실행을 취소했습니다.', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.',
-  placeholder: '새 할 일 제목', add: '할 일 추가', titleRequired: '할 일 제목을 입력하세요.', added: (t) => `추가했습니다: ${t.title} (${t.id})`,
   stats: { todo: '할 일', in_progress: '진행 중', review: '검토', done: '완료' },
-  notStarted: '실행이 시작되지 않았습니다. 확인 창에서 거부했거나, 이 머신이 아직 Moai를 지원하지 않을 수 있습니다.',
+  notStarted: '실행이 시작되지 않았고 Desktop이 이유를 알려 주지 않았습니다. 갱신 시각을 눌러 다시 시도하고, 계속되면 Desktop을 다시 시작하세요.',
+  notStartedFor: {
+    'binding-mismatch': '실행이 시작되지 않았습니다. Desktop이 이 패널의 머신과 프로젝트 폴더를 확인하지 못했습니다(선택이 바뀌었거나 머신이 다시 연결됨). 프로젝트 대화를 다시 열거나 Desktop을 다시 시작한 뒤 다시 시도하세요.',
+    'invalid-request': '실행이 시작되지 않았습니다. Desktop이 요청을 받아들이지 않았습니다. Moai 확장을 업데이트하세요.',
+  },
+  autoHeld: '확인 창이 저절로 다시 뜨지 않도록 자동 갱신을 멈췄습니다. 갱신 시각을 누르면 다시 읽습니다.',
   moaiError: (message) => `Moai 오류: ${message}`, failed: '실행에 실패했습니다.', unreadable: '실행은 끝났지만 결과를 읽지 못했습니다.',
   refused: {
     declined: '확인 창에서 거부해 실행하지 않았습니다.',
@@ -1007,14 +1010,18 @@ const ko: Copy = {
 }
 
 const ja: Copy = {
-  hint: 'このプロジェクトのフォルダで実行します。一覧・詳細はアプリの起動中にそれぞれ最初の一回、タスクの追加は毎回、マシンとフォルダを示す確認画面が表示されます。',
+  hint: 'このプロジェクトのフォルダで読み取りだけを行います。読み取りの種類ごとに、アプリの起動中に最初の一回、マシンとフォルダを示す確認画面が表示されます。',
   refreshedAt: (time) => `${time} 更新`, empty: '項目はありません。', more: (n) => `ほかに ${n} 件は表示していません`,
   up: '..', root: 'すべて', noMilestone: '(マイルストーンなし)', lost: '(迷子)', loading: '読み込み中…',
   starting: '開始しています… 確認画面が表示されていれば承認してください。', running: 'マシンで実行中…',
   cancel: 'キャンセル', cancelled: '実行をキャンセルしました。', mayContinue: 'マシン上のプロセスはまだ終了していない可能性があります。',
-  placeholder: '新しいタスクのタイトル', add: 'タスクを追加', titleRequired: 'タスクのタイトルを入力してください。', added: (t) => `追加しました: ${t.title} (${t.id})`,
   stats: { todo: '未着手', in_progress: '進行中', review: 'レビュー', done: '完了' },
-  notStarted: '実行が開始されませんでした。確認画面で拒否されたか、このマシンがまだ Moai に対応していない可能性があります。',
+  notStarted: '実行が開始されず、Desktop から理由が返りませんでした。更新時刻をクリックしてもう一度お試しください。繰り返す場合は Desktop を再起動してください。',
+  notStartedFor: {
+    'binding-mismatch': '実行が開始されませんでした。Desktop がこのパネルのマシンとプロジェクトフォルダを確認できませんでした（選択が変わったか、マシンが再接続されました）。プロジェクトの会話を開き直すか Desktop を再起動してから、もう一度お試しください。',
+    'invalid-request': '実行が開始されませんでした。Desktop が要求を受け付けませんでした。Moai 拡張機能を更新してください。',
+  },
+  autoHeld: '確認画面が自動で再表示されないよう、自動更新を止めました。更新時刻をクリックすると再読み込みします。',
   moaiError: (message) => `Moai のエラー: ${message}`, failed: '実行に失敗しました。', unreadable: '実行は完了しましたが、結果を読み取れませんでした。',
   refused: {
     declined: '確認画面で拒否されたため、実行しませんでした。',
@@ -1030,14 +1037,18 @@ const ja: Copy = {
 }
 
 const zh: Copy = {
-  hint: '在此项目的文件夹中运行。列表和详情在应用运行期间各确认一次，每次添加任务都会确认，确认窗口会显示机器和文件夹。',
+  hint: '在此项目的文件夹中只做读取。每种读取在应用运行期间首次进行时确认一次，确认窗口会显示机器和文件夹。',
   refreshedAt: (time) => `${time} 更新`, empty: '没有项目。', more: (n) => `另有 ${n} 项未显示`,
   up: '..', root: '全部', noMilestone: '(无里程碑)', lost: '(无归属)', loading: '加载中…',
   starting: '正在启动… 如果显示了确认窗口，请批准。', running: '正在机器上运行…',
   cancel: '取消', cancelled: '已取消运行。', mayContinue: '机器上的进程可能尚未结束。',
-  placeholder: '新任务标题', add: '添加任务', titleRequired: '请输入任务标题。', added: (t) => `已添加: ${t.title} (${t.id})`,
   stats: { todo: '待办', in_progress: '进行中', review: '审核', done: '完成' },
-  notStarted: '运行未开始。可能在确认窗口中被拒绝，或此机器尚不支持 Moai。',
+  notStarted: '运行未开始，Desktop 也未说明原因。请点击刷新时间重试；如果反复出现，请重启 Desktop。',
+  notStartedFor: {
+    'binding-mismatch': '运行未开始：Desktop 无法确认此面板所属的机器和项目文件夹（选择已更改，或机器已重新连接）。请重新打开项目对话或重启 Desktop 后重试。',
+    'invalid-request': '运行未开始：Desktop 不接受此请求。请更新 Moai 扩展。',
+  },
+  autoHeld: '为避免确认窗口自动再次出现，已暂停自动刷新。点击刷新时间可重新读取。',
   moaiError: (message) => `Moai 错误: ${message}`, failed: '运行失败。', unreadable: '运行已结束，但无法读取结果。',
   refused: {
     declined: '已在确认窗口中拒绝，因此未运行。',
@@ -1053,6 +1064,11 @@ const zh: Copy = {
 }
 
 export const COPY: Record<Language, Copy> = { en, ko, ja, zh }
+
+/** What a start that failed says: the words for the code it named when the panel has them, else the general ones. */
+export function notStartedText(copy: Copy, code?: string): string {
+  return code !== undefined && Object.hasOwn(copy.notStartedFor, code) ? copy.notStartedFor[code as keyof Copy['notStartedFor']] : copy.notStarted
+}
 
 /** The host document's language, else the browser's, else English. */
 export function copyFor(language: string | undefined): Copy {

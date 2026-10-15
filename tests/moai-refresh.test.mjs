@@ -28,7 +28,8 @@ function fakeClock() {
   }
 }
 
-test('while visible it reads again every 60 seconds', async () => {
+test('while visible it reads again every 10 seconds', async () => {
+  assert.equal(DEFAULT_INTERVAL_MS, 10_000)
   const clock = fakeClock()
   let loads = 0
   const refresher = createRefresher({ load: async () => { loads += 1 }, clock })
@@ -71,10 +72,11 @@ test('shown again before the interval passed, it waits for the rest of it', asyn
   await refresher.refresh()
   visible = false
   refresher.visibilityChanged()
-  await clock.advance(20_000)
+  const away = DEFAULT_INTERVAL_MS * 0.4
+  await clock.advance(away)
   visible = true
   refresher.visibilityChanged()
-  await clock.advance(39_999)
+  await clock.advance(DEFAULT_INTERVAL_MS - away - 1)
   assert.equal(loads, 1)
   await clock.advance(1)
   assert.equal(loads, 2)
@@ -123,6 +125,36 @@ test('the interval can be changed, and 0 turns automatic reads off', async () =>
   refresher.setInterval(0)
   await clock.advance(DEFAULT_INTERVAL_MS * 5)
   assert.equal(loads, 2)
+})
+
+test('off stays off when the panel is shown again; a manual refresh still reads', async () => {
+  // The clock held after a declined read (main.ts holdIfAsked) must not read again on the next tab switch.
+  const clock = fakeClock()
+  let visible = true
+  let loads = 0
+  const refresher = createRefresher({ load: async () => { loads += 1 }, clock, isVisible: () => visible })
+  await refresher.refresh()
+  refresher.setInterval(0)
+  visible = false
+  refresher.visibilityChanged()
+  await clock.advance(DEFAULT_INTERVAL_MS * 3)
+  visible = true
+  refresher.visibilityChanged()
+  await flush()
+  assert.equal(loads, 1)
+  assert.equal(clock.pending(), 0)
+  await refresher.refresh()
+  assert.equal(loads, 2)
+})
+
+test('the load hears whether the clock started it or someone asked (se-24ey.a80: the clock\'s reads run quietly)', async () => {
+  const clock = fakeClock()
+  const told = []
+  const refresher = createRefresher({ load: async (how) => { told.push(how.automatic) }, clock })
+  await refresher.refresh()
+  await clock.advance(DEFAULT_INTERVAL_MS)
+  await refresher.refresh({ fresh: true })
+  assert.deepEqual(told, [false, true, false])
 })
 
 test('the refresh time reads HH:MM:SS', () => {
@@ -263,9 +295,10 @@ test('a tool tab shown again before the interval passed waits for the rest of it
   const refresher = createRefresher({ load: async () => { loads += 1 }, clock, visibility: panelVisibility(win) })
   await refresher.refresh()
   win.size(0, 0)
-  await clock.advance(20_000)
+  const away = DEFAULT_INTERVAL_MS * 0.4
+  await clock.advance(away)
   win.size(800, 600)
-  await clock.advance(39_999)
+  await clock.advance(DEFAULT_INTERVAL_MS - away - 1)
   assert.equal(loads, 1)
   await clock.advance(1)
   assert.equal(loads, 2)

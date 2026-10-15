@@ -58,7 +58,7 @@ const ONE_VALUE = { show: 'id', 'wiki-show': 'slug', read: 'id', 'read-group': '
 
 test('every declared profile is runnable through the whitelist, and nothing else is', () => {
   const declared = manifest.machineCommands.profiles.map((profile) => profile.id).sort()
-  const whitelisted = [...NO_VALUE, ...Object.keys(ONE_VALUE), 'add'].map((name) => `buzzni.moai.${name}`).sort()
+  const whitelisted = [...NO_VALUE, ...Object.keys(ONE_VALUE)].map((name) => `buzzni.moai.${name}`).sort()
   assert.deepEqual(declared, whitelisted)
   // The parameter each takes is the one its argv uses.
   for (const [name, parameter] of Object.entries(ONE_VALUE)) {
@@ -69,8 +69,8 @@ test('every declared profile is runnable through the whitelist, and nothing else
   for (const profile of manifest.machineCommands.profiles) {
     assert.deepEqual(profile.argv.slice(0, 3), ['--json', '-C', '{{workspaceRoot}}'])
     assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
-    // Only `add` writes the tracker; `read*` write the user's own ~/.config/moai/read.
-    assert.equal(profile.writeScope, profile.id === 'buzzni.moai.add' ? 'moai' : undefined, profile.id)
+    // Nothing writes the tracker (no `add`, se-24ey.oxd); `read*` write the user's own ~/.config/moai/read.
+    assert.equal(profile.writeScope, undefined, profile.id)
   }
 })
 
@@ -117,15 +117,12 @@ test('profiles that take one value map it to their parameter and refuse an empty
   assert.equal(starts.length, Object.keys(ONE_VALUE).length)
 })
 
-test('add still takes its title; unknown and dangerous profiles are refused', async () => {
+test('add, unknown and dangerous profiles are refused', async () => {
   const { run, starts } = await host()
-  await run('buzzni.moai.add', 'Ship it')
-  assert.deepEqual(starts, [{ profileId: 'buzzni.moai.add', parameters: { title: 'Ship it' } }])
-  await assert.rejects(run('buzzni.moai.add'), /title is required/)
-  for (const profileId of ['buzzni.moai.init', 'buzzni.moai.tui', 'buzzni.moai.wake', 'buzzni.moai.hooks', 'buzzni.moai.editor', 'buzzni.moai.shell', 'buzzni.moai.mv', 'other.status', 42]) {
+  for (const profileId of ['buzzni.moai.add', 'buzzni.moai.init', 'buzzni.moai.tui', 'buzzni.moai.wake', 'buzzni.moai.hooks', 'buzzni.moai.editor', 'buzzni.moai.shell', 'buzzni.moai.mv', 'other.status', 42]) {
     await assert.rejects(run(profileId), /unsupported Moai profile/)
   }
-  assert.equal(starts.length, 1)
+  assert.equal(starts.length, 0)
 })
 
 test('the source names every declared profile', () => {

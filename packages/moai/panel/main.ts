@@ -3,13 +3,13 @@
  * data layer and mounts the shell (view/shell.ts), which renders from the store.
  * Built by build.mjs into the single file dist/panel.html.
  */
-import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Outcome } from './data/client.js'
+import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Client, type Outcome } from './data/client.js'
 import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { isUnread, markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
-import { createRefresher } from './data/refresh.js'
-import { addTask, loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, sameTallies, withArchive, type Loaded } from './data/source.js'
+import { createRefresher, DEFAULT_INTERVAL_MS } from './data/refresh.js'
+import { loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -31,14 +31,21 @@ const store = createStore()
 // The last tab and the detail's place come back before anything is drawn. localStorage when the frame may use
 // it, else this session only (data/memory.ts); reading `window.localStorage` itself can throw, hence the getter.
 remember(store, createMemory(() => window.localStorage))
-// Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
-const client = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
 // What the reads' answers tell of the moai CLI and the daemon's catalog (data/compat.ts): the list, archive and wiki
-// reads and the read marks hand it their outcomes (the detail and the add do not), and the shell's banner says what
+// reads and the read marks hand it their outcomes (the detail does not), and the shell's banner says what
 // to upgrade, update or install. Its report goes in the store after each answer it is handed, one that lands after
 // its read was given up on too (the backlog read beside a failed `show --all`); the store keeps only a changed one.
 const probe = new CompatProbe()
 probe.subscribe(() => store.dispatch({ type: 'compat', report: probe.report() }))
+// Up to 3 reads at once, and a read refused as workspace-busy tried again (data/client.ts PANEL_CLIENT_OPTIONS).
+const runner = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
+// A profile the catalog is read as lacking with the whole list (compat.ts lacks) is answered here, unrun: Desktop
+// would ask the person to approve it first and the daemon refuse it after (se-24ey.dcj).
+const LACKED: Outcome = { kind: 'refused', code: 'unsupported-daemon' }
+const client: Client = {
+  ...runner,
+  request: (profileId, value, options) => (probe.lacks(profileId) ? Promise.resolve(LACKED) : runner.request(profileId, value, options)),
+}
 
 // The index is built once per read, not per render: again when the rows, the status counts or the archive shown change.
 let indexed: { rows: Row[]; tallies: BoardData['tallies']; archive: Row[] | null; index: IssueIndex } | null = null
@@ -61,23 +68,44 @@ function drawnOrder(): string[] {
   return lines.flatMap((line) => (line.kind === 'row' ? [line.key] : []))
 }
 
-async function loadBoard(): Promise<void> {
+/** Loads so far: only the latest one's answers hold or start the clock (se-24ey.a80). */
+let loads = 0
+/** The load the clock started on its own, or 0: its reads run without the activity toast. */
+let quietLoad = 0
+
+async function loadBoard(automatic = false): Promise<void> {
+  const load = ++loads
+  quietLoad = automatic ? load : 0
+  // A read the person declined at its confirmation, or left unanswered, holds the clock; a load that reads the list
+  // with nothing declined starts it again (holdClock). An earlier load's late answer decides nothing.
+  let asked = false
+  const told = (outcome: Outcome | null | undefined) => {
+    if (load !== loads || !askedFor(outcome)) return
+    asked = true
+    holdClock()
+  }
   store.dispatch({ type: 'board-loading' })
   // The rows and the milestone and epic counts `moai status` prints (they count archived rows too) side by side.
   // Without the counts the board counts its own rows. The load does not wait for the counts (their confirmation may
   // still be open): a failure is told at once, rows are drawn at once, and the counts are put on them when they come.
   // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
-  // still running (client.ts); none of the panel's writes — an add with no group, read marks — moves a count.
+  // still running (client.ts); the panel's one write — read marks — moves no count.
   const listing = loadAllRows(client, PRIORITY.list, probe)
   const counting = loadTallies(client, PRIORITY.list, probe)
   let counted: Awaited<typeof counting> | undefined
-  void counting.then((tallies) => { counted = tallies })
+  void counting.then((tallies) => {
+    counted = tallies
+    if (!tallies.ok) told(tallies.outcome)
+  })
   const loaded = await listing
   if (!loaded.ok) {
     store.dispatch({ type: 'board-failed', problem: loaded.outcome })
+    told(loaded.outcome)
     return
   }
   const { rows, more, truncated, partial, backlogProblem } = loaded.value
+  told(backlogProblem)
+  if (!asked && load === loads) startClock()
   const before = store.getState()
   // Counts that came first go in with the rows, so the board is not drawn twice. Until this read's counts come, a
   // refresh keeps the counts the board showed: its rows alone undercount (they leave the archived members out).
@@ -164,7 +192,29 @@ store.subscribe((state, previous) => {
 
 // Paused while the panel is out of sight — the Desktop window hidden, or the tool tab it sits in: the refresher's
 // own visibility signal hears both (data/refresh.ts panelVisibility).
-const refresher = createRefresher({ load: loadBoard })
+const refresher = createRefresher({ load: ({ automatic }) => loadBoard(automatic) })
+
+/**
+ * A list read the person declined at its confirmation, or left unanswered, holds the clock: Desktop asks again 30 s
+ * after a decline, and the 10 s refresh would put the confirmation back up each time (se-24ey.14i). The next list read
+ * that goes through with nothing declined — the refresh time clicked, or the read after a read mark — starts it again.
+ * The shell says so on a line of its own while it holds (Shell.held).
+ */
+let clockHeld = false
+const askedFor = (outcome: Outcome | null | undefined): boolean =>
+  outcome?.kind === 'refused' && (outcome.code === 'declined' || outcome.code === 'approval-timeout')
+function holdClock(): void {
+  if (clockHeld) return
+  clockHeld = true
+  refresher.setInterval(0)
+  shell.held(true)
+}
+function startClock(): void {
+  if (!clockHeld) return
+  clockHeld = false
+  refresher.setInterval(DEFAULT_INTERVAL_MS)
+  shell.held(false)
+}
 
 let choice = 0
 async function choose(id: string) {
@@ -193,26 +243,6 @@ async function choose(id: string) {
   if (held && listed && listed.find(id) === undefined) return store.dispatch({ type: 'detail-closed' })
   if (loaded.ok) store.dispatch({ type: 'detail-loaded', data: { id, row: loaded.value } })
   else store.dispatch({ type: 'detail-failed', id, problem: loaded.outcome })
-}
-
-let adding = false
-async function add(text: string) {
-  const title = text.trim()
-  if (!title) return shell.say(copy.titleRequired, true)
-  if (adding) return
-  adding = true
-  shell.say('')
-  try {
-    const added = await addTask(client, title)
-    if (!added.ok) return shell.refuse(added.outcome)
-    shell.say(copy.added({ id: added.value.id, title: typeof added.value.title === 'string' ? added.value.title : title }))
-    // The field stays editable while an add runs: clear it only if it still holds what was sent.
-    if (shell.input.value === text) shell.input.value = ''
-    // A list read already running started before the add and cannot hold the new task.
-    await refresher.refresh({ fresh: true })
-  } finally {
-    adding = false
-  }
 }
 
 /** What an outcome says, as one line of text (the wiki's error state takes a string). */
@@ -284,7 +314,10 @@ const read: ReadMarks = {
 }
 
 function activity(): Activity {
-  const requests = client.requests().filter((request) => request.phase !== 'queued')
+  // The clock's own list reads run quietly: a toast every 10 s would cover the rows at the foot of the panes for
+  // nothing (se-24ey.a80). A read the person asked for, or one that waits beside it (a detail, the wiki), still shows.
+  const quiet = quietLoad !== 0 && quietLoad === loads
+  const requests = client.requests().filter((request) => request.phase !== 'queued' && !(quiet && request.priority === PRIORITY.list))
   const running = requests.find((request) => request.operationId !== null)
   return {
     phase: running ? 'running' : requests.length ? 'starting' : 'idle',
@@ -308,9 +341,8 @@ const shell = mountShell(root, {
   intents: {
     refresh: () => void refresher.refresh(),
     choose: (id) => void choose(id),
-    add: (title) => void add(title),
     // Up to three runs go at once (the list is three reads): Cancel stops every one that runs, and the reads that
-    // wait behind them, rather than letting the next queued read start in the freed slot. A write still waiting
+    // wait behind them, rather than letting the next queued read start in the freed slot. A read mark still waiting
     // (its confirmation open, or queued) is left to the person: cancelling it would cancel it the moment they
     // approve it.
     cancel: () => {
