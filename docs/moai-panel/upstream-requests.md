@@ -375,7 +375,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 ## 2. moai CLI 상류
 
-패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
+패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 10~12번은 2026-10-15에 moai `develop`에 들어갔고 다음 릴리스를 기다린다. 1.7절의 스킬 프로필과 머리가 이 셋을 쓰므로, 관리 moai 고정(1.6)은 이 셋이 든 판으로 올려야 한다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
@@ -388,6 +388,9 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 7 | `status --json`의 **`milestones[]`·`epics[]` 집계** | `{id, done, total}` 목록. 아카이브된 행까지 센 값. **0.17.0 확인됨** | 보드의 n/n이 `show --all`이 가진 행만 센 값이 되어 `moai status`와 어긋난다. `tallies`가 `degraded` |
 | 8 | **`read <id> --seen <updated_at>`** (backlog `se-a5wl`) | **0.17.0에 없음.** 화면에 그린 행의 `updated_at`을 값으로 받는다. `read --json` 결과에도 행별 `updated_at`이 있으면 좋다 | 지금 `moai read`는 값 없이 행의 **현재** `updated_at`을 쓴다. 그린 뒤 바뀐 행이 새 판으로 읽음 처리될 수 있고, 패널은 다시 읽은 뒤 바뀜만 알린다(`staleAgainst`, `panel/data/read.ts`). 이 항목은 **2.0 릴리스 없이 갈 수 있다** |
 | 9 | **보드 데이터 한 번에** (2026-10-15 실기 제안) | 행 전체(`show --all`)·backlog·`status`를 한 JSON으로 주는 명령 하나(예: `moai board --json`). **제안, 아직 없음** | 보드 한 번 읽기에 프로필 3개가 든다. Desktop은 프로필마다 확인 창을 띄우므로(5절) 처음 열 때 세 번 묻는다 |
+| 10 | `skill status --json`의 **`optional`** (`se-gowr.fk2`) | 심긴 선택 스킬 이름 배열(`["moai-saycode"]`), `agents.optional`도 같은 꼴. 늘 있고 없으면 `[]`. **develop에 있음**(moai-yfjj `cc15555e`, 2026-10-15), 아직 릴리스 안 됨 | 패널은 "moai 스킬이 아예 없음"(`written: false`)만 감지하고, 설치 버튼 대신 터미널 명령을 보인다(`data/skills.ts canInstall`) |
+| 11 | **`sh` 없이도 훅의 `moai` 철자 유지** (`se-gowr.fk2`) | 데몬처럼 PATH에 moai만 있어 `sh`를 못 띄워도 `skill install`이 커밋된 훅의 `moai`를 그대로 둔다(PATH를 직접 훑음). **develop에 있음**(moai-30g6 `ba12a793`) | 0.17.0을 데몬이 돌리면 훅이 관리 moai의 절대 경로로 바뀌고, 고정 판이 바뀌면 훅이 조용히 꺼진다. 그래서 10번이 없는 moai에서는 버튼을 내지 않는다 |
+| 12 | `status --json`의 **`user`·`version`** (`se-qkga`) | `user: {name, email, label}`(TUI 머리의 User 줄, `naming` 적용) 또는 `null`, `version: {current, latest}`(`latest`는 캐시만 읽은 `{state, tag?, heard_at?, why?}` 또는 `null`, 네트워크 안 씀). **develop에 있음**(moai-9ve2 `ee07bee7`). `git config` 실행이 `status`마다 2번 는다 | 머리의 User·Version이 `—`로 나온다 |
 
 ### 2.1 판별 방식
 
