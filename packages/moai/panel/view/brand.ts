@@ -30,6 +30,40 @@ export function logoLines(): string[] {
   return LOGO.map((line, n) => pad(n < art.length ? ' '.repeat(indent) + line : line, width))
 }
 
+const SVG = 'http://www.w3.org/2000/svg'
+
+/**
+ * The art as a terminal draws it: each block letter fills its cell (one wide, two tall) to the edge, so a row meets the
+ * next. A font's glyphs do not (the field test saw a seam under every row, whatever the line height), so the letters
+ * become the cells they stand for, in one path: neighbouring blocks are filled together and no hairline shows
+ * between them. The dots keep the size they have in a terminal font.
+ */
+export function artPath(lines: readonly string[]): string {
+  const parts: string[] = []
+  const rect = (x: number, y: number, w: number, h: number) => parts.push(`M${x} ${y}h${w}v${h}h${-w}z`)
+  const dot = (cx: number, cy: number, r: number) => parts.push(`M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`)
+  lines.forEach((line, row) => {
+    ;[...line].forEach((letter, x) => {
+      const y = row * 2
+      switch (letter) {
+        case '█': return rect(x, y, 1, 2)
+        case '▀': return rect(x, y, 1, 1)
+        case '▄': return rect(x, y + 1, 1, 1)
+        case '▌': return rect(x, y, 0.5, 2)
+        case '▐': return rect(x + 0.5, y, 0.5, 2)
+        case '▪': return rect(x + 0.25, y + 0.75, 0.5, 0.5)
+        case '•': return dot(x + 0.5, y + 1, 0.28)
+        case '·': return dot(x + 0.5, y + 1, 0.14)
+        case '.': return dot(x + 0.5, y + 1.6, 0.14)
+      }
+    })
+  })
+  return parts.join('')
+}
+
+/** The letters {@link artPath} draws; the art holds no other but the space. */
+export const ART_LETTERS = '█▀▄▌▐▪•·.'
+
 /** The info lines: label and what it says; a line with no label goes on from the one above (the TUI's tail). */
 export function infoLines(about: About | null, copy: VersionCopy, now = Date.now()): Array<[string, string]> {
   const version = versionLine(about, copy, now)
@@ -44,7 +78,16 @@ export interface Brand {
 }
 
 export function mountBrand(doc: Document, copy: VersionCopy): Brand {
-  const logo = el(doc, 'pre', { class: 'm-brand-logo', 'aria-hidden': 'true' }, logoLines().join('\n'))
+  const lines = logoLines()
+  const art = lines.slice(0, -1)
+  const svg = doc.createElementNS(SVG, 'svg')
+  svg.setAttribute('class', 'm-brand-art')
+  svg.setAttribute('viewBox', `0 0 ${[...lines[0]!].length} ${art.length * 2}`)
+  svg.setAttribute('preserveAspectRatio', 'none')
+  const path = doc.createElementNS(SVG, 'path')
+  path.setAttribute('d', artPath(art))
+  svg.append(path)
+  const logo = el(doc, 'div', { class: 'm-brand-logo', 'aria-hidden': 'true' }, svg, el(doc, 'div', { class: 'm-brand-tagline' }, lines.at(-1)!))
   const info = el(doc, 'div', { class: 'm-brand-info' })
   const node = el(doc, 'header', { class: 'm-brand', 'aria-label': 'moai' }, logo, info)
   let drawn = ''

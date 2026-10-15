@@ -10,12 +10,15 @@
    short panel leaves it out and a narrow one the logo, as the TUI does (HEADER_MIN_H; the logo yields first). ---- */
 .m-brand {
   flex: none; display: flex; align-items: flex-start; gap: 1ch; padding: 6px 10px; border-bottom: 1px solid var(--border-soft);
-  /* A terminal's: the block letters of the logo come from Menlo (SF Mono lacks them, and a fallback font sets them at
-     other widths), and 1.17 is Menlo's own line height, at which the blocks of one row meet the next as in the TUI. */
+  /* A terminal's: Menlo at its own line height. The logo's block letters are drawn as cells (.m-brand-art), not set
+     in it: a font leaves a seam under every row. */
   font: 12px/1.17 Menlo, "DejaVu Sans Mono", ui-monospace, monospace; color: var(--text);
   container-type: inline-size; container-name: m-brand;
 }
-.m-brand-logo { flex: none; margin: 0; font: inherit; color: var(--muted); white-space: pre; }
+.m-brand-logo { flex: none; color: var(--muted); }
+/* The art drawn as terminal cells (view/brand.ts artPath): 26 cells wide, five rows of the header's line height. */
+.m-brand-art { display: block; width: 26ch; height: calc(5 * 1.17em); fill: currentColor; }
+.m-brand-tagline { white-space: pre; }
 .m-brand-info { flex: 1 1 auto; min-width: 0; align-self: stretch; padding-left: 1ch; border-left: 1px solid var(--border); }
 .m-brand-line { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .m-brand-label { color: var(--muted); }

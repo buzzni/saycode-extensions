@@ -62,6 +62,20 @@ test('the logo is the TUI\'s, the art centred as one block over the tagline; the
   assert.equal(brand.el.querySelector('.m-brand-logo').getAttribute('aria-hidden'), 'true')
 })
 
+test('the art is drawn as terminal cells, every letter of it: no row leaves a seam a font would', () => {
+  const art = B.logoLines().slice(0, -1)
+  const letters = new Set(art.join('').replace(/ /g, ''))
+  assert.deepEqual([...letters].filter((letter) => !B.ART_LETTERS.includes(letter)), [], 'a letter artPath does not draw')
+  // A full block fills its cell, one wide and two tall; a half fills its half; rows meet at even y.
+  assert.equal(B.artPath(['█']), 'M0 0h1v2h-1z')
+  assert.equal(B.artPath([' ', '▀▄']), 'M0 2h1v1h-1zM1 3h1v1h-1z')
+  assert.equal(B.artPath(['▌▐']), 'M0 0h0.5v2h-0.5zM1.5 0h0.5v2h-0.5z')
+  const doc = new JSDOM('<!doctype html><body></body>').window.document
+  const svg = B.mountBrand(doc, en).el.querySelector('svg.m-brand-art')
+  assert.equal(svg.getAttribute('viewBox'), '0 0 26 10', 'the tagline\'s 26 cells, five rows of two')
+  assert.equal(svg.querySelectorAll('path').length, 1, 'one path: neighbouring blocks are filled together')
+})
+
 test('store: a status read that says what the last said changes nothing', () => {
   const about = { user: 'Raven', version: '0.18.0', latest: null }
   const once = reduce(initialState(), { type: 'about', about })
