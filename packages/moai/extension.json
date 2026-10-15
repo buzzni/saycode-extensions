@@ -181,6 +181,31 @@
         "outputLimitBytes": 1048576,
         "stdin": "none",
         "descendantAllowlist": ["git"]
+      },
+      {
+        "id": "buzzni.moai.skill-status",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "status"],
+        "parameters": {},
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "descendantAllowlist": ["git"]
+      },
+      {
+        "id": "buzzni.moai.skill-install-saycode",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode"],
+        "parameters": {},
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "writeScope": "project",
+        "descendantAllowlist": ["git"]
       }
     ]
   }

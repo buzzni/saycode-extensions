@@ -38,7 +38,7 @@ jobs:
       # Packaged adapters exercise the SDK contract inside the test host.
       - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs tests/document-templates.test.mjs tests/moai.test.mjs
       # The Moai panel's modules (index, store, request queue, refresh, shell) and their tests.
-      - run: node --test tests/moai-index.test.mjs tests/moai-store.test.mjs tests/moai-client.test.mjs tests/moai-refresh.test.mjs tests/moai-shell.test.mjs tests/moai-e3-shell.test.mjs tests/moai-e3-board.test.mjs tests/moai-e3-detail.test.mjs tests/moai-e3-list.test.mjs tests/moai-keys.test.mjs tests/moai-query.test.mjs tests/moai-toolbar.test.mjs tests/moai-markdown.test.mjs tests/moai-wiki.test.mjs tests/moai-wiring.test.mjs tests/moai-keys-wiring.test.mjs tests/moai-source.test.mjs tests/moai-read.test.mjs tests/moai-compat.test.mjs tests/moai-panel-size.test.mjs
+      - run: node --test tests/moai-index.test.mjs tests/moai-store.test.mjs tests/moai-client.test.mjs tests/moai-refresh.test.mjs tests/moai-shell.test.mjs tests/moai-e3-shell.test.mjs tests/moai-e3-board.test.mjs tests/moai-e3-detail.test.mjs tests/moai-e3-list.test.mjs tests/moai-keys.test.mjs tests/moai-query.test.mjs tests/moai-toolbar.test.mjs tests/moai-markdown.test.mjs tests/moai-wiki.test.mjs tests/moai-wiring.test.mjs tests/moai-keys-wiring.test.mjs tests/moai-source.test.mjs tests/moai-read.test.mjs tests/moai-compat.test.mjs tests/moai-skills.test.mjs tests/moai-panel-size.test.mjs
 
   cli-and-package:
     runs-on: ubuntu-latest

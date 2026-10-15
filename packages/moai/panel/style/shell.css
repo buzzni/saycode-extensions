@@ -34,7 +34,17 @@
 .m-shell-notes > * { margin: 8px 8px 0; }
 .m-shell-notes > :last-child { margin-bottom: 8px; }
 .moai-hint, .moai-more { color: var(--muted); font-size: 12px; }
-.moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-backlog-problem:empty, .moai-compat:empty, .moai-held:empty, .moai-more:empty, .moai-result:empty { display: none; }
+.moai-skills:empty, .moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-backlog-problem:empty, .moai-compat:empty, .moai-held:empty, .moai-more:empty, .moai-result:empty { display: none; }
+/* moai's skills for the repository's agents (data/skills.ts): what is missing, then a button or the command. */
+.moai-skills { flex-direction: column; gap: 6px; }
+.moai-skills > p { margin: 0; }
+.moai-skills-command { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.moai-skills-code {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 8px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-card); background: var(--bg); font: 12px var(--mono); user-select: all;
+}
+.moai-skills-actions { display: flex; align-items: center; gap: 6px; }
+.moai-skills-problem { color: var(--danger); }
 /* The compatibility banner: one sentence per line, one per thing to fix on that machine. */
 .moai-compat { flex-direction: column; gap: 2px; }
 .moai-compat > p { margin: 0; }

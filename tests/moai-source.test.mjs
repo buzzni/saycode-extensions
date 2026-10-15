@@ -53,7 +53,7 @@ async function host() {
   return { run: (...args) => testHost.invokeCommand('buzzni.moai.run', args), starts }
 }
 
-const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all']
+const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all', 'skill-status', 'skill-install-saycode']
 const ONE_VALUE = { show: 'id', 'wiki-show': 'slug', read: 'id', 'read-group': 'group', 'show-archived-after': 'after' }
 
 test('every declared profile is runnable through the whitelist, and nothing else is', () => {
@@ -69,8 +69,9 @@ test('every declared profile is runnable through the whitelist, and nothing else
   for (const profile of manifest.machineCommands.profiles) {
     assert.deepEqual(profile.argv.slice(0, 3), ['--json', '-C', '{{workspaceRoot}}'])
     assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
-    // Nothing writes the tracker (no `add`, se-24ey.oxd); `read*` write the user's own ~/.config/moai/read.
-    assert.equal(profile.writeScope, undefined, profile.id)
+    // Nothing writes the tracker (no `add`, se-24ey.oxd); `read*` write the user's own ~/.config/moai/read. The one
+    // write is planting the optional `moai-saycode` skill in the project's `.claude/` (se-gowr.fk2): Desktop asks each time.
+    assert.equal(profile.writeScope, profile.id === 'buzzni.moai.skill-install-saycode' ? 'project' : undefined, profile.id)
   }
 })
 

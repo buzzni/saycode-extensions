@@ -9,6 +9,7 @@ import { IssueIndex, type Row } from './data/index.js'
 import { createMemory, remember } from './data/memory.js'
 import { isUnread, markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher, DEFAULT_INTERVAL_MS } from './data/refresh.js'
+import { installSaycode, loadSkills } from './data/skills.js'
 import { loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
@@ -307,6 +308,29 @@ function rereadArchive(written: ReadonlySet<string>): void {
   else if (primeRows(board) && indexOf(now)?.rows.slice(board.rows.length).some((row) => isUnread(row) && written.has(row.id))) void loadArchive()
 }
 
+/**
+ * moai's skills for the repository's agents (data/skills.ts), read once the board is up: they change only when someone
+ * installs, so the clock does not read them. Only where the whole list was read: that catalog is the one these
+ * profiles come with, and on an older one Desktop would put up a confirmation for a read the daemon then refuses
+ * (se-24ey.dcj). A read that fails says nothing: the banner is an offer, not a problem.
+ */
+async function readSkills(): Promise<void> {
+  const board = store.getState().board.value
+  if (!board || board.partial === true) return
+  const loaded = await loadSkills(client)
+  if (loaded.ok) store.dispatch({ type: 'skills', report: loaded.value })
+}
+
+/** The skills banner's button: plant `moai-saycode`, then read what is planted now. */
+async function installSkills(): Promise<void> {
+  if (store.getState().skills.installing) return
+  store.dispatch({ type: 'skills-installing' })
+  const done = await installSaycode(client)
+  if (!done.ok) return void store.dispatch({ type: 'skills-failed', problem: done.outcome })
+  const after = await loadSkills(client)
+  store.dispatch({ type: 'skills-installed', installed: done.value, ...(after.ok ? { report: after.value } : {}) })
+}
+
 const read: ReadMarks = {
   one: (id) => marked(markRead(client, { id }, probe)),
   all: () => marked(markAllRead(client, probe)),
@@ -350,6 +374,8 @@ const shell = mountShell(root, {
       if (!requests.some((request) => request.operationId !== null)) return
       for (const key of new Set(requests.filter((request) => request.operationId !== null || request.share).map((request) => request.key))) client.cancel(key)
     },
+    installSkills: () => void installSkills(),
+    dismissSkills: () => store.dispatch({ type: 'skills-dismissed' }),
   },
 })
 client.subscribe(() => shell.activity(activity()))
@@ -367,4 +393,5 @@ void (async () => {
   document.body.tabIndex = -1
   document.body.focus({ preventScroll: true })
   await refresher.refresh()
+  await readSkills()
 })()

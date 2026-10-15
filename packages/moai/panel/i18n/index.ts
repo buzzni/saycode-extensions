@@ -24,6 +24,74 @@ export interface CompatCopy {
   features: Record<Feature, string>
 }
 
+/**
+ * The banner that offers moai's skills to the repository's agents (data/skills.ts, se-gowr.fk2): the supervisor hands
+ * work to Saycode sessions only with the optional `moai-saycode`.
+ */
+export interface SkillsCopy {
+  /** The repository has no moai skills at all (`skill status`: the plugin tree is not written). */
+  missingMoai: string
+  /** moai's skills are there, `moai-saycode` is not. */
+  missingSaycode: string
+  install: string
+  installing: string
+  later: string
+  /** No button (a moai that cannot say what is planted): the command follows. */
+  runHint: string
+  /** Planted, but Claude Code still has to register it, which only a terminal on that machine can do: the command follows. */
+  registerHint: string
+  installed: string
+  close: string
+  /** The install did nothing; why follows. */
+  failed: string
+  copy: string
+  copied: string
+}
+
+const SKILLS_EN: SkillsCopy = {
+  missingMoai: "This repository has no moai skills for its agents. The supervisor needs them, with moai-saycode, to hand work to Saycode sessions.",
+  missingSaycode: 'This repository has no moai-saycode skill. The supervisor (moai-supervise) needs it to hand work to Saycode sessions.',
+  install: 'Install', installing: 'Installing…', later: 'Later',
+  runHint: 'Run this in a terminal in the project folder on that machine:',
+  registerHint: 'The skills are in place. Claude Code still has to register them, which takes a terminal in the project folder on that machine:',
+  installed: 'moai-saycode is installed.', close: 'Close',
+  failed: 'The skill could not be installed:',
+  copy: 'Copy', copied: 'Copied',
+}
+
+const SKILLS_KO: SkillsCopy = {
+  missingMoai: '이 저장소에는 에이전트가 쓸 moai 스킬이 없습니다. 감독이 Saycode 세션에 일을 맡기려면 moai 스킬과 moai-saycode가 필요합니다.',
+  missingSaycode: '이 저장소에는 moai-saycode 스킬이 없습니다. 감독(moai-supervise)이 Saycode 세션에 일을 맡기려면 필요합니다.',
+  install: '설치', installing: '설치하는 중…', later: '나중에',
+  runHint: '그 머신의 프로젝트 폴더에서 터미널로 실행하세요:',
+  registerHint: '스킬을 심었습니다. Claude Code 등록은 그 머신의 프로젝트 폴더에서 터미널로 한 번 더 해야 합니다:',
+  installed: 'moai-saycode를 설치했습니다.', close: '닫기',
+  failed: '스킬을 설치하지 못했습니다:',
+  copy: '복사', copied: '복사함',
+}
+
+const SKILLS_JA: SkillsCopy = {
+  missingMoai: 'このリポジトリにはエージェント用の moai スキルがありません。スーパーバイザーが Saycode セッションに作業を任せるには、moai スキルと moai-saycode が必要です。',
+  missingSaycode: 'このリポジトリには moai-saycode スキルがありません。スーパーバイザー（moai-supervise）が Saycode セッションに作業を任せるには必要です。',
+  install: 'インストール', installing: 'インストール中…', later: '後で',
+  runHint: 'そのマシンのプロジェクトフォルダーでターミナルから実行してください:',
+  registerHint: 'スキルを配置しました。Claude Code への登録は、そのマシンのプロジェクトフォルダーでターミナルからもう一度行う必要があります:',
+  installed: 'moai-saycode をインストールしました。', close: '閉じる',
+  failed: 'スキルをインストールできませんでした:',
+  copy: 'コピー', copied: 'コピーしました',
+}
+
+const SKILLS_ZH: SkillsCopy = {
+  missingMoai: '此仓库没有供代理使用的 moai 技能。监督者要把工作交给 Saycode 会话，需要 moai 技能和 moai-saycode。',
+  missingSaycode: '此仓库没有 moai-saycode 技能。监督者（moai-supervise）要把工作交给 Saycode 会话需要它。',
+  install: '安装', installing: '正在安装…', later: '稍后',
+  runHint: '请在那台机器的项目文件夹中用终端运行:',
+  registerHint: '技能已放置。还需要在那台机器的项目文件夹中用终端向 Claude Code 注册一次:',
+  installed: '已安装 moai-saycode。', close: '关闭',
+  failed: '无法安装技能:',
+  copy: '复制', copied: '已复制',
+}
+
 const COMPAT_EN: CompatCopy = {
   toolMissing: 'Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.',
   oldMoai: (features) => `That machine's moai is older than this panel expects${features.length ? ` (on a fallback: ${features.join(', ')})` : ''}. Upgrade moai.`,
@@ -106,6 +174,7 @@ export interface ShellCopy {
   /** The backlog read beside prime's rows was declined or failed; why follows. The rows stand without the backlog. */
   backlogFailed: string
   compat: CompatCopy
+  skills: SkillsCopy
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -136,6 +205,7 @@ const SHELL: Record<Language, ShellCopy> = {
     primeOnly: 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up are shown. Done, deferred and the other to-do tasks are left out, and the backlog shows only when it could be read.',
     backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
+    skills: SKILLS_EN,
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -164,6 +234,7 @@ const SHELL: Record<Language, ShellCopy> = {
     primeOnly: '이 환경에서는 전체 목록을 읽을 수 없어 잡고 있는 일과 바로 잡을 수 있는 일만 보입니다. 완료·미룬 일과 나머지 할 일은 보이지 않고, 백로그는 읽은 경우에만 보입니다.',
     backlogFailed: '백로그를 읽지 못했습니다:',
     compat: COMPAT_KO,
+    skills: SKILLS_KO,
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -192,6 +263,7 @@ const SHELL: Record<Language, ShellCopy> = {
     primeOnly: 'この環境では一覧全体を読めないため、手元のタスクとすぐ着手できるタスクだけを表示しています。完了・保留のタスクとその他の未着手タスクは表示されず、バックログは読めた場合にだけ表示します。',
     backlogFailed: 'バックログを読めませんでした:',
     compat: COMPAT_JA,
+    skills: SKILLS_JA,
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -220,6 +292,7 @@ const SHELL: Record<Language, ShellCopy> = {
     primeOnly: '此环境无法读取完整列表，因此只显示已领取和可以开始的任务。已完成、已推迟的任务和其他待办任务不显示，待办池仅在读取成功时显示。',
     backlogFailed: '无法读取待办池:',
     compat: COMPAT_ZH,
+    skills: SKILLS_ZH,
   },
 }
 

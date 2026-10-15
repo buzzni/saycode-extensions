@@ -12,6 +12,7 @@
 import type { Outcome } from './data/client.js'
 import { compatFixed, sameReport, type CompatReport } from './data/compat.js'
 import { pathKey, type Path, type Row } from './data/index.js'
+import type { Installed, SkillReport } from './data/skills.js'
 import { DEFAULT_SORT, type GrepScope, type Sort } from './data/query.js'
 import { toolbarReduce, type ToolbarAction, type ToolbarState } from './view/toolbar.js'
 import type { WikiState } from './view/wiki.js'
@@ -39,6 +40,22 @@ export interface DetailSettings {
   position: DetailPosition
   /** The detail's share of the split, kept per position. */
   ratio: Record<DetailPosition, number>
+}
+
+/**
+ * Whether the repository has moai's skills, the optional `moai-saycode` among them (data/skills.ts), and what planting
+ * it from the panel did (se-gowr.fk2).
+ */
+export interface SkillsState {
+  /** `skill status` as data/skills.ts reads it; null until it answered, and when it cannot be read there. */
+  report: SkillReport | null
+  installing: boolean
+  /** What the last install planted, and whether Claude Code got registered; null before one. */
+  installed: Installed | null
+  /** Why the last install did nothing. */
+  problem: Outcome | null
+  /** "Later": the banner stays away for this opening of the panel. */
+  dismissed: boolean
 }
 
 /** A read the panel shows: its data once it arrived, and why the last attempt failed. */
@@ -123,6 +140,7 @@ export interface State {
   archiveProblem: Outcome | null
   /** What the answers so far tell of the moai CLI and the daemon's catalog (data/compat.ts); null before any. */
   compat: CompatReport | null
+  skills: SkillsState
   /**
    * The wiki view's own state (view/wiki.ts state()), saved when the wiki tab is left; a wiki pane mounted on this
    * store starts from it (the mounted pane keeps its own state across tab switches).
@@ -201,6 +219,7 @@ export function initialState(): State {
     archive: null,
     archiveProblem: null,
     compat: null,
+    skills: { report: null, installing: false, installed: null, problem: null, dismissed: false },
     wiki: initialWiki(),
   }
 }
@@ -253,6 +272,13 @@ export type Action =
   | { type: 'detail-loaded'; data: DetailData }
   | { type: 'detail-failed'; id: string; problem: Outcome }
   | { type: 'detail-closed' }
+  /** `skill status` answered (data/skills.ts loadSkills). */
+  | { type: 'skills'; report: SkillReport }
+  | { type: 'skills-installing' }
+  /** The install passed: what it planted, and the status read after it when that answered. */
+  | { type: 'skills-installed'; installed: Installed; report?: SkillReport }
+  | { type: 'skills-failed'; problem: Outcome }
+  | { type: 'skills-dismissed' }
   /** Settings read back at boot (already cleaned by data/memory.ts); what is left out keeps its value. */
   | { type: 'restore'; settings: Partial<Remembered> }
 
@@ -374,6 +400,16 @@ export function reduce(state: State, action: Action): State {
       return { ...state, shown: { value: null, loading: false, problem: action.problem } }
     case 'detail-closed':
       return { ...state, shown: idle(), focus: 'list' }
+    case 'skills':
+      return { ...state, skills: { ...state.skills, report: action.report } }
+    case 'skills-installing':
+      return { ...state, skills: { ...state.skills, installing: true, problem: null } }
+    case 'skills-installed':
+      return { ...state, skills: { ...state.skills, installing: false, installed: action.installed, problem: null, report: action.report ?? state.skills.report } }
+    case 'skills-failed':
+      return { ...state, skills: { ...state.skills, installing: false, problem: action.problem } }
+    case 'skills-dismissed':
+      return { ...state, skills: { ...state.skills, dismissed: true } }
     case 'restore': {
       const { tab, detail } = action.settings
       if (tab === undefined && detail === undefined) return state

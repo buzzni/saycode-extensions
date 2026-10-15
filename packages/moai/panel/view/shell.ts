@@ -11,6 +11,7 @@ import { isInformation, type Outcome } from "../data/client.ts"
 import { compatTells, type CompatReport, type Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
+import { canInstall, INSTALL_COMMAND, skillNeed } from "../data/skills.ts"
 import { PROFILE } from "../data/source.ts"
 import { notStartedText, type Copy } from "../i18n/index.ts"
 import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
@@ -41,6 +42,10 @@ export interface ShellIntents {
   /** Cursor on the row and its detail read. */
   choose(id: string): void
   cancel(): void
+  /** Plant `moai-saycode` (data/skills.ts installSaycode); the skills banner's button. */
+  installSkills?(): void
+  /** "Later" on the skills banner: it stays away for this opening of the panel. */
+  dismissSkills?(): void
 }
 
 export interface ShellOptions {
@@ -223,7 +228,10 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   const result = el(doc, "p", { class: "moai-result", role: "status" })
   // Its own line, so neither a read mark's words nor clearing them takes the "refresh is held" notice with them.
   const heldNote = el(doc, "div", { class: "m-banner moai-held", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, truncated, backlogNotice, backlogError, archiveNotice, archiveError, heldNote, more, result)
+  // moai's skills for the repository's agents, `moai-saycode` among them (data/skills.ts): what is missing, and the
+  // button that plants it, or the command to run where the panel cannot.
+  const skills = el(doc, "div", { class: "m-banner moai-skills", role: "status" })
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, skills, truncated, backlogNotice, backlogError, archiveNotice, archiveError, heldNote, more, result)
   // The path and banners belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -367,6 +375,55 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
   }
 
+  /** What the skills banner says, as a key: it is a live region, so it is written only when that changes. */
+  let skillsTold = ""
+  function explainSkills(current: State["skills"]) {
+    const words = copy.shell.skills
+    const need = skillNeed(current.report)
+    const done = current.installed
+    let key = ""
+    if (current.dismissed) key = ""
+    // Planted from the panel: the daemon's moai cannot register it with Claude Code (data/skills.ts), so unless this
+    // checkout was registered before, the command that does is shown.
+    else if (done) key = !done.registered && current.report?.registered !== true ? "register" : "installed"
+    else if (need) key = [need, canInstall(current.report) ? "button" : "command", current.installing, current.problem ? JSON.stringify(current.problem) : ""].join("|")
+    if (key === skillsTold) return
+    skillsTold = key
+    if (!key) return void skills.replaceChildren()
+    const row = (...nodes: Node[]) => el(doc, "div", { class: "moai-skills-actions" }, ...nodes)
+    const later = (label: string) => button(doc, { label, variant: "ghost", small: true, onClick: () => intents.dismissSkills?.() })
+    const command = () => {
+      const code = el(doc, "code", { class: "moai-skills-code" }, INSTALL_COMMAND)
+      const copyButton = button(doc, {
+        label: words.copy,
+        small: true,
+        onClick: () => {
+          const label = copyButton.querySelector(".m-btn-label")
+          // A frame may not be allowed the clipboard: the command is then selected, for the person to copy.
+          const select = () => {
+            const range = doc.createRange()
+            range.selectNodeContents(code)
+            win?.getSelection()?.removeAllRanges()
+            win?.getSelection()?.addRange(range)
+          }
+          const clipboard = win?.navigator.clipboard
+          if (!clipboard) return select()
+          clipboard.writeText(INSTALL_COMMAND).then(() => void (label && (label.textContent = words.copied)), select)
+        },
+      })
+      return el(doc, "div", { class: "moai-skills-command" }, code, copyButton)
+    }
+    if (key === "register") return void skills.replaceChildren(el(doc, "p", {}, words.registerHint), command(), row(later(words.close)))
+    if (key === "installed") return void skills.replaceChildren(el(doc, "p", {}, words.installed), row(later(words.close)))
+    const parts: Node[] = [el(doc, "p", {}, need === "moai" ? words.missingMoai : words.missingSaycode)]
+    if (canInstall(current.report)) {
+      if (current.problem) parts.push(el(doc, "p", { class: "moai-skills-problem" }, words.failed, " ", ...(describe(current.problem, copy, doc)?.parts ?? [copy.failed])))
+      const install = button(doc, { label: current.installing ? words.installing : words.install, variant: "primary", small: true, disabled: current.installing, onClick: () => intents.installSkills?.() })
+      parts.push(row(install, later(words.later)))
+    } else parts.push(el(doc, "p", {}, words.runHint), command(), row(later(words.later)))
+    skills.replaceChildren(...parts)
+  }
+
   function paintLayout(current: State) {
     const detail = current.detail
     if (split.preferred() !== detail.position) split.setPosition(detail.position)
@@ -424,6 +481,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explainBacklog(untold(board?.backlogProblem ?? null))
     explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
+    explainSkills(state.skills)
 
     if (state.tab === "wiki") {
       wikiView?.render(state, index)

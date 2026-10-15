@@ -44,6 +44,10 @@ export const PROFILE = {
   read: 'buzzni.moai.read',
   readAll: 'buzzni.moai.read-all',
   readGroup: 'buzzni.moai.read-group',
+  /** Whether the repository has moai's skills, the optional `moai-saycode` among them (data/skills.ts). */
+  skillStatus: 'buzzni.moai.skill-status',
+  /** Plants `moai-saycode` (and moai's skills when there are none): a write, Desktop asks every time. */
+  skillInstall: 'buzzni.moai.skill-install-saycode',
 } as const
 
 /** Rows per archive page; the `show-archived*` profiles fix `-n 200`. */

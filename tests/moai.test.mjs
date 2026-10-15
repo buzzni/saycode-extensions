@@ -209,9 +209,13 @@ const stdoutFor = (outputs) => (profile, value, op) => {
   const text = typeof out === 'function' ? out(value, op) : out
   return text === null ? null : (typeof text === 'string' ? passed('', text) : text)
 }
-/** The board's three reads answered (the v0.8.0 tracker unless given), with `outputs` for the rest. */
-const board = (outputs = {}) => stdoutFor({ 'buzzni.moai.show-all': SHOW_ALL, 'buzzni.moai.backlog-all': NO_BACKLOG, 'buzzni.moai.status': STATUS, ...outputs })
+/** `skill status --json` of a repository with moai's skills and `moai-saycode`: the skills banner has nothing to offer. */
+const SKILLS_OK = JSON.stringify({ written: true, installs: [{ scope: 'local' }], optional: ['moai-saycode'] })
+/** The board's three reads answered (the v0.8.0 tracker unless given), and the skills read after them, with `outputs` for the rest. */
+const board = (outputs = {}) => stdoutFor({ 'buzzni.moai.show-all': SHOW_ALL, 'buzzni.moai.backlog-all': NO_BACKLOG, 'buzzni.moai.status': STATUS, 'buzzni.moai.skill-status': SKILLS_OK, ...outputs })
 const LIST_READS = [['buzzni.moai.show-all'], ['buzzni.moai.backlog-all'], ['buzzni.moai.status']]
+/** What opening the panel reads: the list, then once the whole list was read, moai's skills (main.ts readSkills). */
+const BOOT_READS = [...LIST_READS, ['buzzni.moai.skill-status']]
 /** `show --all` cut by the daemon at the output limit: the flag on a finished status whose stdout no longer parses. */
 const cut = { state: 'passed', stdout: '[{"id":"mgd-', stderr: '', exitCode: 0, truncated: true }
 
@@ -247,7 +251,7 @@ test('the packed panel is one file: inline script and style only, under the 512 
 
 test('opening the board reads the list once, draws it by priority and shows when it was read', async () => {
   const panel = await runPanel(board())
-  assert.deepEqual(panel.starts(), LIST_READS)
+  assert.deepEqual(panel.starts(), BOOT_READS)
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   assert.match(panel.$('.moai-refresh').textContent, /^↻ \d{2}:\d{2}:\d{2}$/)
   assert.match(panel.$('.moai-refresh').title, /^Updated \d{2}:\d{2}:\d{2}$/)
@@ -425,7 +429,7 @@ test('Refresh reads the list again and keeps the cursor on the same task', async
   await flush()
   panel.$('.moai-refresh').click()
   await flush()
-  assert.deepEqual(panel.starts(), [...LIST_READS, ['buzzni.moai.show', 'mgd-ogym'], ...LIST_READS])
+  assert.deepEqual(panel.starts(), [...BOOT_READS, ['buzzni.moai.show', 'mgd-ogym'], ...LIST_READS])
   assert.equal(panel.row('mgd-ogym').getAttribute('aria-selected'), 'true')
 })
 
@@ -569,7 +573,7 @@ test('the board reads show --all and the backlog, and its milestone and epic cou
   const status = JSON.parse(STATUS_V016)
   status.milestones[0] = { ...status.milestones[0], done: 5, total: 9 }
   const panel = await runPanel(board({ 'buzzni.moai.show-all': SHOW_ALL_V016, 'buzzni.moai.backlog-all': BACKLOG_V016, 'buzzni.moai.status': JSON.stringify(status) }))
-  assert.deepEqual(panel.starts(), LIST_READS)
+  assert.deepEqual(panel.starts(), BOOT_READS)
   // status counts the archived members too, which show --all leaves out: its 5/9, not the rows' own 1/2.
   assert.equal(countsOf(panel, 'tracker-e0ue'), '5/9')
   // When status cannot be read the board counts its own rows.
@@ -1708,4 +1712,86 @@ test('compatibility: the banner speaks Japanese and Chinese too', async () => {
   assert.deepEqual(compatLine(ja), ['そのマシンの moai は、このパネルが想定するバージョンより古いです（代わりの方法で動作中: マイルストーンとエピックの件数）。moai をアップグレードしてください。'])
   const zh = await runPanel(board({ 'buzzni.moai.status': STATUS_NO_TALLIES }), 'zh')
   assert.deepEqual(compatLine(zh), ['该机器上的 moai 比此面板预期的版本旧（正以替代方式运行：里程碑和史诗的计数）。请升级 moai。'])
+})
+
+// ── moai's skills for the repository's agents, `moai-saycode` among them (se-gowr.fk2) ──
+const skillsBanner = (panel) => panel.$('.moai-skills')
+const skillsText = (panel) => skillsBanner(panel).textContent
+const skillsButton = (panel, label) => [...skillsBanner(panel).querySelectorAll('button')].find((node) => node.textContent === label)
+const skillsStarts = (panel) => panel.starts().filter(([profile]) => profile.startsWith('buzzni.moai.skill'))
+const plantedSaycode = JSON.stringify({ registered: false, optional: { planted: ['moai-saycode'], held: [], removed: [] } })
+
+test('skills: a moai that says what is planted, without moai-saycode, gets a button that plants it, then the command that registers it', async () => {
+  let installed = false
+  const panel = await runPanel(board({
+    'buzzni.moai.skill-status': () => JSON.stringify({ written: true, installs: [], optional: installed ? ['moai-saycode'] : [] }),
+    'buzzni.moai.skill-install-saycode': () => { installed = true; return plantedSaycode },
+  }))
+  await until(() => skillsText(panel) !== '')
+  assert.match(skillsText(panel), /no moai-saycode skill/)
+  assert.equal(skillsBanner(panel).querySelector('code'), null, 'a button, not the command')
+  skillsButton(panel, 'Install').click()
+  await until(() => skillsText(panel).includes('register'))
+  // The status is read again after the write, so the banner says what is there now.
+  assert.deepEqual(skillsStarts(panel), [['buzzni.moai.skill-status'], ['buzzni.moai.skill-install-saycode'], ['buzzni.moai.skill-status']])
+  // The daemon's moai cannot register it with Claude Code, and this checkout was not registered: the command that does.
+  assert.equal(skillsBanner(panel).querySelector('code').textContent, 'moai skill install --with moai-saycode')
+  skillsButton(panel, 'Close').click()
+  await flush()
+  assert.equal(skillsText(panel), '')
+})
+
+test('skills: where Claude Code already has this checkout registered, the install just says it is done', async () => {
+  let installed = false
+  const panel = await runPanel(board({
+    'buzzni.moai.skill-status': () => JSON.stringify({ written: true, installs: [{ scope: 'local' }], optional: installed ? ['moai-saycode'] : [] }),
+    'buzzni.moai.skill-install-saycode': () => { installed = true; return plantedSaycode },
+  }), 'ko')
+  await until(() => skillsText(panel) !== '')
+  skillsButton(panel, '설치').click()
+  await until(() => skillsText(panel).includes('설치했습니다'))
+  assert.equal(skillsBanner(panel).querySelector('code'), null)
+})
+
+test('skills: a declined install says why and keeps the button to try again', async () => {
+  const answer = board({ 'buzzni.moai.skill-status': JSON.stringify({ written: true, installs: [], optional: [] }) })
+  answer.start = (args) => (args[0] === 'buzzni.moai.skill-install-saycode' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer)
+  await until(() => skillsText(panel) !== '')
+  skillsButton(panel, 'Install').click()
+  await until(() => skillsText(panel).includes('could not be installed'))
+  assert.match(skillsText(panel), /the confirmation was declined/)
+  assert.ok(skillsButton(panel, 'Install'))
+})
+
+test('skills: an older moai without the tree gets the command to run, not a button; Later puts it away', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.skill-status': JSON.stringify({ written: false, installs: [] }) }))
+  await until(() => skillsText(panel) !== '')
+  assert.match(skillsText(panel), /no moai skills for its agents/)
+  assert.equal(skillsButton(panel, 'Install'), undefined)
+  assert.equal(skillsBanner(panel).querySelector('code').textContent, 'moai skill install --with moai-saycode')
+  skillsButton(panel, 'Later').click()
+  await flush()
+  assert.equal(skillsText(panel), '')
+})
+
+test('skills: an older moai with the tree offers nothing, as it cannot say whether moai-saycode is there', async () => {
+  const panel = await runPanel(board({ 'buzzni.moai.skill-status': JSON.stringify({ written: true, installs: [{ scope: 'local' }] }) }))
+  await until(() => skillsStarts(panel).length > 0)
+  await flush()
+  assert.equal(skillsText(panel), '')
+})
+
+test('skills: a catalog without the profile shows nothing and asks for no catalog update; a cut list does not read them', async () => {
+  const answer = board()
+  answer.start = (args) => (args[0] === 'buzzni.moai.skill-status' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  await until(() => skillsStarts(panel).length > 0)
+  await flush()
+  assert.equal(skillsText(panel), '')
+  assert.deepEqual(compatLine(panel), [], 'an offer, not a feature the panel needs: no catalog line for it')
+  // Only where the whole list was read: that catalog is the one these profiles come with (main.ts readSkills).
+  const partial = await runPanel(board({ 'buzzni.moai.show-all': cut, 'buzzni.moai.prime': PRIME }))
+  await flush()
+  assert.deepEqual(skillsStarts(partial), [])
 })

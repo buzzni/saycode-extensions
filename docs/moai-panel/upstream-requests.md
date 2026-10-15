@@ -336,6 +336,43 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 - 0.8.0은 패널이 부르는 명령은 모두 가진다(`show --all`, `backlog show --all`, `show --archived -n --sort --after`, `read <id>`·`--all`·`-e`, `wiki ls/show`). 그러나 2절의 1번(`unread`), 2번(`statuses[]`), 4번(`derived_milestone`·`shelved_by`)을 찍지 않는다. 그래서 프로필 7개가 들어가도 고정이 0.8.0이면 **Desktop에서는 NEW 칩과 탭 뱃지가 꺼지고**, 칸 순서와 파생값은 패널이 직접 계산한다.
 - 요청: 7개 프로필과 함께 관리 도구 고정을 **0.17.x**(2절 1~7번이 확인된 판)로 올린다. darwin-arm64·linux-x64 아티팩트의 URL·`sha256`·`executableSha256`·`archiveRoot`를 새 릴리스로 바꾼다. 기존 사용자는 머신 도구에서 다시 설치해야 할 수 있다.
 
+### 1.7 스킬 프로필 2개 — `moai-saycode` 설치 (`se-gowr.fk2`)
+
+2026-10-15 사용자 요청: 저장소에 moai 스킬, 특히 선택 스킬 `moai-saycode`(감독이 Saycode 세션에 일을 맡길 때 쓰는 손)가 없으면 패널이 설치를 권하거나 버튼으로 설치한다. 확장이 프로필 2개를 더 선언한다. 1.1의 7개와 같은 규칙(선언 전체 해시)으로 카탈로그에 더해 달라.
+
+```json
+{
+  "id": "buzzni.moai.skill-status",
+  "executable": "moai",
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "status"],
+  "parameters": {},
+  "cwd": "workspaceRoot",
+  "envAllowlist": ["HOME"],
+  "timeoutMs": 120000,
+  "outputLimitBytes": 1048576,
+  "stdin": "none",
+  "descendantAllowlist": ["git"]
+},
+{
+  "id": "buzzni.moai.skill-install-saycode",
+  "executable": "moai",
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode"],
+  "parameters": {},
+  "cwd": "workspaceRoot",
+  "envAllowlist": ["HOME"],
+  "timeoutMs": 120000,
+  "outputLimitBytes": 1048576,
+  "stdin": "none",
+  "writeScope": "project",
+  "descendantAllowlist": ["git"]
+}
+```
+
+- `skill-status`는 읽기다. 패널은 연 뒤 한 번만, 그리고 전체 목록(`show-all`)을 읽은 곳에서만 부른다. 카탈로그에 없으면(거부) 배너 없이 이 기능만 꺼진다. 호환성 배너는 이 둘을 세지 않는다.
+- `skill-install-saycode`는 쓰기다(`writeScope: project`, `.claude/moai-plugin/`를 쓴다). Desktop은 쓰기마다 묻는다.
+- **Claude 등록은 데몬에서 되지 않는다.** 데몬이 주는 PATH에는 `claude`가 없어서 `moai skill install`이 파일만 심고 `registered: false`로 끝난다(2026-10-15 실측, 종료 코드 0). 이미 등록된 저장소에서는 문제가 없고, 처음 까는 저장소에서는 패널이 터미널에서 칠 명령을 보여 준다. 데몬이 이 프로필에 한해 동봉 `claude`를 PATH에 넣고 `descendantAllowlist`에 `claude`를 더하면 등록까지 된다. 그렇게 할지는 데몬 담당이 정한다. 그러면 선언도 같이 바꾼다.
+- moai 0.17.0으로 이 쓰기를 돌리면 훅이 깨진다(2절 11번). 패널은 `skill status --json`에 `optional`이 있는 moai(2절 10번)에서만 버튼을 낸다. 그래서 두 프로필을 더하는 것과 함께 **관리 moai 고정을 10·11번이 든 판으로 올려야** 버튼이 보인다. 그 전에는 "moai 스킬이 아예 없음"만 감지해서 명령을 보여 준다.
+
 ## 2. moai CLI 상류
 
 패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
