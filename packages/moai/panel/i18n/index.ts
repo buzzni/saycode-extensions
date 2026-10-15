@@ -1196,7 +1196,7 @@ const ko: Copy = {
   up: '..', root: '전체', noMilestone: '(마일스톤 없음)', lost: '(길 잃음)', loading: '불러오는 중…',
   starting: '시작하는 중… 확인 창이 떠 있으면 승인하세요.', running: '머신에서 실행하는 중…',
   cancel: '취소', cancelled: '실행을 취소했습니다.', mayContinue: '머신에서 프로세스가 아직 끝나지 않았을 수 있습니다.',
-  stats: { todo: '할 일', in_progress: '진행 중', review: '검토', done: '완료' },
+  stats: { todo: '할 일', in_progress: '진행 중', review: '리뷰', done: '완료' },
   notStarted: '실행이 시작되지 않았고 Desktop이 이유를 알려 주지 않았습니다. 갱신 시각을 눌러 다시 시도하고, 계속되면 Desktop을 다시 시작하세요.',
   notStartedFor: {
     'binding-mismatch': '실행이 시작되지 않았습니다. Desktop이 이 패널의 머신과 프로젝트 폴더를 확인하지 못했습니다(선택이 바뀌었거나 머신이 다시 연결됨). 프로젝트 대화를 다시 열거나 Desktop을 다시 시작한 뒤 다시 시도하세요.',
