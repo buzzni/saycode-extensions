@@ -130,22 +130,25 @@ function tipLine(doc: Document, tips: BrandTips): HTMLElement {
   const n = tips.tips.length
   const start = Math.floor(Math.random() * n)
   if (n > 1) tipKeyframes(doc, n)
+  // Each tip carries its own label, so `Tip :` stands on the tip's first line however many lines it takes.
   const items = tips.tips.map((tip, i) => {
     const turn = (i - start + n) % n
     return el(doc, 'span', {
       class: 'm-brand-tip-item',
       'data-first': turn === 0 ? '' : null,
       style: n > 1 ? `animation: m-tip-${n} ${n * TIP_MS}ms linear ${turn * TIP_MS}ms infinite both;` : null,
-    }, tip)
+    }, el(doc, 'span', { class: 'm-brand-label' }, `${pad('Tip', LABEL)} : `), el(doc, 'span', { class: 'm-brand-tip-said' }, tip))
   })
   const text = el(doc, 'button', { type: 'button', class: 'm-brand-tip-text', title: tips.label, 'aria-label': tips.label }, ...items)
   text.addEventListener('click', () => tips.open())
-  return el(doc, 'div', { class: 'm-brand-line m-brand-tip' }, el(doc, 'span', { class: 'm-brand-label' }, `${pad('Tip', LABEL)} : `), text)
+  // At the foot of the info column, so its last line stands on the tagline's row (shell.css).
+  return el(doc, 'div', { class: 'm-brand-tip' }, text)
 }
 
 /**
- * The round for `n` tips, once per document: shown for one `n`th of it, with a short fade in and out. `both` fill keeps a
- * tip whose turn has not come hidden until it does.
+ * The round for `n` tips, once per document: shown for one `n`th of it. It fades out while the next fades in, so the
+ * label both carry at the same place stays on the screen. `both` fill keeps a tip whose turn has not come hidden until
+ * it does.
  */
 export function tipKeyframes(doc: Document, n: number): void {
   const id = `m-tip-${n}`
@@ -154,6 +157,6 @@ export function tipKeyframes(doc: Document, n: number): void {
   const fade = Math.min(shown / 4, (400 / (n * TIP_MS)) * 100)
   const at = (v: number) => `${Number(v.toFixed(3))}%`
   const style = el(doc, 'style', { id })
-  style.textContent = `@keyframes ${id} { 0% { opacity: 0; transform: translateY(3px); } ${at(fade)} { opacity: 1; transform: none; } ${at(shown - fade)} { opacity: 1; } ${at(shown)}, 100% { opacity: 0; } }`
+  style.textContent = `@keyframes ${id} { 0% { opacity: 0; } ${at(fade)} { opacity: 1; } ${at(shown)} { opacity: 1; } ${at(shown + fade)}, 100% { opacity: 0; } }`
   doc.head.append(style)
 }

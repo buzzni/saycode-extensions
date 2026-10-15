@@ -119,14 +119,16 @@ test('tips: the header turns through them every 8 s by CSS, from a random place,
   doc.body.append(brand.el)
   assert.equal(brand.el.querySelector('.m-brand-tip .m-brand-label').textContent, 'Tip     : ')
   const items = [...brand.el.querySelectorAll('.m-brand-tip-item')]
-  assert.deepEqual(items.map((item) => item.textContent), tips, 'every tip, stacked in one place')
+  assert.deepEqual(items.map((item) => item.querySelector('.m-brand-tip-said').textContent), tips, 'every tip, stacked in one place')
+  assert.ok(items.every((item) => item.querySelector('.m-brand-label').textContent === 'Tip     : '), 'each with its label, on its first line')
   // Each takes its 8 s turn of a 32 s round; the one whose turn is first is marked to stand alone without motion.
   const delays = items.map((item) => Number(item.style.animation.match(/linear (\d+)ms/)[1]))
   assert.deepEqual([...delays].sort((a, b) => a - b), [0, 8000, 16000, 24000])
   assert.ok(items.every((item) => item.style.animation.includes('m-tip-4 32000ms')))
   assert.equal(items.find((item) => item.hasAttribute('data-first')).style.animation.includes('linear 0ms'), true)
   const frames = doc.getElementById('m-tip-4').textContent
-  assert.match(frames, /@keyframes m-tip-4 \{ 0% \{ opacity: 0;.*25%, 100% \{ opacity: 0; \} \}/)
+  // 1.25% of a 32 s round is the 0.4 s fade; a tip fades out over the next one's fade in.
+  assert.equal(frames, '@keyframes m-tip-4 { 0% { opacity: 0; } 1.25% { opacity: 1; } 25% { opacity: 1; } 26.25%, 100% { opacity: 0; } }')
   // One keyframe set per count, however many headers draw it.
   B.mountBrand(doc, en, { tips, label: 'All tips', open() {} })
   assert.equal(doc.querySelectorAll('style#m-tip-4').length, 1)

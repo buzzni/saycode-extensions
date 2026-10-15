@@ -19,19 +19,21 @@
 /* The art drawn as terminal cells (view/brand.ts artPath): 26 cells wide, five rows of the header's line height. */
 .m-brand-art { display: block; width: 26ch; height: calc(5 * 1.17em); fill: currentColor; }
 .m-brand-tagline { white-space: pre; }
-.m-brand-info { flex: 1 1 auto; min-width: 0; align-self: stretch; padding-left: 1ch; border-left: 1px solid var(--border); }
+.m-brand-info { flex: 1 1 auto; min-width: 0; align-self: stretch; display: flex; flex-direction: column; padding-left: 1ch; border-left: 1px solid var(--border); }
 .m-brand-line { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .m-brand-label { color: var(--muted); }
-/* The tip under the Version line (se-irhr): wraps under itself, after the label column, up to three lines; a click
-   opens the tips page. */
-.m-brand-tip { display: grid; grid-template-columns: max-content minmax(0, 1fr); margin-top: 1.17em; white-space: normal; }
-.m-brand-tip > .m-brand-label { white-space: pre; }
+/* The tip (se-irhr): at the foot of the info column, so its last line stands on the logo's tagline row, as one line
+   of the header. Every tip stacks in one cell, each set to that cell's foot (a short one sits on the tagline's row, a
+   long one rises above it, up to three lines), and wraps after its own label. A click opens the tips page. */
+.m-brand-tip { margin-top: auto; padding-top: 4px; }
 .m-brand-tip-text {
-  display: grid; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer;
+  display: grid; width: 100%; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit;
+  text-align: left; cursor: pointer;
 }
-.m-brand-tip-text:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
-/* Every tip in the same cell; view/brand.ts tipKeyframes shows each in its turn. */
-.m-brand-tip-item { grid-area: 1 / 1; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.m-brand-tip-item { grid-area: 1 / 1; align-self: end; display: grid; grid-template-columns: max-content minmax(0, 1fr); }
+.m-brand-tip-item > .m-brand-label { white-space: pre; }
+.m-brand-tip-said { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.m-brand-tip-text:hover .m-brand-tip-said { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 .m-brand-tip-text:is(:hover, :focus-visible) .m-brand-tip-item { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .m-brand-tip-item:not([data-first]) { visibility: hidden; } }
 /* The tips page (view/tips.ts): the shortcut help's dialog, its rows a tip and its Copy button. */
