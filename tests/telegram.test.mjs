@@ -625,3 +625,13 @@ test('/clear and /reset map to the clear operation Core classifies', async () =>
   // Still plain text when it is not the command word.
   assert.deepEqual(parseTelegramCommand('clear the cache please'), { operation: 'prompt', text: 'clear the cache please' })
 })
+
+// ---- intake runtime: one message Core refuses cannot hold up the rest of the connection --------
+
+test('an empty message is proposed as a prompt with no text, never as text ""', async () => {
+  const { parseTelegramCommand } = await bundleModule('src/commands.ts')
+  // `text: ""` failed Core's wire parser, and the batch it sat in was retried forever.
+  assert.deepEqual(parseTelegramCommand(''), { operation: 'prompt' })
+  assert.deepEqual(parseTelegramCommand('   '), { operation: 'prompt' })
+})
+
