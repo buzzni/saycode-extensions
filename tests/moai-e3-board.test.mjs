@@ -141,6 +141,28 @@ const mount = (state, rows = ROWS) => {
   return { root, view, chosen, dom }
 }
 
+test('board view: held work moves as in the TUI — its glyph turns, a band runs over its title, its column head turns (se-gowr.oie)', () => {
+  const rows = [
+    { id: 'h1', kind: 'issue', title: '집은 일', status: 'in_progress', priority: 1 },
+    { id: 'h2', kind: 'issue', title: 'Put off', status: 'in_progress', priority: 1, deferred_at: '2026-01-01' },
+    { id: 't1', kind: 'issue', title: 'Waiting', status: 'todo', priority: 2 },
+  ]
+  const { root } = mount({ ...initialState(), tab: 'board', view: { ...initialState().view, hideDeferred: false } }, rows)
+  const card = (id) => root.querySelector(`.m-card[data-id="${id}"]`)
+  assert.ok(card('h1').querySelector('.m-st-in_progress.m-spin'), 'the held card turns')
+  const band = card('h1').querySelector('.m-card-title .m-glint')
+  assert.equal(band.textContent, '집은 일', 'the band holds the title, as text')
+  // Four cells of Hangul, a space and two more: 7 cells, the band's 3 and the rest's 8 at 120 ms a cell.
+  assert.equal(band.style.getPropertyValue('--glint-time'), `${(7 + 3 + 8) * 120}ms`)
+  assert.equal(card('h2').querySelector('.m-spin, .m-glint'), null, 'deferred work stands still, as in the TUI')
+  assert.equal(card('t1').querySelector('.m-spin, .m-glint'), null)
+  // The glyph stays in the DOM: what a reader hears, and what stands without motion.
+  assert.equal(card('h1').querySelector('.m-spin').textContent, '▸')
+  const head = (key) => root.querySelector(`.m-lane[data-status="${key}"] .m-lane-head span[aria-hidden]`)
+  assert.ok(head('in_progress').classList.contains('m-spin'))
+  assert.ok(!head('todo').classList.contains('m-spin'))
+})
+
 test('board view: columns, lanes, cards, cursor highlight and click', () => {
   const state = { ...initialState(), tab: 'board', cursor: 'e1.b' }
   const { root, chosen } = mount(state)

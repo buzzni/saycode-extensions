@@ -13,11 +13,17 @@ import { segLabel } from './crumbs.ts'
 import { narrow, segKey, statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
 import { newChip } from './unread.ts'
+import { glint, spins } from './spin.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
 /** The same letters as the TUI, so a state is never told by colour alone. */
 const GLYPHS: Record<string, string> = { todo: '·', in_progress: '▸', review: '?', done: '✓' }
 export const glyphOf = (key: string): string => (key === BACKLOG ? '◇' : key === DEFERRED ? '⏸' : (GLYPHS[key] ?? '○'))
+
+/** components.css 5.7: a column's minimum width, the gap between two columns, the board's padding. */
+const LANE_MIN = 200
+const LANE_GAP = 4
+const BOARD_PAD = 6
 
 const priorityClass = (priority: number) => `m-p${Math.min(3, Math.max(0, Math.round(priority)))}`
 
@@ -46,7 +52,9 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
     // column would otherwise not say where it stands. The glyph differs by status, never colour alone.
     const status = statusOf(row)
     const { glyph, tone } = statusGlyph(status)
-    first.append(' ', el(doc, 'span', { class: `m-st-${tone}`, title: (copy.stats as Record<string, string>)[status] ?? status }, glyph))
+    // What someone holds moves as in the TUI (view/spin.ts): the glyph turns and a band runs over the title.
+    const moving = spins(index, at)
+    first.append(' ', el(doc, 'span', { class: `m-st-${tone}${moving ? ' m-spin' : ''}`, title: (copy.stats as Record<string, string>)[status] ?? status }, glyph))
     if (typeof row.priority === 'number') first.append(' ', el(doc, 'span', { class: priorityClass(row.priority) }, `p${row.priority}`))
     if (index.isDir(at)) {
       const [d, w] = index.tally(index.dirPath(at))
@@ -54,7 +62,8 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
     }
     const title = el(doc, 'div', { class: 'm-card-title' })
     if (isUnread(row)) title.append(newChip(doc), ' ')
-    title.append(row.title ?? row.id)
+    const name = row.title ?? row.id
+    title.append(moving ? glint(doc, name) : name)
     const lines: Node[] = [first, title]
     const extras: Node[] = []
     if (state.columns.assignee && row.assignee) extras.push(chip(doc, { label: String(row.assignee) }))
@@ -76,8 +85,9 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
   const laneHead = (lane: BoardLane): HTMLElement | null => {
     if (lane.seg === null) return null
     const title = lane.at !== undefined ? (index.rows[lane.at]!.title ?? index.rows[lane.at]!.id) : segLabel(lane.seg, index, copy)
-    const head = el(doc, 'div', { class: 'm-lane-head', 'data-lane': lane.seg, style: 'position: static;' })
-    head.append(el(doc, 'span', {}, title))
+    const head = el(doc, 'div', { class: 'm-swim-head', 'data-lane': lane.seg })
+    const count = lane.columns.reduce((n, column) => n + column.cards.length, 0)
+    head.append(el(doc, 'span', {}, title), el(doc, 'span', { class: 'm-count' }, String(count)))
     return head
   }
 
@@ -85,20 +95,24 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
   for (const lane of model.lanes) {
     const head = laneHead(lane)
     if (head) out.push(head)
-    const board = el(doc, 'div', { class: 'm-board', style: 'overflow: visible;', 'data-lane': lane.seg ?? '' })
+    const board = el(doc, 'div', { class: 'm-board', 'data-lane': lane.seg ?? '' })
     for (const column of lane.columns) {
       const label = nameOf(column.key)
       const lanes = el(doc, 'div', { class: 'm-lane', role: 'list', 'data-status': column.key, 'aria-label': copy.board.columnLabel(label, column.cards.length) })
+      // The column's glyph turns while a card in it does, as the TUI's column head does.
+      const turning = column.cards.some((at) => spins(index, at))
       lanes.append(el(doc, 'div', { class: 'm-lane-head' },
-        el(doc, 'span', { 'aria-hidden': 'true' }, glyphOf(column.key)), el(doc, 'span', {}, label), el(doc, 'span', { class: 'm-count' }, String(column.cards.length))))
-      if (!column.cards.length) lanes.append(el(doc, 'div', { class: 'm-note', style: 'padding: 6px 10px; color: var(--muted);' }, copy.board.noCards))
+        el(doc, 'span', { 'aria-hidden': 'true', class: turning ? 'm-spin' : null }, glyphOf(column.key)), el(doc, 'span', {}, label), el(doc, 'span', { class: 'm-count' }, String(column.cards.length))))
+      if (!column.cards.length) lanes.append(el(doc, 'div', { class: 'm-lane-empty' }, copy.board.noCards))
       for (const at of column.cards) lanes.append(card(at))
       board.append(lanes)
     }
     out.push(board)
   }
-  // Narrow panels scroll sideways instead of squeezing the columns below their minimum.
-  const wrap = el(doc, 'div', { class: 'm-board-wrap', style: `min-width: ${model.keys.length * 200 + (model.keys.length - 1) * 2}px;` })
+  // Narrow panels scroll sideways instead of squeezing the columns below their minimum. The numbers are the
+  // stylesheet's (components.css 5.7): a column's minimum, the gap between columns, the board's padding.
+  const columns = model.keys.length
+  const wrap = el(doc, 'div', { class: 'm-board-wrap', style: `min-width: ${columns * LANE_MIN + (columns - 1) * LANE_GAP + 2 * BOARD_PAD}px;` })
   wrap.append(...out)
   return [wrap]
 }
