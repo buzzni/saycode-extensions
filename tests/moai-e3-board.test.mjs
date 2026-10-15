@@ -428,3 +428,33 @@ test('board view: a render in place is the render a fresh board gives, for every
   assert.equal(root.querySelector('[data-status="done"]'), null, 'the cursor left it: the column goes')
   assert.equal(root.innerHTML, html({ ...hidden, cursor: 'e1.a' }))
 })
+
+// ── the worktree overlay's branch mark (se-etwu) ──
+const BR = await panelModule('view/branch.ts')
+
+test('branch mark: the holder, else where the row came from; the name kept by its tail; none on a done row', () => {
+  assert.equal(BR.clipFront('wt-se-43oh'), 'wt-se-43oh')
+  assert.equal(BR.clipFront('worktree-moai-3fnf-long'), '…-moai-3fnf-long')
+  assert.equal([...BR.clipFront('worktree-moai-3fnf-long')].length, 16, 'the cap is the TUI\'s 16 cells')
+  assert.ok(BR.clipFront('worktree-moai-3fnf-long').endsWith('3fnf-long'), 'the tail, where the issue id is, stays')
+  assert.equal(BR.branchOf({ id: 'a', status: 'in_progress', branch: 'b1' }), 'b1')
+  assert.equal(BR.branchOf({ id: 'a', status: 'in_progress', branch: 'b1', working: 'w1' }), 'w1', 'the worktree that holds it wins')
+  assert.equal(BR.branchOf({ id: 'a', status: 'done', branch: 'b1' }), undefined)
+  assert.equal(BR.branchOf({ id: 'a', status: 'todo' }), undefined)
+  assert.deepEqual(BR.worktreesOf([{ id: 'a', branch: 'z' }, { id: 'b', branch: 'a' }, { id: 'c', branch: 'z' }, { id: 'd' }]), ['a', 'z'])
+  const doc = new JSDOM('<!doctype html><body></body>').window.document
+  const mark = BR.branchMark(doc, 'worktree-moai-3fnf-long')
+  assert.equal(mark.className, 'm-branch')
+  assert.equal(mark.title, '⎇ worktree-moai-3fnf-long')
+  assert.ok(mark.textContent.startsWith('⎇ …'))
+})
+
+test('board view: a card another worktree holds carries ⎇ and its branch on its first line', () => {
+  const rows = [
+    { id: 'h1', kind: 'issue', title: 'Held over there', status: 'in_progress', priority: 1, branch: 'wt-h1' },
+    { id: 'd1', kind: 'issue', title: 'Done over there', status: 'done', priority: 1, branch: 'wt-d1' },
+  ]
+  const { root } = mount({ ...initialState(), tab: 'board', view: { ...initialState().view, hiddenStatuses: [] } }, rows)
+  assert.equal(root.querySelector('.m-card[data-id="h1"] .m-card-line .m-branch').textContent, '⎇ wt-h1')
+  assert.equal(root.querySelector('.m-card[data-id="d1"] .m-branch'), null)
+})

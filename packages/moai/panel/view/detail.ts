@@ -29,6 +29,7 @@ import {
 import { statusGlyph } from './list-model.ts'
 import { renderMarkdown } from './markdown.ts'
 import { spins } from './spin.ts'
+import { branchMark } from './branch.ts'
 import { newChip } from './unread.ts'
 import { highlight } from './toolbar.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
@@ -189,11 +190,15 @@ export const mountDetail: MountPane = (root: HTMLElement, ctx: ViewContext): Pan
     const { glyph, tone } = statusGlyph(head.status)
     const moving = head.status === 'in_progress' && listed !== undefined && spins(index!, listed)
     const glyphNode = el(doc, 'span', { class: `moai-detail-glyph m-st-${tone}${moving ? ' m-spin' : ''}`, 'aria-hidden': 'true' }, glyph)
+    // The worktree the row came from, after the id, as the TUI's detail (`Origin::branch`, se-etwu): `show --worktree`
+    // carries it, and so does the list's row when the detail was read plain.
+    const from = [row.branch, held?.branch].find((value): value is string => typeof value === 'string' && value !== '')
+    const origin = from ? [branchMark(doc, from)] : []
     const titleLine = el(doc, 'h2', { class: 'moai-detail-title' }, ...painted(head.title, 'title', search))
     heads = { id: idLine, title: titleLine, idText: head.id, titleText: head.title }
     const out: Node[] = [
       el(doc, 'div', { class: 'moai-detail-head' },
-        el(doc, 'div', { class: 'moai-detail-headtext' }, el(doc, 'div', { class: 'moai-detail-idline' }, glyphNode, idLine), titleLine, chips),
+        el(doc, 'div', { class: 'moai-detail-headtext' }, el(doc, 'div', { class: 'moai-detail-idline' }, glyphNode, idLine, ...origin), titleLine, chips),
         closeButton()),
     ]
     const fields = fieldsOf(row, index, copy)

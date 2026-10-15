@@ -53,8 +53,8 @@ async function host() {
   return { run: (...args) => testHost.invokeCommand('buzzni.moai.run', args), starts }
 }
 
-const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all', 'skill-status', 'skill-install-saycode']
-const ONE_VALUE = { show: 'id', 'wiki-show': 'slug', read: 'id', 'read-group': 'group', 'show-archived-after': 'after' }
+const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all', 'show-all-worktree', 'skill-status', 'skill-install-saycode']
+const ONE_VALUE = { show: 'id', 'show-worktree': 'id', 'wiki-show': 'slug', read: 'id', 'read-group': 'group', 'show-archived-after': 'after' }
 
 test('every declared profile is runnable through the whitelist, and nothing else is', () => {
   const declared = manifest.machineCommands.profiles.map((profile) => profile.id).sort()

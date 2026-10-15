@@ -142,6 +142,8 @@ const NO_BACKLOG = '[]'
 const STATUS = JSON.stringify({ counts: { done: 0, in_progress: 1, review: 1, todo: 1 }, total: 3, milestones: [], epics: [] })
 const NOT_A_REPOSITORY = JSON.stringify({ code: 'error', error: 'Not a moai repository (no `.moai/` found). Start one with `moai init`, or call a repository elsewhere with `moai -C <dir> <command>`' })
 
+/** The worktree overlay's profiles (se-etwu), which the panel tries first while the overlay is on. */
+const OVERLAY = new Set(['buzzni.moai.show-all-worktree', 'buzzni.moai.show-worktree'])
 const accepted = (operationId) => ({ action: 'start', operationId, state: 'accepted' })
 const passed = (operationId, stdout) => ({ action: 'status', operationId, state: 'passed', stdout, stderr: '', exitCode: 0 })
 
@@ -159,6 +161,9 @@ async function runPanel(answer, language = 'en') {
     if (command === 'buzzni.moai.run') {
       const reply = await answer.start?.(args)
       if (reply) return reply
+      // Today's catalogs lack the worktree overlay's profiles (se-etwu): unless a test answers them, they are refused as
+      // the daemon would, and the panel reads the plain list and detail.
+      if (OVERLAY.has(args[0]) && answer(args[0], args[1], 'probe') === null) return { action: 'start', state: 'refused', code: 'unsupported-daemon' }
       const id = `op-${++next}`
       runs.set(id, args)
       answer.started?.(id, args)
@@ -199,7 +204,9 @@ async function runPanel(answer, language = 'en') {
     window: dom.window, calls, $,
     rows: () => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].map((row) => row.dataset.id),
     row: (id) => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].find((row) => row.dataset.id === id),
-    starts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
+    // The runs the panel started, less the overlay's tries a catalog without them refused (see OVERLAY above).
+    starts: () => calls.filter(([command, args]) => command === 'buzzni.moai.run' && !(OVERLAY.has(args[0]) && answer(args[0], args[1], 'probe') === null)).map(([, args]) => args),
+    allStarts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
   }
 }
 
@@ -1815,4 +1822,31 @@ test('header: the logo, then the user and the version status prints; an older mo
   const older = await runPanel(board())
   await flush()
   assert.deepEqual([...older.window.document.querySelectorAll('.m-brand-told .m-brand-line')].map((line) => line.textContent), ['User    : —', 'Version : —'])
+})
+
+// ── the worktree overlay, as the TUI's explorer: on when it opens, SPC v w (se-etwu) ──
+test('worktree overlay: tried once the plain list stands; where it runs the list is read overlaid, rows another worktree holds carry ⎇, the path line names the worktrees, SPC v w turns it off', async () => {
+  const plain = JSON.parse(SHOW_ALL)
+  const overlaidRows = JSON.stringify(plain.map((row) => (row.id === 'mgd-ogym' ? { ...row, status: 'in_progress', branch: 'wt-mgd-ogym' } : row)))
+  const panel = await runPanel(board({ 'buzzni.moai.show-all-worktree': overlaidRows }))
+  await until(() => panel.$('.moai-list .m-branch') !== null)
+  assert.equal(panel.row('mgd-ogym').querySelector('.m-branch').textContent, '⎇ wt-mgd-ogym')
+  assert.equal(panel.$('.m-crumbs-trees').textContent, '⎇ wt-mgd-ogym')
+  const runs = () => panel.allStarts().map(([profile]) => profile)
+  // The first list is the plain one, so the board is not held up by the try; then the overlay is read for the board.
+  assert.equal(runs()[0], 'buzzni.moai.show-all')
+  assert.ok(runs().filter((profile) => profile === 'buzzni.moai.show-all-worktree').length >= 2, 'the try, then the list read overlaid')
+  press(panel, ' ', 'v', 'w')
+  await until(() => panel.$('.moai-list .m-branch') === null)
+  assert.equal(runs().at(-3), 'buzzni.moai.show-all', 'turned off, the list is read plain')
+  assert.equal(panel.$('.m-crumbs-trees'), null)
+})
+
+test('worktree overlay: a catalog without it is asked once, then the list is read plain as before', async () => {
+  const panel = await runPanel(board())
+  await settled()
+  panel.$('.moai-refresh').click()
+  await settled()
+  assert.equal(panel.allStarts().filter(([profile]) => profile === 'buzzni.moai.show-all-worktree').length, 1)
+  assert.equal(panel.$('.m-branch'), null)
 })

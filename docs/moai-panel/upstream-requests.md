@@ -356,7 +356,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 {
   "id": "buzzni.moai.skill-install-saycode",
   "executable": "moai",
-  "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode"],
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode", "--hook-exe", "moai"],
   "parameters": {},
   "cwd": "workspaceRoot",
   "envAllowlist": ["HOME"],
@@ -371,11 +371,48 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 - `skill-status`는 읽기다. 패널은 연 뒤 한 번만, 그리고 전체 목록(`show-all`)을 읽은 곳에서만 부른다. 카탈로그에 없으면(거부) 배너 없이 이 기능만 꺼진다. 호환성 배너는 이 둘을 세지 않는다.
 - `skill-install-saycode`는 쓰기다(`writeScope: project`, `.claude/moai-plugin/`를 쓴다). Desktop은 쓰기마다 묻는다.
 - **Claude 등록은 데몬에서 되지 않는다.** 데몬이 주는 PATH에는 `claude`가 없어서 `moai skill install`이 파일만 심고 `registered: false`로 끝난다(2026-10-15 실측, 종료 코드 0). 이미 등록된 저장소에서는 문제가 없고, 처음 까는 저장소에서는 패널이 터미널에서 칠 명령을 보여 준다. 데몬이 이 프로필에 한해 동봉 `claude`를 PATH에 넣고 `descendantAllowlist`에 `claude`를 더하면 등록까지 된다. 그렇게 할지는 데몬 담당이 정한다. 그러면 선언도 같이 바꾼다.
+- **훅 철자(2026-10-15 실기).** 데몬은 실행마다 임시 폴더를 만들어 `moai` 래퍼 스크립트(`exec <관리 moai> "$@"`)를 넣고 그 폴더를 PATH로 준다(`createRestrictedPath`). moai는 PATH의 `moai`가 자기와 같은 파일일 때만 훅에 이름을 적는데, 래퍼는 다른 파일이라 관리 moai의 절대 경로(`~/.happy/managed-tools/buzzni.moai/0.17.0/moai`)를 적었다. 그래서 설치 프로필은 훅 철자를 명시하는 moai 옵션(`--hook-exe moai`, 2절 13번)을 넘긴다(위 선언에 들어 있다).
+- **세션 PATH 요청(데몬·Desktop).** 훅이 이름 `moai`로 적히면, Saycode 세션은 데몬에서 물려받은 사용자 셸 PATH에서 moai를 찾는다. 사용자가 moai를 따로 깔지 않은 머신에서는 훅이 조용히 꺼진다(`|| exit 0`). 세션 PATH에 관리 moai의 고정 링크 폴더(`~/.happy/managed-tools/buzzni.moai/bin`)를 넣어 달라.
 - moai 0.17.0으로 이 쓰기를 돌리면 훅이 깨진다(2절 11번). 패널은 `skill status --json`에 `optional`이 있는 moai(2절 10번)에서만 버튼을 낸다. 그래서 두 프로필을 더하는 것과 함께 **관리 moai 고정을 10·11번이 든 판으로 올려야** 버튼이 보인다. 그 전에는 "moai 스킬이 아예 없음"만 감지해서 명령을 보여 준다.
+
+### 1.8 워크트리 겹쳐 보기 프로필 2개 (`se-etwu`)
+
+2026-10-15 실기: 워크트리가 있으면 TUI가 보이는 `⎇ <브랜치>`가 패널에 없었다. TUI 탐색기처럼 다른 워크트리를 겹쳐 보는 읽기 2개를 더한다. 둘 다 읽기다.
+
+```json
+{
+  "id": "buzzni.moai.show-all-worktree",
+  "executable": "moai",
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "--all", "--worktree"],
+  "parameters": {},
+  "cwd": "workspaceRoot",
+  "envAllowlist": ["HOME"],
+  "timeoutMs": 120000,
+  "outputLimitBytes": 1048576,
+  "stdin": "none",
+  "descendantAllowlist": ["git"]
+},
+{
+  "id": "buzzni.moai.show-worktree",
+  "executable": "moai",
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "{{id}}", "--worktree"],
+  "parameters": { "id": { "type": "string", "maxLength": 128 } },
+  "cwd": "workspaceRoot",
+  "envAllowlist": ["HOME"],
+  "timeoutMs": 120000,
+  "outputLimitBytes": 1048576,
+  "stdin": "none",
+  "descendantAllowlist": ["git"]
+}
+```
+
+- 패널은 연 뒤 먼저 일반 목록(`show-all`)으로 그리고, 그다음 `show-all-worktree`를 한 번 시험한다. 되면 그때부터 목록과 상세를 겹쳐 읽고, 카탈로그에 없으면(거부) 그 세션에서는 다시 묻지 않는다. 호환성 배너는 이 둘을 세지 않는다.
+- `--worktree`는 `git worktree list`와 옆 워크트리의 스냅샷을 읽는다. `descendantAllowlist`의 `git`으로 충분하다(샌드박스에서 실측).
+- 행의 `⎇` 표시는 moai가 `--worktree`일 때 내는 `working`(그 이슈를 쥔 워크트리, 2절 14번)을 쓰고, 없으면 `branch`(그 행이 온 워크트리)를 쓴다.
 
 ## 2. moai CLI 상류
 
-패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 10~12번은 2026-10-15에 moai `develop`에 들어갔고 다음 릴리스를 기다린다. 1.7절의 스킬 프로필과 머리가 이 셋을 쓰므로, 관리 moai 고정(1.6)은 이 셋이 든 판으로 올려야 한다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
+패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 10~14번은 2026-10-15에 moai `develop`에 들어갔고 다음 릴리스를 기다린다. 1.7·1.8절의 프로필과 머리가 이것들을 쓰므로, 관리 moai 고정(1.6)은 이것들이 든 판으로 올려야 한다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
@@ -391,6 +428,8 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 10 | `skill status --json`의 **`optional`** (`se-gowr.fk2`) | 심긴 선택 스킬 이름 배열(`["moai-saycode"]`), `agents.optional`도 같은 꼴. 늘 있고 없으면 `[]`. **develop에 있음**(moai-yfjj `cc15555e`, 2026-10-15), 아직 릴리스 안 됨 | 패널은 "moai 스킬이 아예 없음"(`written: false`)만 감지하고, 설치 버튼 대신 터미널 명령을 보인다(`data/skills.ts canInstall`) |
 | 11 | **`sh` 없이도 훅의 `moai` 철자 유지** (`se-gowr.fk2`) | 데몬처럼 PATH에 moai만 있어 `sh`를 못 띄워도 `skill install`이 커밋된 훅의 `moai`를 그대로 둔다(PATH를 직접 훑음). **develop에 있음**(moai-30g6 `ba12a793`) | 0.17.0을 데몬이 돌리면 훅이 관리 moai의 절대 경로로 바뀌고, 고정 판이 바뀌면 훅이 조용히 꺼진다. 그래서 10번이 없는 moai에서는 버튼을 내지 않는다 |
 | 12 | `status --json`의 **`user`·`version`** (`se-qkga`) | `user: {name, email, label}`(TUI 머리의 User 줄, `naming` 적용) 또는 `null`, `version: {current, latest}`(`latest`는 캐시만 읽은 `{state, tag?, heard_at?, why?}` 또는 `null`, 네트워크 안 씀). **develop에 있음**(moai-9ve2 `ee07bee7`). `git config` 실행이 `status`마다 2번 는다 | 머리의 User·Version이 `—`로 나온다 |
+| 13 | **`skill install --hook-exe <철자>`** (`se-gowr.fk2`) | 훅에 적을 moai 철자를 명시한다. `--hook-exe moai`면 데몬의 임시 래퍼 PATH에서도 훅이 `command -v -- "moai"`로 적힌다. 기억되지 않으므로 설치마다 넘긴다. **develop에 있음**(moai-r5lf `f5880ed6`) | 데몬에서 설치하면 훅에 관리 moai의 절대 경로가 박혀, 고정 판이 바뀌면 훅이 조용히 꺼진다 |
+| 14 | `--worktree` 행의 **`working`** (`se-etwu`) | `show --all --worktree --json`·`show <id> --worktree --json` 등의 행에 그 이슈를 쥔 옆 워크트리 이름(TUI `Origin::working`). 없으면 키가 없다. `status --json --worktree`에 `working` 지도. 끝난 행도 낸다(가리는 것은 그리는 쪽). **develop에 있음**(moai-0n9u `3ee34d25`) | 행의 `⎇`는 `branch`(그 행이 온 워크트리)로만 선다. 이름이나 집은 표식으로 쥔 행에는 표시가 없다 |
 
 ### 2.1 판별 방식
 

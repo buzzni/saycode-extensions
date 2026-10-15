@@ -183,6 +183,32 @@
         "descendantAllowlist": ["git"]
       },
       {
+        "id": "buzzni.moai.show-all-worktree",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "--all", "--worktree"],
+        "parameters": {},
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "descendantAllowlist": ["git"]
+      },
+      {
+        "id": "buzzni.moai.show-worktree",
+        "executable": "moai",
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "show", "{{id}}", "--worktree"],
+        "parameters": {
+          "id": { "type": "string", "maxLength": 128 }
+        },
+        "cwd": "workspaceRoot",
+        "envAllowlist": ["HOME"],
+        "timeoutMs": 120000,
+        "outputLimitBytes": 1048576,
+        "stdin": "none",
+        "descendantAllowlist": ["git"]
+      },
+      {
         "id": "buzzni.moai.skill-status",
         "executable": "moai",
         "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "status"],
@@ -197,7 +223,7 @@
       {
         "id": "buzzni.moai.skill-install-saycode",
         "executable": "moai",
-        "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode"],
+        "argv": ["--json", "-C", "{{workspaceRoot}}", "skill", "install", "--with", "moai-saycode", "--hook-exe", "moai"],
         "parameters": {},
         "cwd": "workspaceRoot",
         "envAllowlist": ["HOME"],

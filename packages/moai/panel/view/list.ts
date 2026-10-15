@@ -21,6 +21,7 @@ import {
 } from "./list-model.ts"
 import { newChip } from "./unread.ts"
 import { glint, spins } from "./spin.ts"
+import { branchMark, branchOf } from "./branch.ts"
 import { highlight } from "./toolbar.ts"
 import type { MountPane, PaneView } from "./types.ts"
 
@@ -210,6 +211,9 @@ export const mountList: MountPane = (root, ctx): PaneView => {
     if (parts.length) title.append(el(doc, "span", { class: "moai-twig", "aria-hidden": "true" }, ...parts.map((part) => el(doc, "span", { class: "moai-tw", "data-tw": part }, TWIG_TEXT[part]))))
     // NEW stands after the twig and before the name (design §4.1); the title cell stays one line, so the row keeps its height.
     if (row && isUnread(row)) title.append(newChip(doc), " ")
+    // `⎇ <branch>` before the name when another worktree holds it, as the TUI's row (view/branch.ts, se-etwu).
+    const branch = row ? branchOf(row) : undefined
+    if (branch) title.append(branchMark(doc, branch), " ")
     const name = line.kind === "up" ? copy.up : line.kind === "bucket" ? segLabel(line.seg, index, copy) : String(row!.title ?? row!.id)
     const named = line.kind === "row" ? painted(name, "title") : [name]
     title.append(...(moving ? [glint(doc, name, ...named)] : named), folder ? "/" : "")

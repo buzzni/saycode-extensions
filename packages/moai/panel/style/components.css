@@ -219,6 +219,9 @@ button.m-refreshed:hover { background: var(--hover); color: var(--text); }
 .m-p2 { color: var(--text); }
 .m-p3 { color: var(--muted); }
 .m-epicname { color: var(--epic); }
+/* `⎇ <branch>`: a row another worktree holds (view/branch.ts), in the TUI's bright cyan, bold. */
+.m-branch { color: var(--branch); font: 600 12px var(--mono); white-space: nowrap; }
+.m-crumbs-trees { overflow: hidden; text-overflow: ellipsis; max-width: 40ch; }
 mark.m-mark { background: var(--warn-soft); color: inherit; border-radius: 2px; }
 
 /* ---- Kanban (5.7) ---- */

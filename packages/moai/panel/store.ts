@@ -34,6 +34,8 @@ export interface ViewSettings {
   hideDeferred: boolean
   hideBacklog: boolean
   showArchived: boolean
+  /** The other git worktrees' rows over the list (`SPC v w`), as the TUI's explorer starts: on (se-etwu). */
+  worktree: boolean
 }
 
 export interface DetailSettings {
@@ -209,7 +211,7 @@ export function initialState(): State {
     focus: 'list',
     expanded: [],
     detail: { visible: true, position: 'bottom', ratio: { ...DEFAULT_RATIO } },
-    view: { hiddenStatuses: [], hideDeferred: true, hideBacklog: false, showArchived: false },
+    view: { hiddenStatuses: [], hideDeferred: true, hideBacklog: false, showArchived: false, worktree: true },
     columns: { ...COLUMN_DEFAULTS },
     columnsKnown: Object.keys(COLUMN_DEFAULTS) as ColumnName[],
     sort: copySort(DEFAULT_SORT),

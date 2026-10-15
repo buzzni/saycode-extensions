@@ -14,6 +14,7 @@ import { narrow, segKey, statusGlyph, statusOf } from './list-model.ts'
 import { chip, el, emptyState } from './components.ts'
 import { newChip } from './unread.ts'
 import { glint, spins } from './spin.ts'
+import { branchMark, branchOf } from './branch.ts'
 import type { MountPane, PaneView, ViewContext } from './types.ts'
 
 /** The same letters as the TUI, so a state is never told by colour alone. */
@@ -60,6 +61,9 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
       const [d, w] = index.tally(index.dirPath(at))
       if (w) first.append(' ', el(doc, 'span', { class: 'm-count' }, `${d}/${w}`))
     }
+    // Another worktree holds it: `⎇ <branch>`, as the TUI marks the row (view/branch.ts, se-etwu).
+    const branch = branchOf(row)
+    if (branch) first.append(' ', branchMark(doc, branch))
     const title = el(doc, 'div', { class: 'm-card-title' })
     if (isUnread(row)) title.append(newChip(doc), ' ')
     const name = row.title ?? row.id

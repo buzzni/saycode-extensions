@@ -22,6 +22,8 @@
   --card-tint-strength: 100%;
   /* The band over a held title (components.css m-glint): the TUI's yellow at the edges, a brighter one in the middle. */
   --glint-edge: var(--warn); --glint-core: #F2B01E;
+  /* The TUI's branch colour, bright cyan (view/branch.ts). */
+  --branch: #0891B2;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -34,6 +36,7 @@
     --shadow-card: 0 1px 1px rgba(0, 0, 0, .5), 0 0 1px rgba(0, 0, 0, .6);
     --card-tint-strength: 28%;
     --glint-edge: var(--warn); --glint-core: #FFE7A3;
+    --branch: #22D3EE;
   }
 }
 :root[data-theme="dark"] {
@@ -46,6 +49,7 @@
   --shadow-card: 0 1px 1px rgba(0, 0, 0, .5), 0 0 1px rgba(0, 0, 0, .6);
   --card-tint-strength: 28%;
   --glint-edge: var(--warn); --glint-core: #FFE7A3;
+  --branch: #22D3EE;
 }
 
 :root {

@@ -12,6 +12,7 @@ const withoutValue = new Set([
   'buzzni.moai.wiki-ls',
   'buzzni.moai.read-all',
   'buzzni.moai.skill-status',
+  'buzzni.moai.show-all-worktree',
   // A write: plants the optional `moai-saycode` skill in the project (writeScope `project`); Desktop asks each time.
   'buzzni.moai.skill-install-saycode',
 ])
@@ -23,6 +24,7 @@ const withoutValue = new Set([
  */
 const withValue = new Map([
   ['buzzni.moai.show', 'id'],
+  ['buzzni.moai.show-worktree', 'id'],
   ['buzzni.moai.wiki-show', 'slug'],
   ['buzzni.moai.read', 'id'],
   ['buzzni.moai.read-group', 'group'],

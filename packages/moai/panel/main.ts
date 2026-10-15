@@ -3,7 +3,7 @@
  * data layer and mounts the shell (view/shell.ts), which renders from the store.
  * Built by build.mjs into the single file dist/panel.html.
  */
-import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, type Bridge, type Client, type Outcome } from './data/client.js'
+import { createClient, PANEL_CLIENT_OPTIONS, PRIORITY, refusalCode, type Bridge, type Client, type Outcome } from './data/client.js'
 import { aboutFrom } from './data/about.js'
 import { CompatProbe } from './data/compat.js'
 import { IssueIndex, type Row } from './data/index.js'
@@ -11,7 +11,7 @@ import { createMemory, remember } from './data/memory.js'
 import { isUnread, markAllRead, markGroupRead, markRead, type Marked } from './data/read.js'
 import { createRefresher, DEFAULT_INTERVAL_MS } from './data/refresh.js'
 import { installSaycode, loadSkills } from './data/skills.js'
-import { loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, sameTallies, withArchive, type Loaded } from './data/source.js'
+import { loadAllRows, loadArchived, loadDetail, loadTallies, loadWikiListing, loadWikiPage, primeRows, PROFILE, sameTallies, withArchive, type Loaded } from './data/source.js'
 import { copyFor } from './i18n/index.js'
 import { wireKeys, type ReadMarks } from './keys/wiring.js'
 import { createStore, type BoardData, type State } from './store.js'
@@ -70,6 +70,26 @@ function drawnOrder(): string[] {
   return lines.flatMap((line) => (line.kind === 'row' ? [line.key] : []))
 }
 
+/**
+ * Whether this machine's catalog has the worktree overlay's reads (se-etwu): `unknown` until tried. The list is read
+ * plain until they are known to be there — the first load is not held up by a try, and a catalog without them is not
+ * asked again each 10 s (nor its person shown a confirmation for a read the daemon then refuses, se-24ey.dcj).
+ */
+let overlay: 'unknown' | 'trying' | 'yes' | 'no' = 'unknown'
+const overlaid = (): boolean => overlay === 'yes' && store.getState().view.worktree
+
+/** Try the overlay once the plain list stands; where it runs, read the board again with it. */
+async function tryOverlay(): Promise<void> {
+  if (overlay !== 'unknown' || !store.getState().view.worktree) return
+  overlay = 'trying'
+  const outcome = await client.request(PROFILE.showAllWorktree, undefined, { priority: PRIORITY.background })
+  if (refusalCode(outcome) === 'unsupported-daemon') overlay = 'no'
+  else if (outcome.kind === 'passed') {
+    overlay = 'yes'
+    void refresher.refresh()
+  } else overlay = 'unknown'
+}
+
 /** Loads so far: only the latest one's answers hold or start the clock (se-24ey.a80). */
 let loads = 0
 /** The load the clock started on its own, or 0: its reads run without the activity toast. */
@@ -92,7 +112,7 @@ async function loadBoard(automatic = false): Promise<void> {
   // still be open): a failure is told at once, rows are drawn at once, and the counts are put on them when they come.
   // A refresh asked for meanwhile, or the `fresh` read after a write, reads its own rows and shares the status read
   // still running (client.ts); the panel's one write — read marks — moves no count.
-  const listing = loadAllRows(client, PRIORITY.list, probe)
+  const listing = loadAllRows(client, PRIORITY.list, probe, overlaid())
   const counting = loadTallies(client, PRIORITY.list, probe, (output) => store.dispatch({ type: 'about', about: aboutFrom(output) }))
   let counted: Awaited<typeof counting> | undefined
   void counting.then((tallies) => {
@@ -120,6 +140,7 @@ async function loadBoard(automatic = false): Promise<void> {
   // never held (an issue a wiki page links to that only the archive holds) stays.
   const wasListed = shownBefore !== null && indexOf(before)?.find(shownBefore.id) !== undefined
   store.dispatch({ type: 'board-loaded', data, order: drawnOrder() })
+  if (load === loads && !partial) void tryOverlay()
   const state = store.getState()
   const shown = state.shown.value
   if (shown && wasListed && indexOf(state)?.find(shown.id) === undefined) store.dispatch({ type: 'detail-closed' })
@@ -192,6 +213,11 @@ store.subscribe((state, previous) => {
   }
 })
 
+// The worktree overlay turned on or off (SPC v w): the list is another read, so it is read again.
+store.subscribe((state, previous) => {
+  if (state.view.worktree !== previous.view.worktree && state.board.value) void refresher.refresh()
+})
+
 // Paused while the panel is out of sight — the Desktop window hidden, or the tool tab it sits in: the refresher's
 // own visibility signal hears both (data/refresh.ts panelVisibility).
 const refresher = createRefresher({ load: ({ automatic }) => loadBoard(automatic) })
@@ -227,12 +253,12 @@ async function choose(id: string) {
   store.dispatch({ type: 'cursor', id })
   store.dispatch({ type: 'detail-loading', id })
   let asked = marks
-  let loaded = await loadDetail(client, id, { epoch: asked })
+  let loaded = await loadDetail(client, id, { epoch: asked, worktree: overlaid() })
   // A read mark written while the read ran may have taken off the `unread` it printed (reloadDetail reads only a
   // detail already drawn): a row printed unread is read again, while the pane still waits for it.
   while (mine === choice && store.getState().shown.loading && asked !== marks && loaded.ok && isUnread(loaded.value)) {
     asked = marks
-    loaded = await loadDetail(client, id, { epoch: asked })
+    loaded = await loadDetail(client, id, { epoch: asked, worktree: overlaid() })
   }
   // A later choice wins: its own answer settles the detail.
   if (mine !== choice) return
@@ -273,7 +299,7 @@ async function reloadDetail(written: ReadonlySet<string>): Promise<void> {
   const shown = store.getState().shown.value
   if (!shown || !isUnread(shown.row) || !written.has(shown.id)) return
   const mine = choice
-  const loaded = await loadDetail(client, shown.id, { epoch: marks })
+  const loaded = await loadDetail(client, shown.id, { epoch: marks, worktree: overlaid() })
   if (!loaded.ok || mine !== choice || store.getState().shown.value?.id !== shown.id) return
   store.dispatch({ type: 'detail-loaded', data: { id: shown.id, row: loaded.value } })
 }

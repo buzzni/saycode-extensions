@@ -48,6 +48,10 @@ export const PROFILE = {
   skillStatus: 'buzzni.moai.skill-status',
   /** Plants `moai-saycode` (and moai's skills when there are none): a write, Desktop asks every time. */
   skillInstall: 'buzzni.moai.skill-install-saycode',
+  /** `show --all --worktree`: the whole list with the other worktrees' rows over it, each marked with its `branch`. */
+  showAllWorktree: 'buzzni.moai.show-all-worktree',
+  /** `show <id> --worktree`: the row as the worktree that moved it has it, beside the overlaid list. */
+  showWorktree: 'buzzni.moai.show-worktree',
 } as const
 
 /** Rows per archive page; the `show-archived*` profiles fix `-n 200`. */
@@ -150,15 +154,29 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list,
  * does not fail the load there, as it always did not beside prime, and stands in `backlogProblem` — without its
  * references to the groups prime leaves out.
  */
-export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
-  const listing = client.request(PROFILE.showAll, undefined, { priority })
+/**
+ * The whole list; with `worktree`, overlaid with the other git worktrees' rows as the TUI's explorer reads it
+ * (`show --all --worktree`, se-etwu): a row another worktree moved stands as it stands there, with its `branch`. A
+ * catalog without that profile reads the plain list, unasked about: the overlay is an addition, not a feature the
+ * compatibility banner counts.
+ */
+async function wholeList(client: Client, priority: number, probe: CompatProbe | undefined, worktree: boolean): Promise<Outcome> {
+  if (worktree) {
+    const overlaid = await client.request(PROFILE.showAllWorktree, undefined, { priority })
+    if (!lacked(overlaid)) return overlaid
+  }
+  return seen(probe, PROFILE.showAll, await client.request(PROFILE.showAll, undefined, { priority }))
+}
+
+export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe, worktree = false): Promise<Loaded<Rows>> {
+  const listing = wholeList(client, priority, probe, worktree)
   const ask = () => client.request(PROFILE.backlog, undefined, { priority })
   // The two go side by side, but while the backlog is read as lacked with the whole list (compat.ts lacks: the caller's
   // client answers it unrun, se-24ey.dcj) it waits for this whole-list answer: a catalog updated since lets the whole
   // list pass, and then the backlog is read for real in the same load instead of answered as lacked. The very first
   // load cannot know yet, so it still asks for both at once.
   const early = probe?.lacks(PROFILE.backlog) ? null : ask()
-  const all = seen(probe, PROFILE.showAll, await listing)
+  const all = await listing
   const cut = all.kind === 'unreadable' && all.truncated === true
   const listed = answerOf(all)
   const reading = early ?? (cut || lacked(all) || listed !== undefined ? ask() : null)
@@ -373,8 +391,12 @@ export async function loadWikiPage(client: Client, slug: string, probe?: CompatP
 }
 
 /** One row with its body, children and journal (`moai show <id>`); `epoch` as client.ts RequestOptions says. */
-export async function loadDetail(client: Client, id: string, options: Pick<RequestOptions, 'epoch'> = {}): Promise<Loaded<Row>> {
-  const outcome = await client.request(PROFILE.show, id, { priority: PRIORITY.detail, epoch: options.epoch })
+export async function loadDetail(client: Client, id: string, options: Pick<RequestOptions, 'epoch'> & { worktree?: boolean } = {}): Promise<Loaded<Row>> {
+  // With the worktree overlay on, the detail reads the row where the list does (se-etwu): a row another worktree moved
+  // would otherwise say one column in the list and another here. A catalog without the profile reads it plain.
+  const ask = (profile: string) => client.request(profile, id, { priority: PRIORITY.detail, epoch: options.epoch })
+  let outcome = options.worktree ? await ask(PROFILE.showWorktree) : null
+  if (outcome === null || lacked(outcome)) outcome = await ask(PROFILE.show)
   if (outcome.kind !== 'passed') return { ok: false, outcome }
   return isRecord(outcome.output) && typeof outcome.output.id === 'string' ? { ok: true, value: outcome.output as Row } : { ok: false, outcome: { kind: 'unreadable' } }
 }
