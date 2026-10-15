@@ -625,3 +625,76 @@ test('/clear and /reset map to the clear operation Core classifies', async () =>
   // Still plain text when it is not the command word.
   assert.deepEqual(parseTelegramCommand('clear the cache please'), { operation: 'prompt', text: 'clear the cache please' })
 })
+
+// ---- intake runtime: one message Core refuses cannot hold up the rest of the connection --------
+
+test('an empty message is proposed as a prompt with no text, never as text ""', async () => {
+  const { parseTelegramCommand } = await bundleModule('src/commands.ts')
+  // `text: ""` failed Core's wire parser, and the batch it sat in was retried forever.
+  assert.deepEqual(parseTelegramCommand(''), { operation: 'prompt' })
+  assert.deepEqual(parseTelegramCommand('   '), { operation: 'prompt' })
+})
+
+function coreRefusal() {
+  return Object.assign(new Error('sessions.control params.text must be a non-empty string'), { code: 'CAPABILITY_ERROR' })
+}
+
+test('a message Core keeps refusing is given up after three tries so the messages behind it still run', async () => {
+  const { createTelegramPollRuntime } = await bundleModule('src/pollLoop.ts')
+  const page = {
+    events: [
+      envelope({ eventHandle: 'h1', semanticMessageId: 'm1', text: '/status' }),
+      envelope({ eventHandle: 'h2', semanticMessageId: 'm2', text: '/projects' }),
+    ],
+    cursor: '2',
+  }
+  const { invokeCapability, calls } = fakeCapabilities([page, page, page, { events: [], cursor: '2' }], {
+    onControl: (args) => { if (args.eventHandle === 'h1') throw coreRefusal() },
+  })
+  const errors = []
+  let iterations = 0
+  const runtime = createTelegramPollRuntime({
+    invokeCapability,
+    connectionId: 'conn-1',
+    onError: (error) => errors.push(error),
+    sleep: async () => { iterations += 1; await new Promise((resolve) => setImmediate(resolve)) },
+  })
+  runtime.start()
+  while (iterations < 6) await new Promise((resolve) => setImmediate(resolve))
+  await runtime.stop()
+
+  const controls = calls.filter((call) => call.permission === 'sessions.control').map((call) => call.args.eventHandle)
+  assert.deepEqual(controls, ['h1', 'h1', 'h1', 'h2'])
+  assert.deepEqual(calls.filter((call) => call.permission === 'channels.ack').map((call) => call.args.cursor), ['2'])
+  assert.equal(errors.length, 3)
+})
+
+test('a dispatch Core never answered is retried in order and never given up', async () => {
+  // A timeout may mean Core is still running it; giving up would drop a message, not a poison one.
+  const { createTelegramPollRuntime } = await bundleModule('src/pollLoop.ts')
+  const page = {
+    events: [
+      envelope({ eventHandle: 'h1', semanticMessageId: 'm1', text: '/status' }),
+      envelope({ eventHandle: 'h2', semanticMessageId: 'm2', text: '/projects' }),
+    ],
+    cursor: '2',
+  }
+  const { invokeCapability, calls } = fakeCapabilities([page], {
+    onControl: (args) => { if (args.eventHandle === 'h1') throw new Error('capability.invoke sessions.control/sessions.control timed out') },
+  })
+  let iterations = 0
+  const runtime = createTelegramPollRuntime({
+    invokeCapability,
+    connectionId: 'conn-1',
+    onError: () => undefined,
+    sleep: async () => { iterations += 1; await new Promise((resolve) => setImmediate(resolve)) },
+  })
+  runtime.start()
+  while (iterations < 6) await new Promise((resolve) => setImmediate(resolve))
+  await runtime.stop()
+
+  const controls = calls.filter((call) => call.permission === 'sessions.control').map((call) => call.args.eventHandle)
+  assert.ok(controls.length >= 5)
+  assert.ok(controls.every((handle) => handle === 'h1'))
+  assert.equal(calls.filter((call) => call.permission === 'channels.ack').length, 0)
+})

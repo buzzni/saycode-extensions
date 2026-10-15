@@ -3,6 +3,12 @@ import type { ExtensionContext, JsonValue } from '@buzzni/saycode-extension-sdk'
 import { nextSlackReceiveDelayMs, SLACK_RECEIVE_BASE_MS } from './backoff.js'
 import { parseSlackCommand } from './commands.js'
 
+/**
+ * How many times Core may refuse one message (it answered, with a code) before the loop moves past
+ * it. Not a timeout: a call Core never answered may still be running there and is retried in place.
+ */
+const MAX_CORE_REFUSALS = 3
+
 /** The subset of `channels.receive`'s envelope this adapter reads. Core mints and owns the rest. */
 export interface SlackInboundEnvelope {
   eventHandle: string
@@ -95,6 +101,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
   const inFlightGenerations = new Set<Promise<void>>()
   let cancelPendingDelay: (() => void) | null = null
   const dispatched = new Set<string>()
+  const refusals = new Map<string, number>()
 
   function wake(): void {
     cancelPendingDelay?.()
@@ -112,12 +119,28 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
   }
 
   function rememberDispatched(key: string): void {
+    refusals.delete(key)
     if (dispatched.has(key)) return
     dispatched.add(key)
     if (dispatched.size > dedupeCapacity) {
       const oldest = dispatched.values().next().value
       if (oldest !== undefined) dispatched.delete(oldest)
     }
+  }
+
+  /**
+   * Whether to stop retrying a message Core itself refused and move on. One such message used to
+   * hold its whole batch unacknowledged, and every message after it unanswered, for good.
+   */
+  function giveUpAfterRefusal(event: SlackInboundEnvelope, error: unknown): boolean {
+    const code = (error as { code?: unknown } | null | undefined)?.code
+    // HOST_BUSY is the host's own back-pressure, not a verdict on this message.
+    if (typeof code !== 'string' || code === 'HOST_BUSY') return false
+    const key = `${event.connectionRevision}:${event.semanticMessageId}`
+    const count = (refusals.get(key) ?? 0) + 1
+    if (count < MAX_CORE_REFUSALS) { refusals.set(key, count); return false }
+    rememberDispatched(key)
+    return true
   }
 
   async function receive(currentEpoch: number): Promise<SlackReceiveResult | null> {
@@ -191,6 +214,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
         if (!(await dispatch(event, currentEpoch))) { batchComplete = false; break }
       } catch (error) {
         deps.onError?.(error)
+        if (currentEpoch === epoch && giveUpAfterRefusal(event, error)) continue
         batchComplete = false
         break
       }
