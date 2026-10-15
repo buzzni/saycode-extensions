@@ -43,7 +43,7 @@ TUI에서 뺄 것:
 | 필터 의미 | 클라이언트 파서로 TUI와 같은 문법을 구현한다. CLI와 결과가 같은지는 픽스처 테스트로 맞춘다 | 치는 대로 반영해야 하고, 승인 창도 피해야 한다 |
 | 상세 위치 | 기본은 **아래**다. 폭이 640px 이상일 때만 왼쪽을 쓸 수 있고, 그보다 좁으면 아래로 강제한다 | 작업 영역 도구 영역은 최소 280px이고 보통 500px 안팎이다 |
 | 읽음 | 판정은 클라이언트가 하고, 쓰기는 `moai read` 프로필로 한다. 판정에 필요한 `seen` 값은 moai CLI가 JSON으로 내 주도록 상류에 제안한다 | 패널은 `~/.config/moai/read/*.toml`을 읽을 수 없다 |
-| 쓰기 범위 | 2.0은 읽기 중심이다. 쓰기는 `read`(개인 설정)와 기존 `add`만 한다. `mv`·`note`는 2.1에서 검토한다 | TUI 철학이 "읽는 도구 + 메모 하나"다. 쓰기 프로필마다 승인 창이 뜨고 데몬 카탈로그도 맞춰야 한다 |
+| 쓰기 범위 | 2.0은 읽기만 한다. 쓰기는 `read`(개인 설정)뿐이다. 기존 `add`는 2026-10-15 실기 뒤 사람 결정으로 뺐다(`se-24ey.oxd`). `mv`·`note`는 2.1에서 검토한다 | TUI 철학이 "읽는 도구 + 메모 하나"다. 쓰기 프로필마다 승인 창이 뜨고 데몬 카탈로그도 맞춰야 한다 |
 | 설정 영속화 | 스파이크 결과로 정한다. localStorage가 되면 그것을, 안 되면 `storage.*` 권한을, 둘 다 안 되면 세션 동안만 유지한다 | sandbox에 `allow-same-origin`이 없어 localStorage 접근이 SecurityError를 낼 가능성이 높다 |
 
 ## 3. 외부 의존성 (이 저장소 밖)
@@ -79,15 +79,15 @@ TUI에서 뺄 것:
 
 또 하나, `moai read`가 **값 없이** 행의 현재 `updated_at`을 쓰는 것은 설계(그린 행의 값)와 다르다. 상류에 값 지정(`read --seen`)을 요청하는 일은 0.17.0에도 **없고** backlog(`se-a5wl`)에 그대로 있다.
 
-**남은 실기 확인** — moai CLI 쪽은 위와 같이 끝났고, 아래는 아직 하지 않았다.
+**남은 실기 확인** — moai CLI 쪽은 위와 같이 끝났다. 2026-10-15에 Desktop 0.1.69에서 출시 조건 그대로(카탈로그 미갱신, 관리 moai 0.8.0) 실기를 했고 결과는 [현황 2.0.10절](current-state.md#2010-실기-테스트-pr-52-2026-10-15-에픽-se-24ey)에 있다. 아래 표는 그 결과를 반영했다.
 
 | 이슈 | 확인할 것 | 막고 있는 것 |
 |---|---|---|
-| `se-0g4a.anz` | 설치된 데몬 카탈로그에 위 프로필이 들어갔고 선언이 글자 그대로 같은지. `workspace-busy`가 읽기끼리도 나는지(코드상 쓰기 범위 락이라 안 날 수도 있다) | 새 프로필 전부의 실제 동작 |
+| `se-0g4a.anz` | (2026-10-15: happy-cli `1.1.10-aplus.322`에도 7개는 없고, 데몬이 관리 moai를 v0.8.0으로 고정해 그것만 실행한다 — 고정 상향도 함께 요청, [상류 요청서 1.6절](upstream-requests.md#16-관리-moai-고정을-올리기)) 설치된 데몬 카탈로그에 위 프로필이 들어갔고 선언이 글자 그대로 같은지. `workspace-busy`가 읽기끼리도 나는지(코드상 쓰기 범위 락이라 안 날 수도 있다) | 새 프로필 전부의 실제 동작 |
 | `se-0g4a.fjl` | (코드로만 정리됨, 라이브 검증 대기) 읽기 3개를 `await` 없이 연속 시작해 실행이 겹치는지, 쓰기 둘 동시, 두 작업 영역 병렬. 한도 1 MiB에서 종료 상태가 바뀌는지 | 동시 3의 근거 |
-| `se-0g4a.zrf` | iframe 포커스를 얻는 방법, Linux에서 `Ctrl+F/B/U/D`, 모달에서 `Esc`. 한글 입력 소스에서 `event.code` 대체(`se-pbqz.k84`, 구현·머지됨, **실기 확인 남음**). 숨긴 도구 탭에서 iframe이 정말 0×0이 되는지(Desktop은 `display:none`만 쓰고 가시성 신호를 주지 않는다) | 키 대체 키의 필요 여부, 숨은 탭 갱신 멈춤(`panelVisibility()`) |
+| `se-0g4a.zrf` | (2026-10-15 실기: 한글 입력 상태의 `ㅓ`/`ㅏ`, `?`, `SPC` 메뉴, 숨긴 도구 탭에서 갱신 멈춤과 돌아왔을 때 바로 읽기가 **확인됨** — iframe은 0×0이 된다. 남은 것은 Linux `Ctrl+F/B/U/D`와 모달 `Esc`) iframe 포커스를 얻는 방법, Linux에서 `Ctrl+F/B/U/D`, 모달에서 `Esc`. 한글 입력 소스에서 `event.code` 대체(`se-pbqz.k84`, 구현·머지됨, **실기 확인 남음**). 숨긴 도구 탭에서 iframe이 정말 0×0이 되는지(Desktop은 `display:none`만 쓰고 가시성 신호를 주지 않는다) | 키 대체 키의 필요 여부, 숨은 탭 갱신 멈춤(`panelVisibility()`) |
 | `se-0g4a.y91` | 패널 프레임에서 `localStorage`가 되는지, `storage.*` 권한의 액션 시그니처. Desktop 코드 조사(`se-vpav`)로는 iframe이 `sandbox="allow-scripts"`뿐이라 origin이 opaque고 `localStorage`가 `SecurityError`를 낼 것으로 보인다(실행은 안 함). "불가, 세션 한정"으로 닫을 수 있다 | 정렬·열·보기 설정 영속화(`se-cv7w.lca`). 지금 기억은 localStorage를 시도하고 안 되면 세션 동안만 유지한다 |
-| Desktop 고정 (`se-vpav`) | `build/official-extensions/catalog.v1.json`이 `buzzni.moai` 1.1.1·릴리스 태그·번들 `.base64`·sha256을 고정한다. `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개 다이제스트 표를 가진다. 2.0.0 태그 뒤 Desktop 쪽에서 카탈로그 항목, 이 테스트(프로필 13개), 릴리스 노트를 바꾸고 1.1.1 `.base64`를 지워야 한다. 원격 카탈로그에도 새 항목이 필요하다 | 2.0.0 출시 후 Desktop 갱신. 자세한 목록은 [현황 2.0.9절](current-state.md#209-desktop-조사-결과-se-vpav-읽기-전용-2026-10-14), [상류 요청서](upstream-requests.md#desktop-저장소-후속) |
+| Desktop 고정 (`se-vpav`) | `build/official-extensions/catalog.v1.json`이 `buzzni.moai` 1.1.1·릴리스 태그·번들 `.base64`·sha256을 고정한다. `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개 다이제스트 표를 가진다. 2.0.0 태그 뒤 Desktop 쪽에서 카탈로그 항목, 이 테스트(프로필 12개, `add` 제외), 릴리스 노트를 바꾸고 1.1.1 `.base64`를 지워야 한다. 원격 카탈로그에도 새 항목이 필요하다 | 2.0.0 출시 후 Desktop 갱신. 자세한 목록은 [현황 2.0.9절](current-state.md#209-desktop-조사-결과-se-vpav-읽기-전용-2026-10-14), [상류 요청서](upstream-requests.md#desktop-저장소-후속) |
 | `se-cv7w.lca` | 위 스파이크 결과로 정렬·필터·열·보기 기억을 붙이기 | — |
 
 ## 4. 마일스톤과 에픽

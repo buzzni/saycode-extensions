@@ -2,23 +2,26 @@
 
 Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소 밖에서 두 가지가 먼저 있어야 한다. 이 페이지는 그 두 곳에 건넬 요청을 한 곳에 모은다. 개편 전체 계획은 [개편 계획](overview.md)에 있다.
 
-- **1절 — Happy 데몬(happy-cli) 담당에게**: 카탈로그에 프로필 7개를 더한다. 선언은 `extension.json`과 글자 그대로 같아야 한다.
+- **1절 — Happy 데몬(happy-cli) 담당에게**: 카탈로그에 프로필 7개를 더한다. 선언은 `extension.json`과 글자 그대로 같아야 한다. 관리 moai 고정(v0.8.0)도 올려야 한다(1.6절).
 - **2절 — moai CLI(`moa-issue`) 담당에게**: 확장이 기대하는 상류 개선 목록과, 없을 때 패널이 하는 일. 8번(`read --seen`)을 빼고 moai 0.17.0에 들어왔다.
 - **3절 — 릴리스 순서**.
+- **5절 — Desktop 담당에게**: 확인 창을 데몬 광고 확인 뒤에 띄우기, 읽기 일괄 승인, 읽기 승인 유지. 2026-10-15 실기에서 나왔다.
 
 작성일 2026-10-14. 선언의 출처는 `milestone/se-9inv`의 `packages/moai/extension.json`(확장 2.0.0, `apiVersion 3`)이다. 추적 이슈는 `se-0g4a.anz`(데몬), `se-0g4a.l89`(moai unread), `se-a5wl`(`read --seen`).
 
 > **상태.** 아래 가정은 2026-10-14 사람 결정으로 "구현된 것으로 가정하고 진행"한 것이다(`se-0g4a` 노트). 같은 날 moai **0.17.0**이 설치되어 2절은 8번(`read --seen`, `se-a5wl`)을 빼고 모두 **확인됨**이다. 4번 파생값 둘은 이름이 달랐고 패널이 실제 이름을 읽도록 고쳤다(`se-ydco`). 1절 데몬 카탈로그는 happy-cli 쪽이라 아직 **대기**다(`se-0g4a.anz`). 남은 확인은 [개편 계획 3.1절](overview.md#31-구현-시점의-가정과-남은-실기-확인-2026-10-14)의 실기 목록이 맡는다.
+>
+> **2026-10-15 실기.** Desktop 0.1.69(happy-cli `1.1.10-aplus.322`)에서 돌려 보니 새 7개는 여전히 없고, 데몬은 기기의 moai가 아니라 **관리 moai v0.8.0**만 실행한다(1.6절). 실기 뒤 확장은 `add`를 빼 프로필이 12개다(`se-24ey.oxd`). 결과는 [현황 2.0.10절](current-state.md#2010-실기-테스트-pr-52-2026-10-15-에픽-se-24ey).
 
 ## 1. Happy 데몬 카탈로그
 
 ### 1.0 요약
 
-확장 2.0은 `buzzni.moai.*` 프로필 13개를 선언한다. 설치된 데몬(`happy-cli 1.1.10-aplus.320`)의 카탈로그에 이미 있는 것은 6개이고 **7개가 없다.**
+확장 2.0은 `buzzni.moai.*` 프로필 12개를 선언한다(실기 뒤 `add`를 뺐다, `se-24ey.oxd`). Desktop 0.1.69에 든 데몬(`happy-cli 1.1.10-aplus.322`)의 카탈로그에 이미 있는 것은 5개이고 **7개가 없다.** 카탈로그의 다른 프로필(`ready`, `stats`, `add`, `mv`, `edit`, `rm`, `note`, `defer`, `link`, `backlog`)은 그대로 두면 된다.
 
 | 구분 | 프로필 |
 |---|---|
-| 데몬에 이미 있음 (6) | `status`, `prime`, `show`, `add`, `wiki-ls`, `wiki-show` |
+| 데몬에 이미 있음 (5) | `status`, `prime`, `show`, `wiki-ls`, `wiki-show` |
 | **더할 것 (7)** | `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`, `read-all`, `read-group` |
 
 데몬은 확장이 선언한 `machineCommands`의 해시가 자기 카탈로그의 다이제스트와 같을 때만 프로필을 실행한다(`packages/moai/README.md`, [현황 2절](current-state.md)). 그래서 카탈로그가 아래 선언과 **한 글자라도 다르면** 그 프로필은 `unsupported-daemon`으로 거부된다.
@@ -321,13 +324,21 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 
 ### 1.5 확인 방법 (데몬 쪽)
 
-1. 카탈로그에 7개를 더한 뒤, 설치된 데몬에서 프로필 id 13개가 모두 있는지 본다.
+1. 카탈로그에 7개를 더한 뒤, 설치된 데몬에서 확장의 프로필 id 12개가 모두 있는지 본다.
 2. 확장 2.0을 올린 작업 영역에서 패널을 열어 호환성 배너가 사라지는지 본다.
 3. 읽기 프로필끼리 `workspace-busy`가 나는지 본다. SDK 쪽 코드로는 쓰기 범위 락이라 읽기끼리는 안 날 것으로 읽히지만 라이브로 본 적이 없다(`se-0g4a.anz`, `se-0g4a.fjl`).
 
+### 1.6 관리 moai 고정을 올리기
+
+2026-10-15 실기에서 확인했다. 데몬은 moai를 **PATH에서 찾지 않는다.**
+
+- 카탈로그 옆의 `MOAI_V080_MANAGED_TOOL`이 moai를 **v0.8.0**으로 고정한다(아티팩트 URL, 압축본 `sha256`, 실행 파일 `executableSha256`). 데몬은 그 실행 파일을 `~/.happy/managed-tools/buzzni.moai/0.8.0/`에 두고, 실행할 때 **그 파일 하나만 든 제한 PATH**를 만든다. 없으면 `MACHINE_RUN_TOOL_NOT_INSTALLED`(Desktop의 `tool-missing`)다. 설치는 Desktop 확장 설정의 머신 도구가 `machine.tool` RPC로 한다.
+- 0.8.0은 패널이 부르는 명령은 모두 가진다(`show --all`, `backlog show --all`, `show --archived -n --sort --after`, `read <id>`·`--all`·`-e`, `wiki ls/show`). 그러나 2절의 1번(`unread`), 2번(`statuses[]`), 4번(`derived_milestone`·`shelved_by`)을 찍지 않는다. 그래서 프로필 7개가 들어가도 고정이 0.8.0이면 **Desktop에서는 NEW 칩과 탭 뱃지가 꺼지고**, 칸 순서와 파생값은 패널이 직접 계산한다.
+- 요청: 7개 프로필과 함께 관리 도구 고정을 **0.17.x**(2절 1~7번이 확인된 판)로 올린다. darwin-arm64·linux-x64 아티팩트의 URL·`sha256`·`executableSha256`·`archiveRoot`를 새 릴리스로 바꾼다. 기존 사용자는 머신 도구에서 다시 설치해야 할 수 있다.
+
 ## 2. moai CLI 상류
 
-패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
+패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
@@ -339,6 +350,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 6 | **안정 페이징** | `show --archived -n 200 --sort id --after <id>`가 쪽 사이에서 같은 순서를 낸다. **0.17.0 확인됨** | 쪽 나누기가 안 되고 아카이브는 큰 저장소에서 읽지 못한다(`archive` 기능이 꺼짐) |
 | 7 | `status --json`의 **`milestones[]`·`epics[]` 집계** | `{id, done, total}` 목록. 아카이브된 행까지 센 값. **0.17.0 확인됨** | 보드의 n/n이 `show --all`이 가진 행만 센 값이 되어 `moai status`와 어긋난다. `tallies`가 `degraded` |
 | 8 | **`read <id> --seen <updated_at>`** (backlog `se-a5wl`) | **0.17.0에 없음.** 화면에 그린 행의 `updated_at`을 값으로 받는다. `read --json` 결과에도 행별 `updated_at`이 있으면 좋다 | 지금 `moai read`는 값 없이 행의 **현재** `updated_at`을 쓴다. 그린 뒤 바뀐 행이 새 판으로 읽음 처리될 수 있고, 패널은 다시 읽은 뒤 바뀜만 알린다(`staleAgainst`, `panel/data/read.ts`). 이 항목은 **2.0 릴리스 없이 갈 수 있다** |
+| 9 | **보드 데이터 한 번에** (2026-10-15 실기 제안) | 행 전체(`show --all`)·backlog·`status`를 한 JSON으로 주는 명령 하나(예: `moai board --json`). **제안, 아직 없음** | 보드 한 번 읽기에 프로필 3개가 든다. Desktop은 프로필마다 확인 창을 띄우므로(5절) 처음 열 때 세 번 묻는다 |
 
 ### 2.1 판별 방식
 
@@ -355,7 +367,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 없으면 기능이 꺼짐 | 1(NEW 칩·뱃지, 배너 없음), 6(아카이브) |
 | 없으면 값이 어긋나거나 순서를 잃음 | 2, 7 |
 | 없어도 같은 결과를 클라이언트가 낸다 | 3, 4, 5 |
-| 릴리스와 따로 | 8 |
+| 릴리스와 따로 | 8, 9 |
 
 ## 3. 릴리스 순서
 
@@ -366,7 +378,7 @@ moai 상류 릴리스 ─┐
 ```
 
 1. **moai 상류 릴리스** — 2절 1~7번이 들어간 `moai`. **0.17.0으로 나왔다**(2026-10-14 설치·실측).
-2. **데몬 카탈로그 갱신** — 1절의 7개 프로필. 1번과 순서는 상관없지만 둘 다 3번보다 먼저다.
+2. **데몬 카탈로그 갱신** — 1절의 7개 프로필과 관리 moai 고정 상향(1.6절). 1번과 순서는 상관없지만 둘 다 3번보다 먼저다.
 3. **확장 2.0.0** — 위 둘이 나온 뒤에 내보낸다. 확장과 moai는 버전 번호가 따로이고 확장의 `README` 호환성 표가 "moai 0.17.0 이상"으로 적혀 있다.
 4. 2절 8번(`read --seen`)은 위와 상관없이 언제든 들어갈 수 있다.
 
@@ -495,12 +507,27 @@ moai는 **1번**으로 시작한다. 2번은 이 요청의 필수 조건이 아�
 >
 > 받기 전까지 moai는 세션 메모리로 동작합니다(오류 아님). 받으면 `se-cv7w.lca`·`se-5air`를 이 API로 닫습니다.
 
+## 5. Desktop 확인 창
+
+2026-10-15 실기에서 사람이 "설치 때 권한을 받았는데 왜 또 묻나, 너무 많이 묻는다"고 했다. Desktop 코드(`electron/extensions/machineRunApprovalPrompt.ts`, `machineRunMainRuntime.ts`, `src/sync/useMachineRunResponder.ts`)로 읽은 지금 동작:
+
+- 설치 때 받는 것은 `machine.run` **권한**이다. 실행 때 Core는 **프로필마다** 따로 묻는다. 승인은 확장 버전·프로필·프로필 해시·머신·폴더에 묶인다. 읽기는 앱이 켜진 동안, 쓰기는 매번이고, 메모리에만 있어 재시작·확장 업데이트·다른 프로젝트에서 처음부터 다시 묻는다. 거절하면 30초 뒤 다시 물을 수 있다.
+- **확인 창이 데몬 광고 확인보다 먼저다.** main이 확인 창을 띄운 뒤에 렌더러가 데몬 `capabilities`를 물어 프로필이 광고되는지 본다. 그래서 카탈로그에 없는 프로필도 사람이 승인한 뒤에 거부된다.
+
+패널은 할 수 있는 만큼 줄였다(`se-24ey`): `add`를 빼 쓰기 확인 창이 없고, 전체 목록이 없다고 확인되면 다른 추가 프로필은 부르지 않으며, 거절된 목록 읽기는 자동 갱신을 멈춘다. 나머지는 Desktop 쪽에서만 된다.
+
+| # | 요청 | 효과 |
+|---|---|---|
+| 1 | 확인 창을 **데몬이 그 프로필을 광고하는지 본 뒤에** 띄운다(광고되지 않으면 창 없이 `unsupported-daemon`) | 실행되지 않을 명령을 승인하게 하지 않는다 |
+| 2 | **확장 단위 읽기 일괄 승인**: `writeScope`가 없는 프로필 모두를 머신·폴더 단위로 한 번에("이 확장의 읽기 명령 모두 허용") | 2.0 패널이 처음 열 때 묻는 횟수가 1번이 된다 |
+| 3 | 읽기 승인을 **재시작 뒤에도 유지**(확장 버전·프로필 해시가 바뀌기 전까지, 머신·폴더 단위) | 앱을 켤 때마다 다시 묻지 않는다 |
+
 ## Desktop 저장소 후속
 
 `aplus-dev-studio-desktop`을 읽기만 해서 정리했다(`se-vpav`). 이 저장소에서 고칠 것은 없고, **확장 2.0.0 태그가 나온 뒤** Desktop 쪽에서 할 일이다. 순서는 위 3절의 릴리스 순서 끝에 붙는다.
 
 1. `build/official-extensions/catalog.v1.json`의 `buzzni.moai` 항목을 2.0.0, 새 릴리스 태그(이 저장소의 태그이고 확장 버전에서 나오지 않는다), `buzzni.moai-2.0.0.saycode-extension.base64`, 새 sha256으로 바꾼다. 1.1.1 `.base64`는 지운다(남기면 prebuild 검사의 orphan 오류).
-2. `tests/officialExtensionInstaller.test.ts`: 버전·태그·sha, `readInstalledManifest('buzzni.moai', '1.1.1')`, 프로필 4개(`status`·`prime`·`show`·`add`) 다이제스트 `toEqual` 표를 13개로 바꾼다. 같은 다이제스트는 Happy 데몬 카탈로그 쪽과도 같아야 한다(위 1.4절).
+2. `tests/officialExtensionInstaller.test.ts`: 버전·태그·sha, `readInstalledManifest('buzzni.moai', '1.1.1')`, 프로필 4개(`status`·`prime`·`show`·`add`) 다이제스트 `toEqual` 표를 12개로 바꾼다(`add`는 빠진다). 같은 다이제스트는 Happy 데몬 카탈로그 쪽과도 같아야 한다(위 1.4절).
 3. `release-notes/unreleased/moai-official-extension.md`의 "buzzni.moai 1.1.1" 문구를 바꾼다.
 4. 서명된 원격 카탈로그로 기존 사용자에게 2.0.0을 보낸다면 그 설명자(`id`, `version`, `releaseUrl`, `archiveUrl`, `sha256`)에도 새 항목이 필요하다. 번들 카탈로그는 부트스트랩용이다.
 5. 1.1.1 → 2.0.0은 자동 교체가 아니라 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동). 실행 중에는 거부된다.

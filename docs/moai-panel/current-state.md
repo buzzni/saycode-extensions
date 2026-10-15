@@ -43,26 +43,25 @@
 | `src/index.ts` | `machine.run` 중계. 값 없는 프로필 집합과 "문자열 하나를 받는" 프로필 표(`id`·`slug`·`group`·`after`)로 화이트리스트를 가린다. `-`로 시작하는 값은 플래그로 읽히므로 거절한다 |
 | `panel/store.ts` | 단일 상태와 순수 리듀서. 다시 읽어도 커서는 id에 남는다 |
 | `panel/data/client.ts` | 요청 큐(동시 실행·우선순위·공유·취소·`workspace-busy` 재시도·`truncated`) |
-| `panel/data/source.ts` | 프로필별 읽기 함수: `loadAllRows`, `loadStatuses`, `loadTallies`, `loadArchived`, `loadWikiListing`, `loadWikiPage`, `loadDetail`, `addTask` |
+| `panel/data/source.ts` | 프로필별 읽기 함수: `loadAllRows`, `loadStatuses`, `loadTallies`, `loadArchived`, `loadWikiListing`, `loadWikiPage`, `loadDetail` |
 | `panel/data/index.ts` | 이슈 인덱스 — `nav.rs` 이식(계층, 에픽이 마일스톤을 이김, 상속된 미룸, 바구니, n/n) |
 | `panel/data/query.ts` | 검색·필터 파서와 매처, 정렬 비교기(`query.rs` 이식) |
 | `panel/data/read.ts` | 읽음 판정과 쓰기 (설계의 `unread.ts`를 이 이름으로 만들었다) |
-| `panel/data/refresh.ts` | 60초 자동 갱신, 수동 갱신, 갱신 시각 |
+| `panel/data/refresh.ts` | 10초 자동 갱신(실기 뒤 60초에서 줄임, 목록 읽기가 거절되면 멈춤), 수동 갱신, 갱신 시각 |
 | `panel/data/memory.ts` | 마지막 탭·상세 표시·위치·위치별 비율 기억 |
 | `panel/keys/table.ts`, `router.ts`, `wiring.ts` | 키 표(데이터), keydown → 시퀀스 → 액션 라우터(단일 키 주인), 라우터 액션을 뷰·스토어에 잇는 배선 |
 | `panel/view/` | `shell`, `tabs`, `crumbs`, `split`, `responsive`, `list`(+`list-model`), `board`(+`board-groups`), `detail`(+`detail-format`), `toolbar`, `menu`, `help`, `wiki`, `markdown`, `components`, `icons` |
 | `panel/i18n/` | en·ko·ja·zh 표 |
 
-### 2.0.3 프로필 13개
+### 2.0.3 프로필 12개
 
-선언은 `packages/moai/extension.json`에 있고 모두 `moai --json -C {{workspaceRoot}} …` 꼴이다. 개편 전 4개에서 9개가 늘었다. 공통 설정(`timeoutMs 120000`, `outputLimitBytes 1048576`, `stdin: none`, `descendantAllowlist: [git]`)은 그대로다.
+선언은 `packages/moai/extension.json`에 있고 모두 `moai --json -C {{workspaceRoot}} …` 꼴이다. 개편 전 4개에서 9개가 늘었고, 실기 뒤 `add`가 빠져 12개다(`se-24ey.oxd`). 공통 설정(`timeoutMs 120000`, `outputLimitBytes 1048576`, `stdin: none`, `descendantAllowlist: [git]`)은 그대로다.
 
 | 프로필 | argv(`…` 뒤) | 매개변수 | 용도 |
 |---|---|---|---|
 | `status` | `status` | | 칸 이름·셈 |
 | `prime` | `prime` | | 잡은 것과 준비된 것 (`show --all`이 잘렸을 때의 대체) |
 | `show` | `show {{id}}` | `id` ≤128 | 상세 |
-| `add` | `add {{title}}` | `title` ≤512 | 추가. `writeScope: "moai"`, 매번 승인 |
 | `show-all` | `show --all` | | 활성 행 전체(done·미룸 포함, 아카이브 제외) |
 | `backlog-all` | `backlog show --all` | | backlog 행 |
 | `show-archived` | `show --archived -n 200 --sort id` | | 아카이브 첫 쪽 |
@@ -78,8 +77,8 @@
 - **`backlog`가 아니라 `backlog-all`이다.** 설치된 데몬 카탈로그(happy-cli `1.1.10-aplus.320`)의 `buzzni.moai.backlog`는 이미 `backlog add {{title}}`(쓰기)라서, 읽기용은 `backlog show --all`을 가리키는 **다른 id**로 선언했다. 데몬에도 이 id로 추가돼야 한다.
 - 설계에는 `show-archived -n {{limit}} --after {{after}}` 하나였지만, 매개변수 값이 비어 있을 수 없으므로 **첫 쪽(`show-archived`)과 다음 쪽(`show-archived-after`) 두 개**로 나눴다. 쪽 크기 200은 프로필에 박혀 있다(`ARCHIVE_PAGE`).
 - `wiki-show`의 `slug` 상한은 데몬의 선언과 같은 **128자**다. 처음 설계는 더 길게 잡았다.
-- 개편 전부터 있던 `status`·`prime`·`show`·`add`·`wiki-ls`·`wiki-show`만 데몬 카탈로그와 일치함을 확인했다. 나머지 일곱 개는 **데몬에 추가될 것으로 가정**한 선언이다(`se-0g4a.anz`, 실기 확인 전).
-- 쓰기 프로필은 여전히 `add` 하나다. `read*`는 트래커가 아니라 `~/.config/moai/read/`에만 쓰므로 `writeScope`를 붙이지 않았다.
+- 개편 전부터 있던 `status`·`prime`·`show`·`wiki-ls`·`wiki-show`만 데몬 카탈로그와 일치한다(2026-10-15 실기에서 happy-cli `1.1.10-aplus.322` 카탈로그와 대조). 나머지 일곱 개는 **데몬에 추가될 것으로 가정**한 선언이다(`se-0g4a.anz`).
+- 트래커에 쓰는 프로필은 없다. 실기 뒤 사람 결정으로 할 일 추가(입력창·`SPC n`·`add` 프로필)를 뺐다(`se-24ey.oxd`). `read*`는 트래커가 아니라 `~/.config/moai/read/`에만 쓰므로 `writeScope`를 붙이지 않았다.
 
 ### 2.0.4 요청 큐: 동시 3, `workspace-busy` 재시도
 
@@ -145,10 +144,46 @@
 `aplus-dev-studio-desktop`을 읽기만 한 결과다. 이 저장소에 바꿀 곳은 없다.
 
 - **`catalog.v1.json` 고정.** `build/official-extensions/catalog.v1.json`이 `buzzni.moai` 1.1.1, 릴리스 태그(이 저장소의 `v0.11.8`), 번들된 `buzzni.moai-1.1.1.saycode-extension.base64`, sha256을 박아 둔다. 태그는 확장 버전에서 나오지 않고 이 저장소의 릴리스 태그다. 번들은 부트스트랩용이고 서명된 원격 카탈로그에 같은 id가 있으면 그쪽이 이긴다.
-- **설치기 테스트.** `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개(`status`·`prime`·`show`·`add`)의 다이제스트 `toEqual` 표를 가진다. 2.0.0에는 13개 전부로 바꿔야 한다. 업데이트는 숫자 `x.y.z` 비교이고 실행 중에는 거부되며, 1.1.1 → 2.0.0은 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동 교체).
+- **설치기 테스트.** `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개(`status`·`prime`·`show`·`add`)의 다이제스트 `toEqual` 표를 가진다. 2.0.0에는 12개 전부로 바꿔야 한다(`add`는 빠진다). 업데이트는 숫자 `x.y.z` 비교이고 실행 중에는 거부되며, 1.1.1 → 2.0.0은 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동 교체).
 - **apiVersion.** 2.0.0 매니페스트(`apiVersion 3`, `engines ^1.2.0`)는 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. API 4 기능(파일 미리보기 등)을 쓰면 그때 올라간다.
 - **불투명 origin → `localStorage`는 세션 한정.** 패널 iframe은 `sandbox="allow-scripts"`만 가져 origin이 opaque다. Chromium 규칙상 `localStorage` 접근이 `SecurityError`를 낼 것으로 보인다(코드와 sandbox 플래그에서 추정, 실행은 안 함). 패널 기억은 이미 메모리 폴백이라 **마지막 탭·상세 위치는 세션 동안만** 남는다. 스파이크 `se-0g4a.y91`은 "localStorage 불가, 세션 한정"으로 닫을 수 있다(Desktop이 `allow-same-origin`이나 저장 API를 주지 않는 한).
 - **가시성 신호 없음.** 열린 도구 탭은 모두 마운트된 채 `display:none`으로만 숨겨진다. 호스트→패널 포트는 테마만 나르고 가시성·포커스 신호가 없다. `visibilityState`는 창을 따른다. 그래서 `panelVisibility()`가 0×0 뷰포트를 숨김으로 본다. iframe이 실제로 0×0이 되는지는 라이브 확인이 남았다. 언어 변경은 iframe을 다시 읽지만 테마 변경은 아니다.
+
+### 2.0.10 실기 테스트 (PR #52, 2026-10-15, 에픽 `se-24ey`)
+
+Desktop에서 2.0.0을 처음 돌려 본 결과다. 데몬 카탈로그가 아직 갱신되지 않은 **출시 조건 그대로**에서 했다.
+
+- **환경.** Saycode Desktop 0.1.69, 동봉 데몬 happy-cli `1.1.10-aplus.322`(기기 `~/.happy`, "이 컴퓨터" 머신), 관리 moai **v0.8.0**(데몬이 받아 sha256을 확인해 `~/.happy/managed-tools`에 둔 것), 샌드박스 저장소 `~/Works/Tests/moai-panel-sandbox`(마일스톤 2·에픽 4·작업 40·backlog 4·미룸 2·위키 3쪽, moai 0.8.0으로 만듦). 2.0.0은 확장 설정의 **사용 중지 → 업데이트(로컬 파일) → 사용**으로 깔았다.
+- **데몬은 PATH의 moai를 쓰지 않는다.** 카탈로그 상수 `MOAI_V080_MANAGED_TOOL`이 moai를 v0.8.0으로 고정하고, 실행할 때 그 실행 파일 하나만 든 제한 PATH를 만든다. 기기의 moai 0.17.0은 패널과 상관이 없다. 0.8.0은 패널이 부르는 명령(`show --all`, `backlog show --all`, `--archived -n --sort --after`, `read --all/-e`, `wiki ls/show`)은 다 갖지만 `unread`·`statuses[]`·`derived_milestone`·`shelved_by`를 찍지 않는다. 그래서 고정이 오르기 전에는 **NEW 칩이 꺼진다**([상류 요청서 1.6절](upstream-requests.md#16-관리-moai-고정을-올리기)).
+- **카탈로그.** 선언 13개(당시) 중 `status`·`prime`·`show`·`add`·`wiki-ls`·`wiki-show` 6개가 데몬 선언과 글자 그대로 같았고, 새 7개는 카탈로그에 없었다.
+
+| 확인 | 결과 |
+|---|---|
+| 설치·moai 미설치 배너 | 통과. 관리 moai가 없을 때 `MACHINE_RUN_TOOL_NOT_INSTALLED` → `tool-missing`, 머신 도구에서 설치 뒤 해소 |
+| 카탈로그 배너 | 통과. "프로필 2개(전체 목록, 백로그) 없음", `r`을 누르자 읽음 표시가 더해짐 |
+| 보드·상세·목록·탭·위키(링크·`<script>` 글자 그대로) | 통과 |
+| 한글 입력 상태의 `ㅓ`/`ㅏ`, `?`, `SPC` 메뉴 | 통과(`se-0g4a.zrf`의 키 대체 부분) |
+| 숨은 도구 탭에서 갱신 멈춤, 돌아오면 바로 읽기 | 통과. iframe이 0×0이 되는 것을 실기로 확인(`se-0g4a.zrf`) |
+| `SPC v o` | 배너에 아카이브가 더해지지 않음. jsdom 재현은 통과 — Desktop이 데몬 광고 확인 **전에** 확인 창을 띄우므로 창을 거절·놓치면 `declined`라 배너가 아니다(`se-24ey.zgw`) |
+| prime 폴백 보드 | Done 칸이 비어 "done 0"처럼 보이고, 미룸 보이기를 켜도 미룬 행이 없음(prime에 없음) |
+
+고친 것(이 절의 변경은 PR #52에 더했다):
+
+| 이슈 | 변경 |
+|---|---|
+| `se-24ey.14i` | 실행 중 표시를 셸 흐름에서 빼 **하단 토스트**로(레이아웃을 밀지 않음, 0.3초 뒤 나타나 빠른 실행은 깜빡이지 않음, 취소 버튼 말고는 클릭이 아래 행으로 통과). 자동 갱신 **60초 → 10초**이고 자동 읽기는 토스트를 띄우지 않는다. 목록 읽기가 거절·시간 초과면 자동 갱신을 멈추고 전용 줄(`moai-held`)에 알린다(Desktop은 거절 30초 뒤 다시 묻는다). 다음 목록 읽기가 거절 없이 통과하면(갱신 시각 클릭, 읽음 표시 뒤 읽기) 다시 켠다. 멈춤·재개는 가장 최근 로드의 응답만 정한다. `setInterval(0)`인데도 다시 보일 때 읽던 갱신기 버그를 고쳤다 |
+| `se-24ey.oxd` | 할 일 추가(입력창·버튼·`SPC n`·`add` 프로필) 제거. 패널은 읽기만 한다. 매번 뜨던 쓰기 확인 창이 사라진다 |
+| `se-24ey.s6v` | prime 폴백이면 카탈로그 배너 옆에 "완료·미룬 일과 나머지 할 일은 보이지 않는다"는 안내(`shell.primeOnly`)를 함께 보인다 |
+| `se-24ey.dcj` | `binding-mismatch`·`invalid-request`의 문구, 코드 없는 실패는 "Desktop이 이유를 알려 주지 않았다". show-all이 `unsupported-daemon`으로 거부되면 2.0의 다른 추가 프로필(backlog·아카이브·읽음)은 **부르지 않고** `unsupported-daemon`으로 본다(`CompatProbe.lacks`, 그 머신에서 이미 돈 프로필은 빼고) — 확인 창 없이 배너에 오른다. 이렇게 막힌 동안 backlog는 show-all 응답을 기다렸다가 부르므로, 카탈로그가 갱신되면 같은 로드에서 진짜로 읽힌다. 세션의 첫 로드는 아직 모르므로 backlog도 함께 묻는다(확인 창 한 번이 남는다). `se-24ey.zgw`도 이것으로 닫는다 |
+| `se-24ey.1z5` | `moai-query` 실제 바이너리 비교가 패널처럼 기기 시간대(`readerClock`)로 읽는다. KST에서 깨지던 테스트 |
+| `se-24ey.a80` | 위 변경의 코드 리뷰(`/code-review` medium). 지적 9개 중 8개를 반영했다: 멈춘 자동 갱신의 재개 경로, 멈춤 안내를 결과 줄에서 떼기, 늦게 온 status 응답이 재개를 되돌리는 경합, 카탈로그 갱신 시 backlog가 막힌 채로 남는 문제, 토스트가 10초마다 마지막 행을 가리는 문제, 정리 2건. 10초 주기의 부하는 사람 결정대로 두고 README에 적었다(읽기는 데몬의 쓰기 잠금을 잡지 않아 다른 도구의 `workspace-busy`를 부르지 않는다). 첫 로드의 backlog 확인 창 한 번은 남긴다(위 `dcj`) |
+| `se-24ey.fdg` | 상류 요청서에 관리 moai 고정(1.6절), Desktop 확인 창(5절), moai 보드 단일 명령(2절 9번)을 더했다 |
+
+그 밖에 본 것:
+
+- 확인 창이 많다. 설치 때 받은 `machine.run` 권한과 별개로 Desktop Core는 **프로필마다**(확장 버전·프로필 해시·머신·폴더 단위) 묻고, 읽기는 앱이 켜진 동안, 쓰기는 매번이다. 승인은 메모리에만 있어 재시작·업데이트·다른 프로젝트에서 다시 묻는다. 출시 조건에서 처음 열면 7번(status·prime·show-all·backlog-all·show·wiki-ls·wiki-show) 묻던 것이, 위 변경 뒤로는 읽음·아카이브 몫이 빠진다. 나머지는 Desktop 쪽 요청이다([상류 요청서 5절](upstream-requests.md#5-desktop-확인-창)).
+- 데몬을 바꾼 직후 Desktop을 다시 시작하기 전까지는 모든 실행이 데몬에 닿지 않고 `binding-mismatch`로 보였다(패널은 그때 일반 문구만 보였다). 재시작 뒤 재현되지 않았다. Desktop 쪽 일시 상태로 기록만 한다.
+- 패키지 Desktop은 DevTools가 꺼져 있다(`shouldEnableDevTools` → `!isPackaged`). 실기 진단은 `Saycode --enable-logging=stderr --v=0`으로 렌더러 콘솔(`[machine.run] daemon refused …`)을 받아서 했다.
 
 ## 1. 파일 구성
 
