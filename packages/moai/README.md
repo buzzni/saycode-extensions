@@ -2,7 +2,8 @@
 
 This first-party extension uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for these 13 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
+run, status, and cancel commands for these 12 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
+The panel reads only: it adds no tasks (2.0.0 dropped the add field and the `add` profile, se-24ey.oxd).
 
 ## Compatibility
 
@@ -11,8 +12,8 @@ The extension and `moai` keep independent version numbers. Extension 2.0.0 needs
 | Needs | Version | Notes |
 |---|---|---|
 | Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
-| `moai` CLI | 0.17.0 or later | with the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
-| Happy daemon catalog | all 13 profiles | `status`, `prime`, `show`, `add`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
+| `moai` CLI | 0.17.0 or later | on Desktop the daemon runs its own managed `moai`, not the one on that machine's `PATH`: happy-cli 1.1.10-aplus.322 (Desktop 0.1.69) pins v0.8.0, which has every command the panel runs but prints no `unread` or `statuses[]`, so NEW marks stay off there until the pin moves (upstream request 1.6). With the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
+| Happy daemon catalog | all 12 profiles | `status`, `prime`, `show`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
 
 Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update still ships before extension
 2.0.0.
@@ -24,7 +25,6 @@ Release order: the `moai` upstream release is out (0.17.0); the daemon catalog u
 | `buzzni.moai.status` | `status` | counts, warnings, the column names | no |
 | `buzzni.moai.prime` | `prime` | held and ready tasks; the index rows' fallback when `show --all` is cut | no |
 | `buzzni.moai.show` | `show <id>` | one row's body, children, journal, commits | no |
-| `buzzni.moai.add` | `add <title>` | add a task | the tracker (`writeScope: moai`) |
 | `buzzni.moai.show-all` | `show --all` | every active row, done and deferred included, archive left out | no |
 | `buzzni.moai.backlog-all` | `backlog show --all` | the backlog rows, done and deferred included | no |
 | `buzzni.moai.show-archived` | `show --archived -n 200 --sort id` | the first archive page | no |
@@ -35,7 +35,7 @@ Release order: the `moai` upstream release is out (0.17.0); the daemon catalog u
 | `buzzni.moai.read-all` | `read --all` | mark everything unread that came to you read | your own `~/.config/moai/read` only |
 | `buzzni.moai.read-group` | `read -e <group>` | mark an epic or milestone and its rows read | your own `~/.config/moai/read` only |
 
-Only `add` writes the tracker, so only `add` declares `writeScope` and asks for a one-operation approval each time.
+Nothing the panel runs writes the tracker, so no profile declares `writeScope` and none asks for an approval each time.
 The `read*` profiles change nothing under `.moai/`: Moai keeps what you have read in your own user config, so they
 carry no `writeScope` and are approved like reads.
 
@@ -47,14 +47,17 @@ can fall back to `prime` and the board can say the list is partial.
 
 The run command accepts a value only where the profile takes one (`show`, `wiki-show`, `read`, `read-group`,
 `show-archived-after`: one non-empty string that does not start with `-`, so `read <id>` can never become
-`read --all`; `add`: the title) and refuses one everywhere else.
+`read --all`) and refuses one everywhere else. It refuses `add` and every other profile it does not declare.
 
 These declarations are meant to match the Happy daemon's Moai catalog verbatim, so their digests match what the daemon
-runs. The first four, `wiki-ls` and `wiki-show` match the catalog the daemon ships (happy-cli 1.1.10-aplus.320); the
-catalog entries for the others are assumed to be added to match until they are checked live (se-0g4a.anz). The
-daemon catalog must carry the new profiles (`show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `read`,
-`read-all`, `read-group`) before the board can load every row, the archive or read marks on that machine; a daemon
-that does not carry one refuses that run. The catalog's own `buzzni.moai.backlog` is `backlog add <title>`, so the
+runs. `status`, `prime`, `show`, `wiki-ls` and `wiki-show` match the catalog the daemon ships (happy-cli
+1.1.10-aplus.322, checked live with Desktop 0.1.69 on 2026-10-15); the catalog entries for the others are assumed to be
+added to match (se-0g4a.anz). The daemon catalog must carry the new profiles (`show-all`, `backlog-all`,
+`show-archived`, `show-archived-after`, `read`, `read-all`, `read-group`) before the board can load every row, the
+archive or read marks on that machine; a daemon that does not carry one refuses that run. They reach a catalog
+together, so once `show-all` is refused as missing the panel takes the others as missing too and does not run them:
+Desktop puts its confirmation up before it asks the daemon, and each would ask you to approve a command the daemon
+then refuses (se-24ey.dcj). `show-all` itself is still asked on each read, so an updated catalog is found. The catalog's own `buzzni.moai.backlog` is `backlog add <title>`, so the
 backlog read is `backlog-all`. They start from the workspace root, pass through only `HOME` (Moai user config and the git identity a write needs), may launch only
 `git`, and disable stdin.
 The extension deliberately has no init, tui, wake, hooks, editor, or shell entry points.
@@ -75,12 +78,17 @@ and the unread mark: **NEW** rows are marked read with `r`, `SPC m g` (group) an
 shortcut overlay. See [PANEL.md](PANEL.md) for how the panel is used and the full shortcut table.
 
 The panel reads the project's whole list (`show --all`, the backlog and `status`) and filters, sorts and groups it in
-the panel, so keys respond at once. It reads the list again every minute while it is on screen, after an add or a read
-mark, and from the refresh time in the tab bar; details (`show`), the archive (`SPC v o`) and wiki pages are read when
+the panel, so keys respond at once. It reads the list again every 10 seconds while it is on screen, after a read mark,
+and from the refresh time in the tab bar; details (`show`), the archive (`SPC v o`) and wiki pages are read when
 opened. A read is approved once per profile, machine and folder for the session, and so is each read-mark profile (they
-write only your own read state, see Profiles); every add asks again. Runs target the project of the conversation; Desktop's
-confirmation shows the machine and folder, and until a run is accepted the panel reads "Starting… approve the
-confirmation if it is showing" rather than claiming it already runs on the machine. After a cancelled run the panel is
+write only your own read state, see Profiles). A list read declined at its confirmation, or left unanswered, holds the
+automatic refresh (a line says so) until a list read goes through — click the refresh time — so the confirmation does
+not come back by itself. Each automatic read runs `show-all`, `backlog-all` and `status` on the machine (three short
+moai runs every 10 s while the panel is on screen, none while it is hidden); reads take no write lock there. Runs
+target the project of the conversation; Desktop's confirmation shows the machine and folder. While a run you asked for
+goes, a toast at the foot of the panel says so without moving anything (clicks pass through it to the rows, except
+Cancel); the clock's own reads run quietly. Until a run is accepted the toast reads "Starting… approve the confirmation
+if it is showing" rather than claiming it already runs on the machine. After a cancelled run the panel is
 ready again at once and notes when the machine says processes may still be running (the daemon's workspace write lock
 refuses an overlapping write until they settle).
 
@@ -90,7 +98,7 @@ The panel follows Desktop's panel theme v1 variables (`--saycode-*`, `data-theme
 scheme on older Desktop builds.
 
 The board needs a Moai repository: run `moai init` once in the project folder on that machine. The extension cannot
-run `init` itself, so when Moai reports there is no `.moai/` (an add on stderr, or a status that lists projects
+run `init` itself, so when Moai reports there is no `.moai/` (a read on stderr, or a status that lists projects
 instead of counts) the panel shows an information banner with that command and points to the Moai path shown under
 Machine tools in Settings → Extensions, for when `moai` is not on that machine's `PATH`. Moai failures are shown as
 errors.
@@ -100,8 +108,9 @@ When Core refuses a run with a `machine.run` error code, `buzzni.moai.run` retur
 The panel explains `declined`, `approval-timeout` and `workspace-busy` (another change is still running in that folder
 on that machine) as information, and `tool-missing` (install Moai for that machine under Machine tools),
 `unsupported-platform` and `unsupported-daemon` (the machine's runtime is too old) as errors, in English, Korean,
-Japanese and Chinese. Other codes, and failures from older Desktop builds that carry no code, keep the generic
-"did not start" message.
+Japanese and Chinese. `binding-mismatch` (Desktop could not match the panel to its machine and project folder: open the
+conversation again or restart Desktop) and `invalid-request` have their own words too; failures that carry no code
+say that Desktop gave no reason (Desktop forwards a code, never its own error text).
 
 Version 1.0.4 sets `panels[].surfaceSize`, which Desktop builds without panel size v1 reject; install it on a Desktop
 that supports it.

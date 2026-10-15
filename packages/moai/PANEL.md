@@ -65,15 +65,28 @@ Desktop approves each of the three like a read: once per machine and folder for 
 ## Loading
 
 The panel reads the project's whole list (`moai show --all`, the backlog and `moai status`) and filters, sorts and
-groups it itself, so keys answer at once. It reads the list again every minute while it is on screen, after you add a
-task or mark something read, and when you click the refresh time in the tab bar. A task's detail, the archive
-(`SPC v o`) and wiki pages are read when you open them. When the machine's `moai` is missing or older than the panel
-expects, or the Happy daemon's catalog lacks some of the panel's runs, a banner says what to install, upgrade or
-update there; what can still be read keeps showing.
+groups it itself, so keys answer at once. It reads the list again every 10 seconds while it is on screen, after you
+mark something read, and when you click the refresh time in the tab bar. If you decline a list read at its
+confirmation, or leave it unanswered, automatic refresh pauses so the confirmation does not come back by itself, and a
+line says so; the next list read that goes through (click the refresh time) starts it again. While something you asked
+for runs, a toast at the foot of the panel says so (with Cancel once it runs) without moving the list; clicks pass
+through it to the rows. The automatic reads run quietly. A task's detail, the archive (`SPC v o`) and wiki pages are read when
+you open them. When the machine's `moai` is missing or older than the panel expects, or the Happy daemon's catalog
+lacks some of the panel's runs, a banner says what to install, upgrade or update there; what can still be read keeps
+showing. Without the whole list the board stands on the tasks you hold and the ones ready to pick up, and a second
+banner says so: done, deferred and the other to-do tasks are not on it then, so an empty Done column does not mean
+nothing is done. The panel then does not run the archive or read marks either (they reach a catalog together with the
+whole list), so no confirmation asks for a command that machine would refuse; the banner names them when you use them.
+
+## Confirmations
+
+The panel only reads. Desktop asks once per kind of read (the list, the backlog, the counts, a detail, the wiki, the
+archive, a read mark), per machine and project folder, while Desktop stays open; it asks again after Desktop restarts
+or the extension is updated.
 
 ## Keyboard
 
-- Typing in an input (search, filter, add) turns the single-key shortcuts off, and nothing is handled during IME
+- Typing in an input (search, filter) turns the single-key shortcuts off, and nothing is handled during IME
   composition there. Outside an input the letter keys work with a Korean (or other non-Latin) input source too:
   the key's position counts, so `ㅓ` is `j`.
 - `Enter` and `Space` on a focused button, link or checkbox press that control instead of running a shortcut.
@@ -112,14 +125,13 @@ update there; what can still be read keeps showing.
 | `SPC g l` `b` `w` | List / board / wiki tab |
 | `SPC o d` | Detail position: left ↔ below |
 
-**Search, filter, add**
+**Search, filter**
 
 | Key | Does |
 |---|---|
 | `/` or `SPC /` | Search |
 | `SPC f` | Filter |
 | `Esc` | Clear the applied search / filter |
-| `SPC n` | Add a task (opens the add field) |
 | `?` or `SPC ?` | Shortcut overlay |
 
 **Read**

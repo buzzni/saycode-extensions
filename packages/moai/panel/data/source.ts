@@ -22,9 +22,9 @@
  * - The wiki listing and pages are handed out as Moai printed them ({@link loadWikiListing},
  *   {@link loadWikiPage}); the wiki view parses them.
  *
- * These profiles are the ones the manifest declares. `status`, `prime`, `show`, `add`, `wiki-ls` and
- * `wiki-show` match the Happy daemon's shipped catalog; the others are assumed to be added to it
- * (se-0g4a.anz) until it is checked live. The catalog's own `buzzni.moai.backlog` is `backlog add`, so the
+ * These profiles are the ones the manifest declares. `status`, `prime`, `show`, `wiki-ls` and `wiki-show`
+ * match the Happy daemon's shipped catalog; the others are assumed to be added to it (se-0g4a.anz) until it
+ * is checked live. The panel adds no tasks: the catalog's `add` is not declared (se-24ey.oxd). The catalog's own `buzzni.moai.backlog` is `backlog add`, so the
  * backlog read has an id of its own.
  */
 import { PRIORITY, answerOf, refusalCode, requestKey, type Client, type Outcome, type RequestOptions } from './client.js'
@@ -35,7 +35,6 @@ export const PROFILE = {
   status: 'buzzni.moai.status',
   prime: 'buzzni.moai.prime',
   show: 'buzzni.moai.show',
-  add: 'buzzni.moai.add',
   showAll: 'buzzni.moai.show-all',
   backlog: 'buzzni.moai.backlog-all',
   showArchived: 'buzzni.moai.show-archived',
@@ -149,18 +148,24 @@ export async function loadRows(client: Client, priority: number = PRIORITY.list,
  */
 export async function loadAllRows(client: Client, priority: number = PRIORITY.list, probe?: CompatProbe): Promise<Loaded<Rows>> {
   const listing = client.request(PROFILE.showAll, undefined, { priority })
-  const reading = client.request(PROFILE.backlog, undefined, { priority })
+  const ask = () => client.request(PROFILE.backlog, undefined, { priority })
+  // The two go side by side, but while the backlog is read as lacked with the whole list (compat.ts lacks: the caller's
+  // client answers it unrun, se-24ey.dcj) it waits for this whole-list answer: a catalog updated since lets the whole
+  // list pass, and then the backlog is read for real in the same load instead of answered as lacked. The very first
+  // load cannot know yet, so it still asks for both at once.
+  const early = probe?.lacks(PROFILE.backlog) ? null : ask()
   const all = seen(probe, PROFILE.showAll, await listing)
+  const cut = all.kind === 'unreadable' && all.truncated === true
+  const listed = answerOf(all)
+  const reading = early ?? (cut || lacked(all) || listed !== undefined ? ask() : null)
   // compat learns what the backlog read ends with when it lands, whether or not this load still waits on it: a read
   // called off below that already ended keeps its outcome, and a cancelled one says nothing. The probe tells its
   // listeners then, after this load may have ended (main.ts puts the report in the store then).
-  const read = reading.then((outcome) => seen(probe, PROFILE.backlog, outcome))
+  const read = (reading ?? Promise.resolve<Outcome>({ kind: 'cancelled', mayContinue: false })).then((outcome) => (reading ? seen(probe, PROFILE.backlog, outcome) : outcome))
   // Another read alone decides this load: the backlog read is called off. One still queued ends at once; one already
   // starting beside it (the panel runs up to 3 reads at once) is cancelled as soon as it is accepted, though its
   // confirmation may already be showing. The panel does not wait on a read it no longer wants.
-  const callOff = () => client.cancel(requestKey(PROFILE.backlog))
-  const cut = all.kind === 'unreadable' && all.truncated === true
-  const listed = answerOf(all)
+  const callOff = () => { if (reading) client.cancel(requestKey(PROFILE.backlog)) }
   if (cut || lacked(all)) {
     // prime starts beside the backlog read still running, not after it, and decides the load when it fails.
     const loaded = await loadRows(client, priority, probe)
@@ -362,12 +367,6 @@ export async function loadWikiPage(client: Client, slug: string, probe?: CompatP
 /** One row with its body, children and journal (`moai show <id>`); `epoch` as client.ts RequestOptions says. */
 export async function loadDetail(client: Client, id: string, options: Pick<RequestOptions, 'epoch'> = {}): Promise<Loaded<Row>> {
   const outcome = await client.request(PROFILE.show, id, { priority: PRIORITY.detail, epoch: options.epoch })
-  if (outcome.kind !== 'passed') return { ok: false, outcome }
-  return isRecord(outcome.output) && typeof outcome.output.id === 'string' ? { ok: true, value: outcome.output as Row } : { ok: false, outcome: { kind: 'unreadable' } }
-}
-
-export async function addTask(client: Client, title: string): Promise<Loaded<Row>> {
-  const outcome = await client.request(PROFILE.add, title, { priority: PRIORITY.detail, share: false })
   if (outcome.kind !== 'passed') return { ok: false, outcome }
   return isRecord(outcome.output) && typeof outcome.output.id === 'string' ? { ok: true, value: outcome.output as Row } : { ok: false, outcome: { kind: 'unreadable' } }
 }

@@ -95,7 +95,9 @@ test('a refused start comes back as a result with its code, so the panel can exp
   failure = Object.assign(new Error('capability.invoke machine.run/start failed: declined'), { code: 'declined' })
   assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), { action: 'start', state: 'refused', code: 'declined' })
   failure = Object.assign(new Error('busy'), { code: 'workspace-busy' })
-  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.add', 'Ship it']), { action: 'start', state: 'refused', code: 'workspace-busy' })
+  assert.deepEqual(await host.invokeCommand('buzzni.moai.run', ['buzzni.moai.read', 'mgd-89af']), { action: 'start', state: 'refused', code: 'workspace-busy' })
+  // The panel adds no tasks: the tracker's `add` is not a profile it runs (se-24ey.oxd).
+  await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.add', 'Ship it']), /unsupported Moai profile/)
   // Unknown or missing codes stay failures, as before.
   failure = Object.assign(new Error('later'), { code: 'something-new' })
   await assert.rejects(host.invokeCommand('buzzni.moai.run', ['buzzni.moai.status']), /later/)
@@ -198,9 +200,6 @@ async function runPanel(answer, language = 'en') {
     rows: () => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].map((row) => row.dataset.id),
     row: (id) => [...dom.window.document.querySelectorAll('.moai-list .moai-line[data-id]')].find((row) => row.dataset.id === id),
     starts: () => calls.filter(([command]) => command === 'buzzni.moai.run').map(([, args]) => args),
-    pressEnter(isComposing) {
-      $('.moai-add input').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', isComposing, bubbles: true, cancelable: true }))
-    },
   }
 }
 
@@ -258,8 +257,10 @@ test('opening the board reads the list once, draws it by priority and shows when
 
 test('the board follows the host document language', async () => {
   const panel = await runPanel(board(), 'ja')
-  assert.equal(panel.$('.moai-add-button').textContent, 'タスクを追加')
-  assert.equal(panel.$('.moai-add input').placeholder, '新しいタスクのタイトル')
+  assert.match(panel.$('#m-tab-board').textContent, /カンバン/)
+  assert.match(panel.$('.moai-refresh').title, /^\d{2}:\d{2}:\d{2} 更新$/)
+  // The panel reads only: no add field in any language (se-24ey.oxd).
+  assert.equal(panel.$('.moai-add'), null)
 })
 
 test('choosing a task shows its details beside the list, with history and status moves', async () => {
@@ -300,11 +301,20 @@ test('a refused read is explained where it happened; user choices are informatio
     const error = panel.$('.moai-error').textContent
     assert.ok(info ? notice && !error : error && !notice, code)
   }
-  const answer = stdoutFor({})
-  answer.start = () => { throw new Error('capability.invoke machine.run/start failed: binding-mismatch') }
-  const panel = await runPanel(answer)
-  assert.equal(panel.$('.moai-error').textContent, 'The run did not start. It may have been declined, or this machine does not support Moai yet.')
-  assert.equal(panel.$('.moai-refresh').disabled, false)
+  // A start that failed says what its code means when the panel knows it, and that no reason came when none did
+  // (se-24ey.dcj): a thrown start naming the code, one answered with it, and one naming nothing.
+  const starts = [
+    [() => { throw new Error('capability.invoke machine.run/start failed: binding-mismatch') }, 'The run did not start: Desktop could not match this panel to its machine and project folder (the selection changed, or the machine reconnected). Open the project conversation again, or restart Desktop, then try again.'],
+    [() => ({ action: 'start', state: 'refused', code: 'invalid-request' }), 'The run did not start: Desktop did not accept the request. Update the Moai extension.'],
+    [() => { throw new Error('machine.run failed') }, 'The run did not start, and Desktop gave no reason. Click the refresh time to try again; if it keeps happening, restart Desktop.'],
+  ]
+  for (const [start, said] of starts) {
+    const answer = stdoutFor({})
+    answer.start = start
+    const panel = await runPanel(answer)
+    assert.equal(panel.$('.moai-error').textContent, said)
+    assert.equal(panel.$('.moai-refresh').disabled, false)
+  }
 })
 
 test('a read refused as workspace-busy is tried again, and told only when the last try is refused too', async () => {
@@ -347,30 +357,6 @@ test('a failed run shows the reason Moai printed on stderr', async () => {
   assert.equal(panel.$('.moai-error').textContent, 'Moai reported an error: config.toml: bad column')
 })
 
-test('adding needs a title, takes Enter but not while an IME composes, and refreshes the list', async () => {
-  let listed = SHOW_ALL
-  const panel = await runPanel(board({
-    'buzzni.moai.show-all': () => listed,
-    'buzzni.moai.add': (title) => {
-      listed = JSON.stringify([...JSON.parse(SHOW_ALL), { id: 'mgd-new1', title, status: 'todo', priority: 1, kind: 'issue' }])
-      return JSON.stringify({ id: 'mgd-new1', title, status: 'todo' })
-    },
-  }), 'ko')
-  panel.$('.moai-add-button').click()
-  await flush()
-  assert.equal(panel.$('.moai-result').textContent, '할 일 제목을 입력하세요.')
-  panel.$('.moai-add input').value = '  새 일  '
-  panel.pressEnter(true)
-  await flush()
-  assert.equal(panel.starts().length, 3)
-  panel.pressEnter(false)
-  await flush()
-  assert.deepEqual(panel.starts().slice(3), [['buzzni.moai.add', '새 일'], ...LIST_READS])
-  assert.equal(panel.$('.moai-result').textContent, '추가했습니다: 새 일 (mgd-new1)')
-  assert.equal(panel.$('.moai-add input').value, '')
-  assert.deepEqual(panel.rows(), ['mgd-new1', 'mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
-})
-
 test('until a run is accepted the panel says it may wait for the confirmation; cancel shows only once it runs', async () => {
   // The list's three reads start at once (3 at a time); each waits for its confirmation.
   const accepts = []
@@ -395,6 +381,44 @@ test('until a run is accepted the panel says it may wait for the confirmation; c
   assert.equal(panel.$('.moai-activity').textContent, '')
 })
 
+test('a declined list read holds the automatic refresh on a line of its own, until a list read goes through (se-24ey.14i, a80)', async () => {
+  let declining = true
+  let markDeclined = true
+  const answer = board({ 'buzzni.moai.show': SHOW_NOTE_BODY, 'buzzni.moai.read': () => readAnswer('mgd-hmcr') })
+  answer.start = (args) => {
+    if (declining && args[0] === 'buzzni.moai.show-all') return { action: 'start', state: 'refused', code: 'declined' }
+    if (markDeclined && args[0] === 'buzzni.moai.read') return { action: 'start', state: 'refused', code: 'declined' }
+    return null
+  }
+  const panel = await runPanel(answer)
+  const HELD = 'Automatic refresh is paused so the confirmation does not come back by itself. Click the refresh time to read again.'
+  await until(() => panel.$('.moai-held').textContent !== '')
+  assert.equal(panel.$('.moai-notice').textContent, 'The run did not start: the confirmation was declined.')
+  assert.equal(panel.$('.moai-held').textContent, HELD)
+  assert.equal(panel.$('.moai-result').textContent, '')
+  // The person reads the list after all (the refresh time); a read mark's words then come and go on their own line.
+  declining = false
+  panel.$('.moai-refresh').click()
+  await until(() => panel.rows().length > 0)
+  assert.equal(panel.$('.moai-held').textContent, '', 'a list read that went through starts the clock again')
+  // Held again, and a read mark declined meanwhile: its words do not take the held line with them.
+  declining = true
+  panel.$('.moai-refresh').click()
+  await until(() => panel.$('.moai-held').textContent !== '')
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await until(() => panel.$('.moai-result').textContent !== '')
+  assert.equal(panel.$('.moai-result').textContent, 'The run did not start: the confirmation was declined.')
+  assert.equal(panel.$('.moai-held').textContent, HELD)
+  // A read mark that goes through reads the list again (fresh); that read going through starts the clock too.
+  declining = false
+  markDeclined = false
+  press(panel, 'r')
+  await until(() => panel.$('.moai-held').textContent === '')
+  assert.equal(panel.$('.moai-held').textContent, '')
+})
 test('Refresh reads the list again and keeps the cursor on the same task', async () => {
   const panel = await runPanel(board({ 'buzzni.moai.show': SHOW_MOVED }))
   panel.row('mgd-ogym').click()
@@ -429,39 +453,23 @@ test('an empty banner takes no room, and the panes scroll to rows and details be
   assert.equal(style('.m-split-detail').overflow, 'auto')
 })
 
-test('why an add did nothing stays on its own line while the list and the detail redraw', async () => {
+test('why a read mark did nothing stays on its own line while the list and the detail redraw', async () => {
   const answer = board({ 'buzzni.moai.show': SHOW_NOTE_BODY })
-  answer.start = (args) => (args[0] === 'buzzni.moai.add' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  answer.start = (args) => (args[0] === 'buzzni.moai.read' ? { action: 'start', state: 'refused', code: 'declined' } : null)
   const panel = await runPanel(answer)
-  panel.$('.moai-add input').value = 'Ship it'
-  panel.$('.moai-add-button').click()
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
   await flush()
   const declined = 'The run did not start: the confirmation was declined.'
   assert.equal(panel.$('.moai-result').textContent, declined)
-  panel.row('mgd-hmcr').click()
+  panel.row('mgd-89af').click()
   await flush()
   panel.$('.moai-refresh').click()
   await flush()
   assert.equal(panel.$('.moai-result').textContent, declined)
-  assert.equal(panel.$('.moai-add input').value, 'Ship it')
 })
-
-test('a title typed while an add runs stays in the field', async () => {
-  let finishing = false
-  const panel = await runPanel(board({
-    'buzzni.moai.add': (title) => (finishing ? JSON.stringify({ id: 'mgd-new1', title, status: 'todo' }) : null),
-  }))
-  panel.$('.moai-add input').value = 'First'
-  panel.pressEnter(false)
-  await flush()
-  panel.$('.moai-add input').value = 'Second'
-  finishing = true
-  await new Promise((resolve) => setTimeout(resolve, 700))
-  await flush()
-  assert.equal(panel.$('.moai-result').textContent, 'Added: First (mgd-new1)')
-  assert.equal(panel.$('.moai-add input').value, 'Second')
-})
-
 test('a detail asked for a task the next read no longer lists closes instead of staying on Loading', async () => {
   let listed = SHOW_ALL
   let holding = false
@@ -929,30 +937,31 @@ test('an archive read still running when a mark lands is read again once it ends
   assert.deepEqual(newMarks(panel, 'mgd-only'), { badge: null, row: null, detail: null })
 })
 
-test('a list prime stands in for because the catalog lacks show --all reads the archive answer again after a mark too', async () => {
-  let marked = false
-  let archiveReads = 0
-  const only = () => ({ id: 'mgd-only', kind: 'issue', title: 'Only the archive answer holds me', status: 'in_progress', priority: 2, ...(marked ? {} : { unread: true }) })
+test('a list prime stands in for because the catalog lacks show --all does not run the archive or a mark there (se-24ey.dcj)', async () => {
+  // The added profiles reach a catalog together: without show --all the archive and read marks are taken as missing too
+  // and told by the banner, unrun (Desktop would put a confirmation up for each first). How a mark reads the archive
+  // answer again beside prime's rows is the cut list's to show (the next test).
   const answer = board({
     'buzzni.moai.status': STATUS_V017,
     'buzzni.moai.prime': PRIME,
-    'buzzni.moai.show-archived': () => { archiveReads++; return JSON.stringify([...JSON.parse(SHOW_ALL), only()]) },
-    'buzzni.moai.read': () => { marked = true; return readAnswer('mgd-only') },
+    'buzzni.moai.show': SHOW_NOTE_BODY,
+    'buzzni.moai.show-archived': () => JSON.stringify(JSON.parse(SHOW_ALL)),
+    'buzzni.moai.read': () => readAnswer('mgd-hmcr'),
   })
   answer.start = (args) => (args[0] === 'buzzni.moai.show-all' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
+  await compatShown(panel)
   press(panel, ' ', 'v', 'o', 'Escape')
-  await settled()
-  assert.equal(newMarks(panel, 'mgd-only').row, 'NEW')
-  panel.row('mgd-only').click()
+  panel.row('mgd-hmcr').click()
   await flush()
   panel.window.document.body.focus()
   press(panel, 'r')
-  await settled(900)
-  assert.equal(archiveReads, 2)
-  assert.deepEqual([newMarks(panel, 'mgd-only').badge, newMarks(panel, 'mgd-only').row], [null, null])
+  await settled()
+  const asked = panel.starts().map(([profile]) => profile)
+  for (const profile of ['buzzni.moai.show-archived', 'buzzni.moai.read']) assert.ok(!asked.includes(profile), profile)
+  // The backlog answered on the first load (it ran beside show --all), so it is there and not named.
+  assert.match(compatLine(panel)[0], /\(the whole list, archived rows, read marks\)/)
 })
-
 test('a mark in a cut list reads the archive again only while archived rows show and a row only it holds is NEW', async () => {
   let archiveReads = 0
   let unread = true
@@ -1123,37 +1132,40 @@ test('a load that show --all failed on its own is told at once, without waiting 
   assert.equal(panel.$('.moai-notice').textContent, 'The run did not start: the confirmation was declined.')
 })
 
-test('Cancel stops the list reads, but an add still waiting for its confirmation is the person\'s to decline', async () => {
+test('Cancel stops the list reads, but a read mark still waiting for its confirmation is the person\'s to decline', async () => {
   let holding = false
   let approve
+  let marked = 0
   const answer = board({
+    'buzzni.moai.show': SHOW_NOTE_BODY,
     'buzzni.moai.show-all': () => (holding ? null : SHOW_ALL),
-    'buzzni.moai.add': (title) => JSON.stringify({ id: 'mgd-new1', title, status: 'todo' }),
+    'buzzni.moai.read': () => { marked++; return READ_ONE_V016 },
   })
-  answer.start = (args) => (args[0] === 'buzzni.moai.add' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
+  answer.start = (args) => (args[0] === 'buzzni.moai.read' ? new Promise((resolve) => { approve = () => resolve(null) }) : null)
   const panel = await runPanel(answer)
-  // A refresh runs (show --all held on the machine) and an add waits for its confirmation.
+  panel.row('mgd-hmcr').click()
+  await flush()
+  // A refresh runs (show --all held on the machine) and a read mark waits for its confirmation.
   holding = true
   panel.$('.moai-refresh').click()
   await flush()
-  panel.$('.moai-add input').value = 'Ship it'
-  panel.pressEnter(false)
+  panel.window.document.body.focus()
+  press(panel, 'r')
   await flush()
   assert.equal(panel.$('.moai-cancel').hidden, false)
   const cancelsBefore = panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length
   panel.$('.moai-cancel').click()
   await flush()
   assert.ok(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length > cancelsBefore, 'the running read is cancelled')
-  // The person approves the add: it runs, and is not cancelled the moment it starts.
+  // The person approves the mark: it runs, and is not cancelled the moment it starts.
   holding = false
   const cancels = panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length
   approve()
   await new Promise((resolve) => setTimeout(resolve, 700))
   await flush()
-  assert.equal(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length, cancels, 'no cancel for the approved add')
-  assert.equal(panel.$('.moai-result').textContent, 'Added: Ship it (mgd-new1)')
+  assert.equal(panel.calls.filter(([command]) => command === 'buzzni.moai.cancel').length, cancels, 'no cancel for the approved mark')
+  assert.equal(marked, 1)
 })
-
 test('showing archived rows keeps a row the clock moved to the archive after the archive was read', async () => {
   // `--archived` lists the active rows too: mgd-ogym is still active when the archive is read.
   let listed = SHOW_ALL
@@ -1285,6 +1297,8 @@ test('while one run goes and another waits for its confirmation, the line still 
 })
 
 const STATUS_V017 = await fixture('status-v017.json')
+// What the board says it leaves out when it stands on prime's rows (se-24ey.s6v).
+const PRIME_ONLY = 'The whole list cannot be read on this machine, so only the tasks held and ready to pick up are shown. Done, deferred and the other to-do tasks are left out, and the backlog shows only when it could be read.'
 const compatLine = (panel) => [...panel.$('.moai-compat').children].map((line) => line.textContent)
 /** The banner once it has a line, for the tests that expect one right after the panel opens. */
 const compatShown = async (panel) => { await until(() => compatLine(panel).length > 0); return compatLine(panel) }
@@ -1316,8 +1330,8 @@ test('compatibility: without show --all in the catalog the board falls back to p
   // The working reads keep showing, as the banner promises.
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
   assert.deepEqual(await compatShown(panel), ["That machine's Happy daemon catalog lacks 1 Moai profile this panel uses (the whole list). Update the daemon catalog."])
-  // The catalog line says why the list is partial; the cut banner, which says it was too large, does not.
-  assert.equal(panel.$('.moai-truncated').textContent, '')
+  // The catalog line says what to fix; the banner under it what the board leaves out (se-24ey.s6v), not "too large".
+  assert.equal(panel.$('.moai-truncated').textContent, PRIME_ONLY)
   assert.equal(panel.$('.moai-error').textContent, '')
 })
 
@@ -1346,7 +1360,7 @@ test('compatibility: beside prime a declined backlog read leaves prime\'s rows a
   assert.equal(panel.$('.moai-backlog-problem[role="alert"]').textContent, '')
   assert.equal(panel.window.getComputedStyle(panel.$('.moai-backlog-problem[role="alert"]')).display, 'none')
   assert.equal(panel.$('.moai-error').textContent, '')
-  assert.equal(panel.$('.moai-truncated').textContent, '')
+  assert.equal(panel.$('.moai-truncated').textContent, PRIME_ONLY)
 })
 
 // A status without the `milestones[]`/`epics[]` tallies: the board counts its own rows, which leave archived ones out.
@@ -1560,6 +1574,62 @@ test('compatibility: an archive profile the catalog lacks is told by the banner,
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
 
+test('compatibility: a catalog updated while the panel is open reads the backlog for real and drops the assumed archive (se-24ey.a80, se-43oh)', async () => {
+  let updated = false
+  const added = new Set(['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.show-archived'])
+  const answer = board({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show-archived': '[]' })
+  answer.start = (args) => (!updated && added.has(args[0]) ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(await compatShown(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  // The archive asked for while the whole list is missing is taken as missing too, unrun (se-24ey.dcj)...
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await until(() => compatLine(panel)[0]?.includes('3 Moai profiles'))
+  assert.ok(!panel.starts().some(([profile]) => profile === 'buzzni.moai.show-archived'))
+  updated = true
+  const before = panel.starts().length
+  panel.$('.moai-refresh').click()
+  await until(() => compatLine(panel).length === 0)
+  // The backlog waited for the whole list's answer instead of being answered as lacked beside it, and the archive
+  // taken as missing stops counting once the whole list runs: the banner goes entirely (se-43oh), and the archive
+  // shown is read for real.
+  assert.ok(panel.starts().slice(before).some(([profile]) => profile === 'buzzni.moai.backlog-all'), 'the backlog was read')
+  assert.deepEqual(compatLine(panel), [])
+  await until(() => panel.starts().some(([profile]) => profile === 'buzzni.moai.show-archived'))
+  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, '')
+  assert.equal(panel.$('.moai-backlog-problem[role="status"]').textContent, '')
+  assert.equal(panel.$('.moai-truncated').textContent, '')
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+})
+
+test('compatibility: on the shipped catalog the other added profiles are not run once the whole list is missing', async () => {
+  // The field test (se-24ey.zgw, se-24ey.dcj): Desktop 0.1.69's daemon lacks every profile 2.0 added, and Desktop puts
+  // its confirmation up before it asks the daemon. Once show --all is read as missing, the archive and the read marks
+  // are told by the banner without a run (no confirmation for a command the daemon refuses), and a refresh does not
+  // ask for the backlog again. show --all itself is still asked, so an updated catalog is found.
+  const added = new Set(['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.show-archived', 'buzzni.moai.show-archived-after', 'buzzni.moai.read', 'buzzni.moai.read-all', 'buzzni.moai.read-group'])
+  const answer = board({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show': SHOW_NOTE_BODY })
+  answer.start = (args) => (added.has(args[0]) ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const panel = await runPanel(answer)
+  assert.deepEqual(await compatShown(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-truncated').textContent, PRIME_ONLY)
+  const asked = () => panel.starts().map(([profile]) => profile)
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await until(() => compatLine(panel)[0]?.includes('3 Moai profiles'))
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 3 Moai profiles this panel uses (the whole list, the backlog, archived rows). Update the daemon catalog."])
+  panel.row('mgd-hmcr').click()
+  await flush()
+  panel.window.document.body.focus()
+  press(panel, 'r')
+  await until(() => compatLine(panel)[0]?.includes('4 Moai profiles'))
+  assert.deepEqual(compatLine(panel), ["That machine's Happy daemon catalog lacks 4 Moai profiles this panel uses (the whole list, the backlog, archived rows, read marks). Update the daemon catalog."])
+  assert.equal(panel.$('.moai-result').textContent, '', 'the banner tells it')
+  const before = asked().length
+  panel.$('.moai-refresh').click()
+  await until(() => asked().length > before + 1)
+  await flush()
+  assert.deepEqual(asked().slice(before).sort(), ['buzzni.moai.prime', 'buzzni.moai.show-all', 'buzzni.moai.status'])
+  for (const profile of ['buzzni.moai.show-archived', 'buzzni.moai.read']) assert.ok(!asked().includes(profile), `${profile} never reached Desktop`)
+})
 test('compatibility: beside a catalog line for other profiles, a hidden detail\'s refusal is still told', async () => {
   // The detail's `show` is not a read the probe hears, so the catalog line (archived rows) does not stand for it.
   const answer = board({ 'buzzni.moai.status': STATUS_V017 })

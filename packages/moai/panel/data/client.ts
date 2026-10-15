@@ -46,7 +46,11 @@ export const INFO_REFUSALS: ReadonlySet<RefusalCode> = new Set(['declined', 'app
 export type Outcome =
   /** `truncated`: the daemon flagged a cut at the output limit, yet the stdout still parsed. */
   | { kind: 'passed'; output: unknown; truncated?: true }
-  | { kind: 'refused'; code: RefusalCode }
+  /**
+   * `assumed`: no run asked for it — the panel answered it itself, taking the profile as missing along with the whole
+   * list (main.ts, compat.ts lacks). It stops counting once the whole list runs there.
+   */
+  | { kind: 'refused'; code: RefusalCode; assumed?: true }
   /**
    * The start threw, or came back without an operation (an older Desktop, an unknown refusal). `code` is the
    * refusal code the start named, when it did: a `refused` code the panel does not list (`binding-mismatch` — the

@@ -173,7 +173,6 @@ function boot(storage, { rows = ROWS, indexOf = null } = {}) {
     intents: {
       refresh: () => calls.push(['refresh']),
       choose: (id) => { calls.push(['choose', id]); store.dispatch({ type: 'cursor', id }) },
-      add: (title) => calls.push(['add', title]),
       cancel: () => calls.push(['cancel']),
     },
   })
@@ -295,10 +294,8 @@ test('shell: choosing a row reads its detail through the shell intents; the add 
   assert.equal(panel.$('.moai-detail h2').textContent, 'Board')
   assert.equal(panel.$('.moai-detail .m-empty-title'), null)
 
-  panel.shell.input.value = 'New one'
-  panel.$('.moai-add-button').click()
-  assert.deepEqual(panel.calls.at(-1), ['add', 'New one'])
-  panel.shell.say('Enter a task title.', true)
+  assert.equal(panel.$('.moai-add'), null, 'the panel reads only: no add field')
+  panel.shell.say('The run failed.', true)
   assert.equal(panel.$('.moai-result').className, 'moai-result m-banner m-banner-danger')
   assert.equal(panel.$('.moai-result').getAttribute('role'), 'status', 'the result line is a live region')
   panel.shell.refuse({ kind: 'refused', code: 'declined' })
@@ -382,15 +379,16 @@ test('shell: a failed detail read is told once, in the pane, and does not hide t
   assert.match(panel.$('.moai-notice').textContent, /confirmation was declined/)
 })
 
-test('shell: a list left to prime\'s rows says so while the catalog line cannot, and a backlog that could not be read says why', () => {
+test('shell: a list left to prime\'s rows says what it leaves out, beside the catalog line too, and a backlog that could not be read says why', () => {
   const panel = boot(fakeStorage())
   const load = (extra) => panel.store.dispatch({ type: 'board-loaded', data: { rows: ROWS, more: 0, loadedAt: Date.now(), partial: true, ...extra } })
   // The catalog undecided (`unknown`, here no report yet): nothing else tells why the list is held and ready rows only.
   load({})
   assert.equal(panel.$('.moai-truncated').textContent, en.shell.primeOnly)
-  // Once the catalog line names the whole list, it alone tells it.
+  // Once the catalog line names the whole list it says what to fix; this one still says what the board leaves out
+  // (an empty Done column is not "nothing done", se-24ey.s6v).
   panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.show-all'] }, degraded: ['all-rows'] } })
-  assert.equal(panel.$('.moai-truncated').textContent, '')
+  assert.equal(panel.$('.moai-truncated').textContent, en.shell.primeOnly)
   // A read since found show --all (the catalog lacks only the backlog now, or nothing): the rows on screen are older,
   // and the whole list is no longer out of reach there.
   panel.store.dispatch({ type: 'compat', report: { moai: 'ok', toolMissing: false, catalog: { state: 'missing', missing: ['buzzni.moai.backlog-all'] }, degraded: ['backlog'] } })

@@ -562,19 +562,6 @@ test('keys: Enter on the board chooses the focused card when the cursor is on no
   assert.deepEqual(panel.chosen, ['e1.a'])
 })
 
-test('keys: Esc in the add field (SPC n) goes back to the list, the title kept', () => {
-  const panel = inEpic()
-  panel.seq(' ', 'n')
-  assert.equal(panel.doc.activeElement, panel.shell.input)
-  panel.shell.input.value = 'Half a title'
-  const esc = panel.press('Escape')
-  assert.equal(esc.defaultPrevented, true)
-  assert.equal(panel.doc.activeElement, panel.$('.moai-list'))
-  assert.equal(panel.shell.input.value, 'Half a title')
-  panel.press('j')
-  assert.equal(panel.state().cursor, 'e1.b')
-})
-
 test('keys: on the board at the root, j/k walk a column across the milestone lanes', () => {
   const rows = [
     { id: 'm1', kind: 'milestone', title: 'v1', status: 'todo' },

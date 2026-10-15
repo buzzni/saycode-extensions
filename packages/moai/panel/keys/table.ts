@@ -87,7 +87,7 @@ export type KeyLabel =
   | "wiki.halfDown" | "wiki.halfUp"
   | "focus.next" | "focus.prev" | "focus.left" | "focus.right" | "focus.up" | "focus.down"
   | "enter" | "leave" | "expand" | "collapse" | "expandAll" | "search" | "clear" | "read" | "help"
-  | "filter" | "add" | "tab.list" | "tab.board" | "tab.wiki"
+  | "filter" | "tab.list" | "tab.board" | "tab.wiki"
   | "view.deferred" | "view.backlog" | "view.archived" | "view.all" | "view.allHelp" | "view.detail" | "view.raw" | "view.rawHelp"
   | "sort.edit" | "read.all" | "read.group" | "read.groupHelp" | "option.detailAt" | "option.detailAtHelp" | "menu.close" | "menu.up"
   | "prompt.apply" | "prompt.cancel" | "prompt.next" | "prompt.prev" | "prompt.up" | "prompt.down" | "prompt.clear" | "prompt.deleteWord"
@@ -296,7 +296,6 @@ const focusMenu = (action: string, key: string, label: KeyLabel, side: Parameter
 const MENU: ReadonlyArray<Binding> = [
   { action: "search.open", keys: ["SPC /"], label: "search", group: "search", modes: BROWSE_ONLY, help: false },
   { action: "filter.open", keys: ["SPC f"], label: "filter", group: "search", modes: BROWSE_ONLY },
-  { action: "add.open", keys: ["SPC n"], label: "add", group: "other", modes: BROWSE_ONLY, verdict: "변경" },
   { action: "tab.list", keys: ["SPC g l"], label: "tab.list", group: "tab", modes: BOTH },
   { action: "tab.board", keys: ["SPC g b"], label: "tab.board", group: "tab", modes: BOTH },
   { action: "tab.wiki", keys: ["SPC g w"], label: "tab.wiki", group: "tab", modes: BOTH },

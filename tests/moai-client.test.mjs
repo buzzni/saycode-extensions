@@ -126,8 +126,8 @@ test('a subscriber that throws does not stop the queue', async () => {
 test('writes are never shared', async () => {
   const bridge = fakeBridge()
   const client = createClient(bridge, { sleep: () => flush(), concurrency: 2 })
-  const first = client.request('buzzni.moai.add', 'Same', { share: false })
-  const second = client.request('buzzni.moai.add', 'Same', { share: false })
+  const first = client.request('buzzni.moai.read', 'mgd-89af', { share: false })
+  const second = client.request('buzzni.moai.read', 'mgd-89af', { share: false })
   assert.notEqual(first, second)
   await flush()
   assert.equal(starts(bridge).length, 2)
@@ -264,8 +264,8 @@ test('a busy read is refused once its tries are spent; a write is never tried ag
   assert.equal(starts(reads).length, 3)
   const writes = busyBridge(1)
   const writer = createClient(writes, { ...PANEL_CLIENT_OPTIONS, sleep: writes.sleep })
-  assert.deepEqual(await writer.request('buzzni.moai.add', 'Once', { share: false }), { kind: 'refused', code: 'workspace-busy' })
-  assert.deepEqual(starts(writes), [['buzzni.moai.add', 'Once']])
+  assert.deepEqual(await writer.request('buzzni.moai.read', 'mgd-89af', { share: false }), { kind: 'refused', code: 'workspace-busy' })
+  assert.deepEqual(starts(writes), [['buzzni.moai.read', 'mgd-89af']])
 })
 
 test('while a busy read waits out its backoff it frees its slot, shows as queued and can be cancelled', async () => {

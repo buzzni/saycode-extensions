@@ -55,10 +55,8 @@ export default defineExtension({
         if (value.startsWith('-')) throw new Error(`${parameter} cannot start with "-"`)
         return start(context, { action: 'start', profileId, parameters: { [parameter]: value } })
       }
-      // `add` is the one profile that writes the tracker (writeScope `moai`).
-      if (profileId !== `${extensionId}.add`) throw new Error('unsupported Moai profile')
-      if (typeof value !== 'string') throw new Error('title is required')
-      return start(context, { action: 'start', profileId, parameters: { title: value } })
+      // The panel reads only: the tracker's one write, `add`, is not declared (se-24ey.oxd).
+      throw new Error('unsupported Moai profile')
     })
     context.commands.register(`${extensionId}.status`, (operationId) => {
       if (typeof operationId !== 'string' || operationId.length === 0) throw new Error('operation id is required')

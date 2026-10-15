@@ -378,7 +378,6 @@ export function wireKeys(options: KeyWiringOptions): KeyWiring {
       if (state.search.open || state.search.text) toolbar({ type: "search-close" })
       if (state.filter.text || state.filter.applied) store.dispatch({ type: "filter", text: "" })
     },
-    "add.open": () => shell.input.focus(),
     read: readOne,
     "read.all": readAll,
     "read.group": readGroup,
