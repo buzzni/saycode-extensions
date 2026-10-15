@@ -1803,11 +1803,16 @@ test('header: the logo, then the user and the version status prints; an older mo
   const status = JSON.stringify({ ...JSON.parse(STATUS), user: { name: 'Raven', email: 'raven@buzzni.com', label: 'Raven <raven@buzzni.com>' }, version: { current: '0.18.0', latest: { state: 'same', tag: 'v0.18.0' } } })
   const panel = await runPanel(board({ 'buzzni.moai.status': status }), 'ko')
   await until(() => panel.$('.m-brand-info').textContent.includes('Raven'))
-  assert.deepEqual([...panel.window.document.querySelectorAll('.m-brand-line')].map((line) => line.textContent), ['User    : Raven <raven@buzzni.com>', 'Version : 0.18.0 · 최신 (v0.18.0)'])
+  assert.deepEqual([...panel.window.document.querySelectorAll('.m-brand-told .m-brand-line')].map((line) => line.textContent), ['User    : Raven <raven@buzzni.com>', 'Version : 0.18.0 · 최신 (v0.18.0)'])
   assert.match(panel.$('.m-brand-logo').textContent, /Issue tracker for AI agent$/)
+  // Under them, a tip that opens the page with all of them (se-irhr).
+  assert.equal(panel.$('.m-tips').hidden, true)
+  panel.$('.m-brand-tip-text').click()
+  assert.equal(panel.$('.m-tips').hidden, false)
+  assert.match(panel.$('.m-tips .m-help-head').textContent, /에이전트에게 이렇게 말해 보세요/)
   // It stands above the tab bar, as the TUI's stands above everything.
   assert.equal(panel.$('.m-shell').firstElementChild, panel.$('.m-brand'))
   const older = await runPanel(board())
   await flush()
-  assert.deepEqual([...older.window.document.querySelectorAll('.m-brand-line')].map((line) => line.textContent), ['User    : —', 'Version : —'])
+  assert.deepEqual([...older.window.document.querySelectorAll('.m-brand-told .m-brand-line')].map((line) => line.textContent), ['User    : —', 'Version : —'])
 })

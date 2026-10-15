@@ -17,6 +17,7 @@ import { notStartedText, type Copy } from "../i18n/index.ts"
 import { toolbarOf, type Focus, type State, type Store, type Tab } from "../store.ts"
 import { button, el, emptyState, iconButton } from "./components.ts"
 import { mountBrand } from "./brand.ts"
+import { allTips, createTips } from "./tips.ts"
 import { mountCrumbs } from "./crumbs.ts"
 import { COLUMN_DROPS, effectivePosition } from "./responsive.ts"
 import { narrow, segKey } from "./list-model.ts"
@@ -265,9 +266,11 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
 
   // The activity stays on every tab (the wiki's reads wait for the confirmation too), floating over the foot of the
   // panes so a run never pushes them (shell.css, se-24ey.14i).
-  // The TUI's header (view/brand.ts): the logo, then who and which moai.
-  const brand = mountBrand(doc, copy.shell.version)
-  const shell = el(doc, "div", { class: "m-shell" }, brand.el, tabbar, toolbar, head, body, status)
+  // The TUI's header (view/brand.ts): the logo, then who and which moai, and a tip that opens the tips page (view/tips.ts).
+  const platform = /Mac|iPhone|iPad/.test(win?.navigator.platform ?? "") ? "mac" : "other"
+  const tipsPage = createTips(doc, copy.shell.tips, platform)
+  const brand = mountBrand(doc, copy.shell.version, { tips: allTips(copy.shell.tips), label: copy.shell.tips.openAll, open: () => tipsPage.open() })
+  const shell = el(doc, "div", { class: "m-shell" }, brand.el, tabbar, toolbar, head, body, status, tipsPage.el)
   root.replaceChildren(shell)
 
   // ── panes ──

@@ -117,6 +117,106 @@ const VERSION_KO: VersionCopy = {
   seenToday: '오늘 본 판 {tag}', seenDay: '1일 전에 본 판 {tag}', seenDays: '{d}일 전에 본 판 {tag}', seenEarlier: '전에 본 판 {tag}',
 }
 
+/**
+ * Things to say to an agent session, shown one at a time under the header's Version line and all together, by kind, in
+ * the tips page (view/tips.ts, se-irhr). The field test gave the first of them; the rest fill the kinds out.
+ */
+export interface TipsCopy {
+  /** The header line's label stays English, as the header's others do; this is the page's title. */
+  title: string
+  intro: string
+  /** The header line's accessible name: it opens the page. */
+  openAll: string
+  copy: string
+  copied: string
+  close: string
+  groups: ReadonlyArray<{ title: string; tips: readonly string[] }>
+}
+
+const TIPS_KO: TipsCopy = {
+  title: '에이전트에게 이렇게 말해 보세요',
+  intro: 'Claude Code·Codex·Saycode 세션에 그대로 붙여 넣거나 조금 고쳐서 쓰세요. moai 스킬이 깔린 저장소에서 통합니다.',
+  openAll: '팁 모두 보기',
+  copy: '복사', copied: '복사함', close: '닫기',
+  groups: [
+    { title: '시작하기', tips: [
+      '뭐부터 하면 될까?',
+      'se-43oh 시작해줘 (또는 43oh 시작해줘)',
+      '진행 상황 알려줘',
+      '이거 나중에 하자. 백로그에 넣어줘',
+    ] },
+    { title: '계획과 이슈', tips: [
+      '유저관리설정에서 유저 검색 창을 만들어야 한다. `opus5.x xhigh` 로 계획을 세워줘',
+      '이 기능 요청을 에픽 하나와 이슈 3~7개로 나눠서 먼저 보여줘',
+      'se-43oh 아래에 리뷰 이슈를 만들고 리뷰를 진행해줘',
+    ] },
+    { title: '마일스톤', tips: [
+      'v1.22.x의 마일스톤을 넣고 1.22에서 리뷰에서 발견된 버그 백로그를 마일스톤에 포함시켜줘.',
+      '마일스톤 v0.1.2 를 시작하고 리뷰때 버그가 아닌 백로그는 만들지말 것',
+      'v0.1.2 마일스톤에 남은 일과 막힌 일을 정리해줘',
+    ] },
+    { title: '백로그 정리', tips: [
+      '백로그를 유사한 것들 끼리는 함께 작업할 수 있게 합쳐주고, 필요없다 판단되는 것은 삭제해줘.',
+      '오래된 백로그 중 아직 유효한 것만 이슈로 올려줘',
+    ] },
+    { title: '감독과 모델', tips: [
+      '이 세션은 moai 감독 세션이다. 세이코드 세션 3개를 만들고 서브에이전트로 작업을 시작할 것.',
+      '작업은 sonnet5.x medium 으로 진행하고 리뷰를 opus5.5 high 또는 난이도에 따라 xhigh 로 할 것',
+      '놀고 있는 세션에 백로그를 나눠 줘',
+    ] },
+    { title: '복구', tips: [
+      '작업중에 서버가 죽었다. 작업목록을 확인하여 이전 세션을 복구하고 작업을 계속 진행해줘.',
+      '/moai:moai-recover 로 죽은 세션을 되살려줘',
+    ] },
+    { title: '위키', tips: [
+      '/moai:moai-wiki 또는 모아이 위키 스킬을 사용하여 프로그램 전체의 위키 문서를 작성하고 항상 위키를 업데이트할 것',
+      '이번 에픽에서 바뀐 것을 위키에 반영해줘',
+    ] },
+  ],
+}
+
+const TIPS_EN: TipsCopy = {
+  title: 'Things to say to an agent',
+  intro: 'Paste one into a Claude Code, Codex or Saycode session as it is, or change it to fit. They work in a repository with moai\'s skills.',
+  openAll: 'All tips',
+  copy: 'Copy', copied: 'Copied', close: 'Close',
+  groups: [
+    { title: 'Getting going', tips: [
+      'What should I do first?',
+      'Start se-43oh (or: start 43oh)',
+      'How is it going?',
+      'Let us do this later. Put it in the backlog',
+    ] },
+    { title: 'Plans and issues', tips: [
+      'User management settings need a user search box. Plan it with `opus5.x xhigh`',
+      'Split this feature request into one epic and 3 to 7 issues, and show me first',
+      'Make a review issue under se-43oh and run the review',
+    ] },
+    { title: 'Milestones', tips: [
+      'Add the v1.22.x milestone and put the bug backlog the 1.22 review found into it.',
+      'Start milestone v0.1.2, and make no backlog items in reviews except bugs',
+      'Sum up what is left and what is blocked in milestone v0.1.2',
+    ] },
+    { title: 'Backlog grooming', tips: [
+      'Merge backlog items that are alike so they can be worked on together, and delete the ones you judge unneeded.',
+      'Raise only the old backlog items that still hold into issues',
+    ] },
+    { title: 'Supervising and models', tips: [
+      'This session is the moai supervisor. Make three Saycode sessions and start the work with subagents.',
+      'Work with sonnet5.x medium, and review with opus5.5 high, or xhigh when it is hard',
+      'Hand the backlog out to the idle sessions',
+    ] },
+    { title: 'Recovering', tips: [
+      'The server died mid-work. Check the work list, bring the earlier sessions back and carry on.',
+      'Bring the dead sessions back with /moai:moai-recover',
+    ] },
+    { title: 'Wiki', tips: [
+      'With /moai:moai-wiki (the moai wiki skill), write the wiki for the whole program and keep it up to date.',
+      'Bring the wiki up to date with what this epic changed',
+    ] },
+  ],
+}
+
 const COMPAT_EN: CompatCopy = {
   toolMissing: 'Moai is not installed on that machine. Install moai under Machine tools in Settings → Extensions.',
   oldMoai: (features) => `That machine's moai is older than this panel expects${features.length ? ` (on a fallback: ${features.join(', ')})` : ''}. Upgrade moai.`,
@@ -201,6 +301,7 @@ export interface ShellCopy {
   compat: CompatCopy
   skills: SkillsCopy
   version: VersionCopy
+  tips: TipsCopy
 }
 
 const SHELL: Record<Language, ShellCopy> = {
@@ -233,6 +334,7 @@ const SHELL: Record<Language, ShellCopy> = {
     compat: COMPAT_EN,
     skills: SKILLS_EN,
     version: VERSION_EN,
+    tips: TIPS_EN,
   },
   ko: {
     tabsLabel: 'Moai 보기',
@@ -263,6 +365,7 @@ const SHELL: Record<Language, ShellCopy> = {
     compat: COMPAT_KO,
     skills: SKILLS_KO,
     version: VERSION_KO,
+    tips: TIPS_KO,
   },
   ja: {
     tabsLabel: 'Moai ビュー',
@@ -293,6 +396,7 @@ const SHELL: Record<Language, ShellCopy> = {
     compat: COMPAT_JA,
     skills: SKILLS_JA,
     version: VERSION_EN,
+    tips: TIPS_EN,
   },
   zh: {
     tabsLabel: 'Moai 视图',
@@ -323,6 +427,7 @@ const SHELL: Record<Language, ShellCopy> = {
     compat: COMPAT_ZH,
     skills: SKILLS_ZH,
     version: VERSION_EN,
+    tips: TIPS_EN,
   },
 }
 

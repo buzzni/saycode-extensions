@@ -8,6 +8,9 @@
 import { versionLine, type About, type VersionCopy } from '../data/about.ts'
 import { el } from './components.ts'
 
+/** How long one tip stands before the next (se-irhr). */
+export const TIP_MS = 8000
+
 /** The TUI's `LOGO`, letter for letter: the art, then the tagline. */
 export const LOGO = [
   '• ▌ ▄ ·.        ▄▄▄· ▪',
@@ -77,7 +80,17 @@ export interface Brand {
   render(about: About | null): void
 }
 
-export function mountBrand(doc: Document, copy: VersionCopy): Brand {
+/**
+ * The tips the header turns through under the Version line, and what a click on one does (opens the tips page).
+ * Without them the header is the TUI's alone.
+ */
+export interface BrandTips {
+  tips: readonly string[]
+  label: string
+  open(): void
+}
+
+export function mountBrand(doc: Document, copy: VersionCopy, tips?: BrandTips): Brand {
   const lines = logoLines()
   const art = lines.slice(0, -1)
   const svg = doc.createElementNS(SVG, 'svg')
@@ -88,7 +101,9 @@ export function mountBrand(doc: Document, copy: VersionCopy): Brand {
   path.setAttribute('d', artPath(art))
   svg.append(path)
   const logo = el(doc, 'div', { class: 'm-brand-logo', 'aria-hidden': 'true' }, svg, el(doc, 'div', { class: 'm-brand-tagline' }, lines.at(-1)!))
-  const info = el(doc, 'div', { class: 'm-brand-info' })
+  const told = el(doc, 'div', { class: 'm-brand-told' })
+  const info = el(doc, 'div', { class: 'm-brand-info' }, told)
+  if (tips && tips.tips.length) info.append(tipLine(doc, tips))
   const node = el(doc, 'header', { class: 'm-brand', 'aria-label': 'moai' }, logo, info)
   let drawn = ''
   return {
@@ -98,8 +113,47 @@ export function mountBrand(doc: Document, copy: VersionCopy): Brand {
       const key = JSON.stringify(lines)
       if (key === drawn) return
       drawn = key
-      info.replaceChildren(...lines.map(([label, said]) =>
+      told.replaceChildren(...lines.map(([label, said]) =>
         el(doc, 'div', { class: 'm-brand-line' }, el(doc, 'span', { class: 'm-brand-label' }, `${pad(label, LABEL)}${label ? ' : ' : '   '}`), said)))
     },
   }
+}
+
+/**
+ * The tip under the Version line: one at a time, the next every {@link TIP_MS}, from a place picked at random so each
+ * opening starts somewhere else; a click opens the page with all of them. The turning is CSS, not a timer: every tip
+ * stands in the same place and a keyframe shows each for its own {@link TIP_MS} of the round ({@link tipKeyframes}).
+ * So a panel no one sees turns nothing, the pointer on it holds it still (shell.css), and without motion the first
+ * tip stands alone. Screen readers hear the button's name, not the stack.
+ */
+function tipLine(doc: Document, tips: BrandTips): HTMLElement {
+  const n = tips.tips.length
+  const start = Math.floor(Math.random() * n)
+  if (n > 1) tipKeyframes(doc, n)
+  const items = tips.tips.map((tip, i) => {
+    const turn = (i - start + n) % n
+    return el(doc, 'span', {
+      class: 'm-brand-tip-item',
+      'data-first': turn === 0 ? '' : null,
+      style: n > 1 ? `animation: m-tip-${n} ${n * TIP_MS}ms linear ${turn * TIP_MS}ms infinite both;` : null,
+    }, tip)
+  })
+  const text = el(doc, 'button', { type: 'button', class: 'm-brand-tip-text', title: tips.label, 'aria-label': tips.label }, ...items)
+  text.addEventListener('click', () => tips.open())
+  return el(doc, 'div', { class: 'm-brand-line m-brand-tip' }, el(doc, 'span', { class: 'm-brand-label' }, `${pad('Tip', LABEL)} : `), text)
+}
+
+/**
+ * The round for `n` tips, once per document: shown for one `n`th of it, with a short fade in and out. `both` fill keeps a
+ * tip whose turn has not come hidden until it does.
+ */
+export function tipKeyframes(doc: Document, n: number): void {
+  const id = `m-tip-${n}`
+  if (doc.getElementById(id)) return
+  const shown = 100 / n
+  const fade = Math.min(shown / 4, (400 / (n * TIP_MS)) * 100)
+  const at = (v: number) => `${Number(v.toFixed(3))}%`
+  const style = el(doc, 'style', { id })
+  style.textContent = `@keyframes ${id} { 0% { opacity: 0; transform: translateY(3px); } ${at(fade)} { opacity: 1; transform: none; } ${at(shown - fade)} { opacity: 1; } ${at(shown)}, 100% { opacity: 0; } }`
+  doc.head.append(style)
 }
