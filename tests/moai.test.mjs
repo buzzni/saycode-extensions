@@ -1574,20 +1574,28 @@ test('compatibility: an archive profile the catalog lacks is told by the banner,
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
 })
 
-test('compatibility: a catalog updated while the panel is open reads the backlog for real on the load that finds the whole list (se-24ey.a80)', async () => {
+test('compatibility: a catalog updated while the panel is open reads the backlog for real and drops the assumed archive (se-24ey.a80, se-43oh)', async () => {
   let updated = false
-  const added = new Set(['buzzni.moai.show-all', 'buzzni.moai.backlog-all'])
-  const answer = board({ 'buzzni.moai.prime': PRIME })
+  const added = new Set(['buzzni.moai.show-all', 'buzzni.moai.backlog-all', 'buzzni.moai.show-archived'])
+  const answer = board({ 'buzzni.moai.prime': PRIME, 'buzzni.moai.show-archived': '[]' })
   answer.start = (args) => (!updated && added.has(args[0]) ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
   const panel = await runPanel(answer)
   assert.deepEqual(await compatShown(panel), ["That machine's Happy daemon catalog lacks 2 Moai profiles this panel uses (the whole list, the backlog). Update the daemon catalog."])
+  // The archive asked for while the whole list is missing is taken as missing too, unrun (se-24ey.dcj)...
+  press(panel, ' ', 'v', 'o', 'Escape')
+  await until(() => compatLine(panel)[0]?.includes('3 Moai profiles'))
+  assert.ok(!panel.starts().some(([profile]) => profile === 'buzzni.moai.show-archived'))
   updated = true
   const before = panel.starts().length
   panel.$('.moai-refresh').click()
   await until(() => compatLine(panel).length === 0)
-  // The backlog waited for the whole list's answer instead of being answered as lacked beside it.
+  // The backlog waited for the whole list's answer instead of being answered as lacked beside it, and the archive
+  // taken as missing stops counting once the whole list runs: the banner goes entirely (se-43oh), and the archive
+  // shown is read for real.
   assert.ok(panel.starts().slice(before).some(([profile]) => profile === 'buzzni.moai.backlog-all'), 'the backlog was read')
   assert.deepEqual(compatLine(panel), [])
+  await until(() => panel.starts().some(([profile]) => profile === 'buzzni.moai.show-archived'))
+  assert.equal(panel.$('.moai-archive-problem[role="alert"]').textContent, '')
   assert.equal(panel.$('.moai-backlog-problem[role="status"]').textContent, '')
   assert.equal(panel.$('.moai-truncated').textContent, '')
   assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])

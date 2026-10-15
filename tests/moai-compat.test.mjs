@@ -153,8 +153,12 @@ test('once the whole list is missing, the other added profiles are lacked unrun;
   probe.observe(PROFILE.backlog, passed([]))
   assert.equal(probe.lacks(PROFILE.backlog), false)
   assert.equal(probe.lacks(PROFILE.read), true)
+  // What the panel answered itself counts while the whole list is missing, and stops when it runs (se-43oh).
+  probe.observe(PROFILE.showArchived, { kind: 'refused', code: 'unsupported-daemon', assumed: true })
+  assert.ok(probe.report().catalog.missing.includes(PROFILE.showArchived))
   probe.observe(PROFILE.showAll, passed([]))
   assert.deepEqual(others.filter((profile) => probe.lacks(profile)), [])
+  assert.equal(probe.report().catalog.missing.includes(PROFILE.showArchived), false)
 })
 
 test('a shipped profile refused as unsupported means the daemon as a whole, not 12 missing profiles', async () => {

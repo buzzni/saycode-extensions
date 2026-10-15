@@ -79,7 +79,8 @@ const FEATURE_OF: Readonly<Record<string, Feature>> = {
  */
 const ORDER: readonly Feature[] = ['all-rows', 'backlog', 'archive', 'wiki', 'read-marks', 'tallies']
 
-type Seen = 'unsupported' | 'passed'
+/** `assumed`: answered unsupported by the panel itself while the whole list was missing ({@link CompatProbe.lacks}). */
+type Seen = 'unsupported' | 'assumed' | 'passed'
 
 const sameList = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((item, n) => item === b[n])
 
@@ -160,7 +161,7 @@ export class CompatProbe {
         // A start that failed naming a code is read as the refusal is. Only `unsupported-daemon` is about the catalog;
         // `binding-mismatch`, and a start that named nothing, say nothing here.
         if (outcome.code === 'tool-missing') this.toolMissing = true
-        else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, 'unsupported')
+        else if (outcome.code === 'unsupported-daemon') this.seen.set(profile, outcome.kind === 'refused' && outcome.assumed ? 'assumed' : 'unsupported')
         return
       case 'passed':
       case 'failed':
@@ -190,7 +191,10 @@ export class CompatProbe {
   }
 
   report(): CompatReport {
-    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported').map(([id]) => id)
+    // A profile taken as missing with the whole list counts only while the whole list is: once it runs there, the
+    // catalog was updated and nothing says the assumed ones are still missing (se-43oh).
+    const listMissing = this.seen.get(PROFILE.showAll) === 'unsupported'
+    const refused = [...this.seen].filter(([, seen]) => seen === 'unsupported' || (seen === 'assumed' && listMissing)).map(([id]) => id)
     const passed = [...this.seen.values()].filter((seen) => seen === 'passed').length
     // Refusals alone cannot tell a catalog that lacks the profiles from a daemon too old for the machine run at
     // all, so nothing is judged until a profile has run. A shipped profile refused as unsupported is the daemon as

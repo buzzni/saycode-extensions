@@ -41,7 +41,7 @@ probe.subscribe(() => store.dispatch({ type: 'compat', report: probe.report() })
 const runner = createClient(bridge ?? { invokeCommand: () => Promise.reject(new Error('no panel bridge')) }, PANEL_CLIENT_OPTIONS)
 // A profile the catalog is read as lacking with the whole list (compat.ts lacks) is answered here, unrun: Desktop
 // would ask the person to approve it first and the daemon refuse it after (se-24ey.dcj).
-const LACKED: Outcome = { kind: 'refused', code: 'unsupported-daemon' }
+const LACKED: Outcome = { kind: 'refused', code: 'unsupported-daemon', assumed: true }
 const client: Client = {
   ...runner,
   request: (profileId, value, options) => (probe.lacks(profileId) ? Promise.resolve(LACKED) : runner.request(profileId, value, options)),
