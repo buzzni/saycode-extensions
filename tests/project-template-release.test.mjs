@@ -127,6 +127,17 @@ test('release gate packs, checksums, and publishes the official Moai extension',
 })
 
 
+test('release gate tests, packs, checksums, and publishes Media Preview', async () => {
+  const manifest = JSON.parse(await readFile(new URL('packages/media-preview/extension.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+
+  assert.match(workflow, /node --test packages\/media-preview\/tests\/\*\.test\.mjs/)
+  assert.match(workflow, /npm run package:media-preview/)
+  assert.ok(workflow.includes(`packages/media-preview/${archive}\n`))
+  assert.ok(workflow.includes(`packages/media-preview/${archive}.sha256\n`))
+})
+
 test('every checksummed release package publishes the archive its manifest version produces', async () => {
   const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
   const dirs = [...workflow.matchAll(/working-directory: (\S+)\n\s+run: sha256sum/g)].map((match) => match[1])
