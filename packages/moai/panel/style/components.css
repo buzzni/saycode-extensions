@@ -240,15 +240,11 @@ mark.m-mark { background: var(--warn-soft); color: inherit; border-radius: 2px; 
 }
 .m-lane-head .m-count { margin-left: auto; font: 11px var(--mono); }
 .m-lane-empty { padding: 2px 4px; color: var(--muted); font-size: 12px; }
-/* Each column's cards cast a faint shadow of its own colour under them (se-26dv), so a column reads at a glance. The
-   deferred column, and a column the panel does not know, keep the plain shadow. */
-.m-lane[data-status="backlog"] { --card-tint: #FEF4BA; }
-.m-lane[data-status="todo"] { --card-tint: #D0EADF; }
-.m-lane[data-status="in_progress"] { --card-tint: #FED3C5; }
-.m-lane[data-status="review"] { --card-tint: #E4D5EE; }
-.m-lane[data-status="done"] { --card-tint: #CFE6F7; }
+/* Every card casts a faint blue shadow under it (se-26dv): the field test tried one colour per column and settled on
+   the done column's for all. */
 .m-card {
-  --card-glow: 0 3px 6px color-mix(in srgb, var(--card-tint, transparent) var(--card-tint-strength), transparent);
+  --card-tint: #CFE6F7;
+  --card-glow: 0 3px 6px color-mix(in srgb, var(--card-tint) var(--card-tint-strength), transparent);
   padding: 8px 10px; border-radius: var(--radius-card); background: var(--card-bg); box-shadow: var(--shadow-card), var(--card-glow);
   cursor: pointer; transition: background .15s;
 }
