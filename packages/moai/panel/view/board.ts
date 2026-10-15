@@ -106,7 +106,7 @@ function draw(ctx: ViewContext, state: State, index: IssueIndex, model: BoardMod
       // The column's glyph turns while a card in it does, as the TUI's column head does.
       const turning = column.cards.some((at) => spins(index, at))
       lanes.append(el(doc, 'div', { class: 'm-lane-head' },
-        el(doc, 'span', { 'aria-hidden': 'true', class: turning ? 'm-spin' : null }, glyphOf(column.key)), el(doc, 'span', {}, label), el(doc, 'span', { class: 'm-count' }, String(column.cards.length))))
+        el(doc, 'span', { 'aria-hidden': 'true', class: turning ? `m-spin m-st-${column.key}` : null }, glyphOf(column.key)), el(doc, 'span', {}, label), el(doc, 'span', { class: 'm-count' }, String(column.cards.length))))
       if (!column.cards.length) lanes.append(el(doc, 'div', { class: 'm-lane-empty' }, copy.board.noCards))
       for (const at of column.cards) lanes.append(card(at))
       board.append(lanes)
