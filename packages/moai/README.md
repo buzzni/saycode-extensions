@@ -2,8 +2,8 @@
 
 This first-party extension uses only the SDK `machine.run` capability. Desktop installation keeps the extension disabled
 until the user approves `machine.run`; updates retain the previous package for rollback. The extension then offers
-run, status, and cancel commands for these 12 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
-The panel reads only: it adds no tasks (2.0.0 dropped the add field and the `add` profile, se-24ey.oxd).
+run, status, and cancel commands for these 16 fixed profiles, each `moai --json -C <workspace> …` (see Profiles below).
+The board adds no tasks (2.0.0 dropped the add field and the `add` profile). The optional skill installer writes project configuration and has a separate project write scope.
 
 ## Compatibility
 
@@ -12,8 +12,15 @@ The extension and `moai` keep independent version numbers. Extension 2.0.0 needs
 | Needs | Version | Notes |
 |---|---|---|
 | Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
-| `moai` CLI | 0.17.0 or later | on Desktop the daemon runs its own managed `moai`, not the one on that machine's `PATH`: happy-cli 1.1.10-aplus.322 (Desktop 0.1.69) pins v0.8.0, which has every command the panel runs but prints no `unread` or `statuses[]`, so NEW marks stay off there until the pin moves (upstream request 1.6). With the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
-| Happy daemon catalog | all 12 profiles | `status`, `prime`, `show`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
+| `moai` CLI | 0.17.0 or later | on Desktop the daemon runs its own managed `moai`, not the one on that machine's `PATH`: happy-cli 1.1.10-aplus.322 (Desktop 0.1.69) pins v0.8.0, which lacks later skill-install options and prints no `unread` or `statuses[]`, so NEW marks stay off there until the pin moves (upstream request 1.6). With the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
+| Happy daemon catalog | 12 core profiles | `status`, `prime`, `show`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
+
+Four additional declarations cover `skill-status`, `skill-install-saycode`, `show-all-worktree` and `show-worktree`.
+The daemon candidate in [happy PR #826](https://github.com/buzzni/happy/pull/826) pins public moai 0.17.0 and supports
+15 of the 16 declarations. It deliberately omits `skill-install-saycode`: that release does not accept `--hook-exe moai`
+and its skill status has no `optional` field, so the panel shows terminal instructions instead of an install button.
+The remaining 15 profiles were executed successfully through the daemon's managed-tool handler on macOS.
+This is validation of the candidate, not evidence that the daemon has been published.
 
 Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update still ships before extension
 2.0.0.
@@ -34,8 +41,13 @@ Release order: the `moai` upstream release is out (0.17.0); the daemon catalog u
 | `buzzni.moai.read` | `read <id>` | mark one row read | your own `~/.config/moai/read` only |
 | `buzzni.moai.read-all` | `read --all` | mark everything unread that came to you read | your own `~/.config/moai/read` only |
 | `buzzni.moai.read-group` | `read -e <group>` | mark an epic or milestone and its rows read | your own `~/.config/moai/read` only |
+| `buzzni.moai.skill-status` | `skill status` | check installed skills | no |
+| `buzzni.moai.skill-install-saycode` | `skill install --with moai-saycode --hook-exe moai` | optional skill setup; requires a newer CLI | project configuration (`writeScope: project`) |
+| `buzzni.moai.show-all-worktree` | `show --all --worktree` | overlay worktree rows | no |
+| `buzzni.moai.show-worktree` | `show <id> --worktree` | one overlaid row | no |
 
-Nothing the panel runs writes the tracker, so no profile declares `writeScope` and none asks for an approval each time.
+The board reads do not write the tracker and declare no `writeScope`. The optional skill installer declares
+`writeScope: project` and requires approval for each write when a compatible CLI and daemon support it.
 The `read*` profiles change nothing under `.moai/`: Moai keeps what you have read in your own user config, so they
 carry no `writeScope` and are approved like reads.
 
@@ -45,7 +57,7 @@ id of the page before, until a page comes back with fewer than 200 rows. Moai re
 first page has its own profile. When `show --all` itself is cut at the limit (the daemon flags `truncated`), the rows
 can fall back to `prime` and the board can say the list is partial.
 
-The run command accepts a value only where the profile takes one (`show`, `wiki-show`, `read`, `read-group`,
+The run command accepts a value only where the profile takes one (`show`, `show-worktree`, `wiki-show`, `read`, `read-group`,
 `show-archived-after`: one non-empty string that does not start with `-`, so `read <id>` can never become
 `read --all`) and refuses one everywhere else. It refuses `add` and every other profile it does not declare.
 
