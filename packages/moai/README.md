@@ -11,7 +11,7 @@ The extension and `moai` keep independent version numbers. Extension 2.0.0 needs
 
 | Needs | Version | Notes |
 |---|---|---|
-| Saycode Desktop | engine 1.2.0 or later | `engines.saycode` in `extension.json` |
+| Saycode Desktop | engine 1.2.0 or later, Extension API 4 (Desktop 0.1.69 or later) | `engines.saycode` and `apiVersion` in `extension.json`. API 4 is current there, so the card shows no "previous extension API" notice; a host that stops at API 3 refuses the package |
 | `moai` CLI | 0.17.0 or later | on Desktop the daemon runs its own managed `moai`, not the one on that machine's `PATH`: happy-cli 1.1.10-aplus.322 (Desktop 0.1.69) pins v0.8.0, which lacks later skill-install options and prints no `unread` or `statuses[]`, so NEW marks stay off there until the pin moves (upstream request 1.6). With the upstream read and JSON improvements, confirmed in 0.17.0: `unread`, `derived_milestone` and `shelved_by` in `show --json`, `archived` on the archive rows of `show --archived --json` and the configured status order (`statuses[]`) in `status --json` (se-0g4a). The milestone and epic tallies of `status --json` and `show --archived --after` paging are in 0.16 already. An older moai still loads; the compatibility banner asks to upgrade it only when a fallback the panel draws is in use (the milestone and epic counts) |
 | Happy daemon catalog | 12 core profiles | `status`, `prime`, `show`, `show-all`, `backlog-all`, `show-archived`, `show-archived-after`, `wiki-ls`, `wiki-show`, `read`, `read-all`, `read-group` (exact list: se-0g4a.anz) |
 

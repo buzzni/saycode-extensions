@@ -1,7 +1,7 @@
 {
   "id": "buzzni.moai",
   "version": "2.0.0",
-  "apiVersion": 3,
+  "apiVersion": 4,
   "engines": { "saycode": "^1.2.0" },
   "entrypoint": "index.js",
   "permissions": ["machine.run"],

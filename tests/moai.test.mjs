@@ -50,7 +50,7 @@ test('Moai fixture covers install, approval, and rollback lifecycle expectations
 })
 
 test('Moai manifest declares only bounded v0.8.0 managed profiles', () => {
-  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 4, minimumSupportedApiVersion: 2 })
   assert.deepEqual(parsed.machineCommands.profiles.map((profile) => profile.id), lifecycle.run.profiles)
   for (const profile of parsed.machineCommands.profiles) {
     assert.equal(profile.executable, 'moai')
@@ -229,7 +229,7 @@ const BOOT_READS = [...LIST_READS, ['buzzni.moai.skill-status']]
 const cut = { state: 'passed', stdout: '[{"id":"mgd-', stderr: '', exitCode: 0, truncated: true }
 
 test('a project tool opens the Moai board panel in the work area instead of a machine settings button', async () => {
-  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 4, minimumSupportedApiVersion: 2 })
   const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
   assert.equal(open?.panelId, 'buzzni.moai.panel')
   // The host owns the panel title; compact asks for the small modal preset where a host still opens a modal.
@@ -239,6 +239,10 @@ test('a project tool opens the Moai board panel in the work area instead of a ma
   assert.equal(parsed.contributes.machineActions, undefined)
   // Project tools need a Desktop with engine 1.2.0; an older one refuses the manifest instead of misreading it.
   assert.equal(parsed.engines.saycode, '^1.2.0')
+  // Extension API 4, the current one since Desktop 0.1.69: no "previous extension API" notice on its card (se-ya5e).
+  // A host that stops at API 3 refuses the manifest rather than running it.
+  assert.equal(parsed.apiVersion, 4)
+  assert.throws(() => parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /manifest\.apiVersion: unsupported 4/)
   assert.ok(parsed.activationEvents.includes('onCommand:buzzni.moai.open'))
   const host = createTestHost('buzzni.moai', { async invokeCapability() { throw new Error('not expected') } })
   await host.activate(extension)
