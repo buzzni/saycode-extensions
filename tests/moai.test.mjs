@@ -367,6 +367,74 @@ test('a project without a Moai board says how to start one, from a failed run or
   }
 })
 
+// ── moai init from the not-initialized screen (se-s1e8) ──
+const initBanner = (panel) => panel.$('.moai-init')
+const initButton = (panel, label) => [...initBanner(panel).querySelectorAll('button')].find((node) => node.textContent === label)
+const NOT_INITIALIZED = { state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }
+const INITIALIZED = JSON.stringify({ created: true, prefix: 'mgd', tracking: 'commit', guide: 'block', driver: 'planted', skill: false, project: false })
+
+test('init: a project without a board offers Start Moai here; init runs, then the board and the skills banner come', async () => {
+  let initialized = false
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': () => (initialized ? SHOW_ALL : NOT_INITIALIZED),
+    'buzzni.moai.skill-status': JSON.stringify({ written: false, installs: [] }),
+    'buzzni.moai.init': () => { initialized = true; return INITIALIZED },
+  }))
+  await until(() => initBanner(panel).textContent !== '')
+  // The instruction to run it by hand stays; the banner under it says what init writes and that Saycode asks first.
+  assert.equal(panel.$('.moai-notice code')?.textContent, 'moai init')
+  assert.match(initBanner(panel).textContent, /^Or start it here: this creates \.moai\/ in the project folder/)
+  // The skills come after the board: nothing reads them where there is none yet.
+  assert.ok(!panel.starts().some(([profile]) => profile.startsWith('buzzni.moai.skill')))
+  const before = panel.starts().length
+  initButton(panel, 'Start Moai here').click()
+  await until(() => panel.rows().length > 0 && panel.$('.moai-skills').textContent !== '')
+  const after = panel.starts().slice(before).map(([profile]) => profile)
+  assert.equal(after[0], 'buzzni.moai.init')
+  assert.ok(after.indexOf('buzzni.moai.show-all') > 0 && after.indexOf('buzzni.moai.skill-status') > after.indexOf('buzzni.moai.show-all'), after.join(' '))
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.equal(initBanner(panel).textContent, '')
+  assert.equal(panel.$('.moai-notice').textContent, '')
+  assert.match(panel.$('.moai-skills').textContent, /no moai skills for its agents/)
+})
+
+test('init: a declined confirmation says why and keeps the button; the board is not read again for it', async () => {
+  const answer = board({ 'buzzni.moai.show-all': NOT_INITIALIZED })
+  answer.start = (args) => (args[0] === 'buzzni.moai.init' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer, 'ko')
+  await until(() => initBanner(panel).textContent !== '')
+  const before = panel.starts().length
+  initButton(panel, '여기서 Moai 시작').click()
+  await until(() => initBanner(panel).textContent.includes('시작하지 못했습니다'))
+  assert.ok(initButton(panel, '여기서 Moai 시작'))
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.init']])
+})
+
+test('init: a catalog without it, or moai refusing it, is told on the banner, not as a catalog the reads lack', async () => {
+  const refusing = board({ 'buzzni.moai.show-all': NOT_INITIALIZED })
+  refusing.start = (args) => (args[0] === 'buzzni.moai.init' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const failing = board({
+    'buzzni.moai.show-all': NOT_INITIALIZED,
+    'buzzni.moai.init': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'git: not a work tree' }), exitCode: 1 },
+  })
+  for (const [answer, told] of [[refusing, /could not be started here/], [failing, /could not be started here: Moai reported an error: git: not a work tree/]]) {
+    const panel = await runPanel(answer)
+    await until(() => initBanner(panel).textContent !== '')
+    initButton(panel, 'Start Moai here').click()
+    await until(() => panel.$('.moai-init-problem') !== null)
+    assert.match(initBanner(panel).textContent, told)
+    assert.equal(panel.$('.moai-compat').textContent, '')
+    assert.ok(initButton(panel, 'Start Moai here'))
+  }
+})
+
+test('init: a project with a board has no init banner', async () => {
+  const panel = await runPanel(board())
+  await until(() => panel.rows().length > 0)
+  assert.equal(initBanner(panel).textContent, '')
+  assert.ok(!panel.starts().some(([profile]) => profile === 'buzzni.moai.init'))
+})
+
 test('a failed run shows the reason Moai printed on stderr', async () => {
   const panel = await runPanel(board({ 'buzzni.moai.show-all': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'config.toml: bad column' }), exitCode: 1 } }))
   assert.equal(panel.$('.moai-error').textContent, 'Moai reported an error: config.toml: bad column')
