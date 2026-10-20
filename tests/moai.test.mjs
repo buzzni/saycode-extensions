@@ -62,7 +62,9 @@ test('Moai manifest declares only bounded v0.8.0 managed profiles', () => {
     assert.equal(profile.outputLimitBytes, 1048576)
     assert.equal(profile.stdin, 'none')
     assert.ok(profile.argv.includes('--json'))
-    assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
+    // `init` runs only as the not-initialized screen's button, with its skills and project list left out (se-s1e8).
+    if (profile.id === 'buzzni.moai.init') assert.deepEqual(profile.argv.slice(3), ['init', '--no-skill', '--no-register'])
+    else assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
   }
 })
 
