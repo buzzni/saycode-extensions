@@ -48,6 +48,8 @@ export interface ShellIntents {
   installSkills?(): void
   /** "Later" on the skills banner: it stays away for this opening of the panel. */
   dismissSkills?(): void
+  /** Run `moai init` where the project has no `.moai/`; the init banner's button (se-s1e8). */
+  initProject?(): void
 }
 
 export interface ShellOptions {
@@ -233,7 +235,9 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
   // moai's skills for the repository's agents, `moai-saycode` among them (data/skills.ts): what is missing, and the
   // button that plants it, or the command to run where the panel cannot.
   const skills = el(doc, "div", { class: "m-banner moai-skills", role: "status" })
-  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, compat, skills, truncated, backlogNotice, backlogError, archiveNotice, archiveError, heldNote, more, result)
+  // Under the not-initialized line: the button that runs `moai init` here, and why the last one did nothing.
+  const init = el(doc, "div", { class: "m-banner moai-init", role: "status" })
+  const notes = el(doc, "div", { class: "m-shell-notes" }, hint, notice, error, init, compat, skills, truncated, backlogNotice, backlogError, archiveNotice, archiveError, heldNote, more, result)
   // The path and banners belong to the list and board; the wiki tab brings its own head. A panel
   // that opens on the wiki tab (the remembered one) starts without it: showTab() only runs on a change of tab.
   const head = el(doc, "div", { class: "m-shell-head", hidden: state.tab === "wiki" }, crumbs.el, notes)
@@ -381,6 +385,22 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     compat.replaceChildren(...lines.map((line) => el(doc, "p", {}, line)))
   }
 
+  /** What the init banner says, as a key: a live region, written only when that changes (as the skills banner). */
+  let initTold = ""
+  function explainInit(current: State) {
+    const words = copy.shell.init
+    const offered = current.board.problem?.kind === "not-initialized" && intents.initProject !== undefined
+    const key = offered ? [current.init.running, current.init.problem ? JSON.stringify(current.init.problem) : ""].join("|") : ""
+    if (key === initTold) return
+    initTold = key
+    if (!key) return void init.replaceChildren()
+    const parts: Node[] = [el(doc, "p", {}, words.lead)]
+    if (current.init.problem) parts.push(el(doc, "p", { class: "moai-init-problem" }, words.failed, " ", ...(describe(current.init.problem, copy, doc)?.parts ?? [copy.failed])))
+    const start = button(doc, { label: current.init.running ? words.running : words.start, variant: "primary", small: true, disabled: current.init.running, onClick: () => intents.initProject?.() })
+    parts.push(el(doc, "div", { class: "moai-init-actions" }, start))
+    init.replaceChildren(...parts)
+  }
+
   /** What the skills banner says, as a key: it is a live region, so it is written only when that changes. */
   let skillsTold = ""
   function explainSkills(current: State["skills"]) {
@@ -488,6 +508,7 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     explainArchive(untold(state.archiveProblem))
     explainCompat(state.compat)
     explainSkills(state.skills)
+    explainInit(state)
     brand.render(state.about)
 
     if (state.tab === "wiki") {
