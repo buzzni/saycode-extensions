@@ -119,7 +119,8 @@ test('release gate packs, checksums, and publishes the official Moai extension',
 
   assert.match(packageJson.scripts['package:moai'], /moai.*pack/)
   assert.equal(moaiPackage.version, manifest.version)
-  assert.equal(manifest.apiVersion, 3)
+  // Extension API 4, current since Desktop 0.1.69 (se-ya5e.1zg).
+  assert.equal(manifest.apiVersion, 4)
   assert.match(workflow, /npm run package:moai/)
   // Plain substring checks: the archive name comes from the manifest, so no regular expression is built from it.
   assert.ok(workflow.includes(`packages/moai/${archive}.sha256`))

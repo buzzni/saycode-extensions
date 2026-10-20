@@ -93,6 +93,49 @@ const SKILLS_ZH: SkillsCopy = {
   copy: '复制', copied: '已复制',
 }
 
+/** The not-initialized screen's offer to run `moai init` from the panel (se-s1e8), under the instruction to run it by hand. */
+export interface InitCopy {
+  /** What the button writes, and that Desktop asks first. */
+  lead: string
+  start: string
+  running: string
+  /** init did nothing; why follows. */
+  failed: string
+  /**
+   * init refused as `unsupported-daemon`: that machine's daemon catalog has no init profile yet, so the runtime is not
+   * old, as the shared refusal says. Around `moai init`, the same command as the line above.
+   */
+  unsupported: [string, string]
+}
+
+const INIT_EN: InitCopy = {
+  lead: 'Or start it here: this creates .moai/ in the project folder and adds its lines to AGENTS.md, .gitattributes, .gitignore and the git merge settings. Saycode asks before it writes.',
+  start: 'Start Moai here', running: 'Starting…',
+  failed: 'Moai could not be started here:',
+  unsupported: ["This machine's Saycode daemon cannot start Moai from the panel yet. As above, run ", ' in the project folder on that machine.'],
+}
+
+const INIT_KO: InitCopy = {
+  lead: '여기서 바로 시작할 수도 있습니다. 프로젝트 폴더에 .moai/를 만들고 AGENTS.md, .gitattributes, .gitignore와 git 병합 설정에 Moai 항목을 더합니다. 쓰기 전에 Saycode가 확인합니다.',
+  start: '여기서 Moai 시작', running: '시작하는 중…',
+  failed: 'Moai를 시작하지 못했습니다:',
+  unsupported: ['이 머신의 Saycode 데몬은 아직 패널에서 Moai를 시작하는 기능을 지원하지 않습니다. 위 안내대로 그 머신의 프로젝트 폴더에서 ', '을 실행하세요.'],
+}
+
+const INIT_JA: InitCopy = {
+  lead: 'ここで始めることもできます。プロジェクトフォルダーに .moai/ を作り、AGENTS.md・.gitattributes・.gitignore と git のマージ設定に Moai の項目を加えます。書き込む前に Saycode が確認します。',
+  start: 'ここで Moai を始める', running: '開始中…',
+  failed: 'Moai を開始できませんでした:',
+  unsupported: ['このマシンの Saycode デーモンは、パネルから Moai を始める機能にまだ対応していません。上の案内のとおり、そのマシンのプロジェクトフォルダーで ', ' を実行してください。'],
+}
+
+const INIT_ZH: InitCopy = {
+  lead: '也可以在这里直接开始：在项目文件夹中创建 .moai/，并在 AGENTS.md、.gitattributes、.gitignore 和 git 合并设置中加入 Moai 项。写入前 Saycode 会先确认。',
+  start: '在此开始 Moai', running: '正在开始…',
+  failed: '无法在此开始 Moai:',
+  unsupported: ['此机器的 Saycode 守护进程尚不支持从面板开始 Moai。请按上面的说明，在该机器的项目文件夹中运行 ', '。'],
+}
+
 /**
  * The header's Version line in moai's own words (its `tui.version.*` keys, se-qkga). moai has them in English and
  * Korean only and falls back to English elsewhere, so Japanese and Chinese read the English, as the TUI does.
@@ -300,6 +343,7 @@ export interface ShellCopy {
   backlogFailed: string
   compat: CompatCopy
   skills: SkillsCopy
+  init: InitCopy
   version: VersionCopy
   tips: TipsCopy
 }
@@ -333,6 +377,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: 'The backlog could not be read:',
     compat: COMPAT_EN,
     skills: SKILLS_EN,
+    init: INIT_EN,
     version: VERSION_EN,
     tips: TIPS_EN,
   },
@@ -364,6 +409,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: '백로그를 읽지 못했습니다:',
     compat: COMPAT_KO,
     skills: SKILLS_KO,
+    init: INIT_KO,
     version: VERSION_KO,
     tips: TIPS_KO,
   },
@@ -395,6 +441,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: 'バックログを読めませんでした:',
     compat: COMPAT_JA,
     skills: SKILLS_JA,
+    init: INIT_JA,
     version: VERSION_EN,
     tips: TIPS_EN,
   },
@@ -426,6 +473,7 @@ const SHELL: Record<Language, ShellCopy> = {
     backlogFailed: '无法读取待办池:',
     compat: COMPAT_ZH,
     skills: SKILLS_ZH,
+    init: INIT_ZH,
     version: VERSION_EN,
     tips: TIPS_EN,
   },
