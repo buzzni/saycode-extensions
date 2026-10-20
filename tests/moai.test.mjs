@@ -417,12 +417,15 @@ test('init: a catalog without it, or moai refusing it, is told on the banner, no
     'buzzni.moai.show-all': NOT_INITIALIZED,
     'buzzni.moai.init': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'git: not a work tree' }), exitCode: 1 },
   })
-  for (const [answer, told] of [[refusing, /could not be started here/], [failing, /could not be started here: Moai reported an error: git: not a work tree/]]) {
+  // The catalog's refusal is not blamed on an old runtime, as the shared refusal words are: init is what that daemon does
+  // not offer yet, and the command above still does it (se-x8t1).
+  for (const [answer, told] of [[refusing, /^Or start it here: .*This machine's Saycode daemon cannot start Moai from the panel yet\. As above, run moai init in the project folder on that machine\.Start Moai here$/], [failing, /could not be started here: Moai reported an error: git: not a work tree/]]) {
     const panel = await runPanel(answer)
     await until(() => initBanner(panel).textContent !== '')
     initButton(panel, 'Start Moai here').click()
     await until(() => panel.$('.moai-init-problem') !== null)
     assert.match(initBanner(panel).textContent, told)
+    if (answer === refusing) assert.equal(panel.$('.moai-init-problem code')?.textContent, 'moai init')
     assert.equal(panel.$('.moai-compat').textContent, '')
     assert.ok(initButton(panel, 'Start Moai here'))
   }

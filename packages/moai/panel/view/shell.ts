@@ -7,7 +7,7 @@
 // The shell reads and dispatches to the store; it does no I/O. Reads, read marks and cancels are the caller's
 // (main.ts) and arrive as ShellIntents.
 
-import { isInformation, type Outcome } from "../data/client.ts"
+import { isInformation, refusalCode, type Outcome } from "../data/client.ts"
 import { compatTells, type CompatReport, type Feature } from "../data/compat.ts"
 import type { IssueIndex } from "../data/index.ts"
 import { refreshTime } from "../data/refresh.ts"
@@ -395,7 +395,11 @@ export function mountShell(root: HTMLElement, options: ShellOptions): Shell {
     initTold = key
     if (!key) return void init.replaceChildren()
     const parts: Node[] = [el(doc, "p", {}, words.lead)]
-    if (current.init.problem) parts.push(el(doc, "p", { class: "moai-init-problem" }, words.failed, " ", ...(describe(current.init.problem, copy, doc)?.parts ?? [copy.failed])))
+    const problem = current.init.problem
+    // A catalog without init refuses it as `unsupported-daemon`, whose shared words blame an old runtime: here it is the
+    // daemon not offering init from the panel yet, and the command above still works (se-x8t1).
+    if (problem && refusalCode(problem) === "unsupported-daemon") parts.push(el(doc, "p", { class: "moai-init-problem" }, words.unsupported[0], el(doc, "code", {}, "moai init"), words.unsupported[1]))
+    else if (problem) parts.push(el(doc, "p", { class: "moai-init-problem" }, words.failed, " ", ...(describe(problem, copy, doc)?.parts ?? [copy.failed])))
     const start = button(doc, { label: current.init.running ? words.running : words.start, variant: "primary", small: true, disabled: current.init.running, onClick: () => intents.initProject?.() })
     parts.push(el(doc, "div", { class: "moai-init-actions" }, start))
     init.replaceChildren(...parts)
