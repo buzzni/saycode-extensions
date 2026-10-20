@@ -7,7 +7,7 @@ The board adds no tasks (2.0.0 dropped the add field and the `add` profile). The
 
 ## Compatibility
 
-The extension and `moai` keep independent version numbers. Extension 2.0.0 needs:
+The extension and `moai` keep independent version numbers. Extension 2.1.0 needs:
 
 | Needs | Version | Notes |
 |---|---|---|
@@ -22,8 +22,9 @@ and its skill status has no `optional` field, so the panel shows terminal instru
 The remaining 15 profiles were executed successfully through the daemon's managed-tool handler on macOS.
 This is validation of the candidate, not evidence that the daemon has been published.
 
-Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update still ships before extension
-2.0.0.
+Release order: the `moai` upstream release is out (0.17.0); the daemon catalog update (with `init`, upstream request
+1.9) still ships before extension 2.1.0. Without `init` in the catalog the panel's init button is refused and says
+so, beside the command to run by hand.
 
 ## Profiles
 
