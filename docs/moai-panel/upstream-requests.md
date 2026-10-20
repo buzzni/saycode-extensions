@@ -436,7 +436,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 - `--no-register`: 사람의 프로젝트 목록(`~/.config/moai`)은 패널이 바꿀 것이 아니다.
 - **merge driver 경로.** 데몬에서 돌린 init은 `.git/config`의 merge driver에 관리 moai의 절대 경로(`~/.happy/managed-tools/buzzni.moai/0.17.0/moai`)를 적는다. PATH의 `moai`가 자기와 같은 파일이 아니기 때문이다(1.7의 훅과 같은 이유). 고정 판이 바뀌어 그 경로가 죽으면 driver는 `git merge-file`로 떨어져 병합은 되지만, 이슈 단위 3-way 병합은 잃는다. 터미널에서 `moai init`을 다시 돌리면 살아 있는 경로로 바뀐다. 철자를 명시하는 moai 옵션은 2절 15번에 요청한다.
 - 카탈로그에 없으면 `unsupported-daemon`으로 거부되고, 패널은 그 이유를 init 배너에 쓴다. 호환성 배너는 이것을 세지 않는다(읽기는 모두 그대로 된다). 손으로 하는 안내(`moai init`)는 그 위에 남는다.
-- **데몬 담당에게 확인할 것:** `writeScope: project`가 프로젝트 폴더 밖 쓰기를 막는다면, 연결된 워크트리에서는 `.git/config`가 메인 체크아웃의 git 공용 폴더에 있어 driver 쓰기가 막힐 수 있다. 그때 init은 git 오류로 끝나고, 패널은 그 이유를 배너에 보인다.
+- **데몬의 `project` 쓰기 정책(aplus.342, `createManagedProjectWriteScopePolicy`)은 경로를 가두지 않는다.** `.moai`가 작업 폴더 밖을 가리키거나 `.git`·`.claude`·`.aplus`·`AGENTS.md`·`CLAUDE.md`가 심볼릭 링크면 거부하고, 작업 폴더 하나에 쓰기 하나만 동시에 허용한다. 그래서 연결된 워크트리에서도 init은 메인 체크아웃의 git 공용 폴더에 있는 `.git/config`에 driver를 쓴다. 쓰기를 폴더 안에 가두는 정책으로 바뀌면 이 프로필은 워크트리에서 git 오류로 끝나고, 패널은 그 이유를 배너에 보인다.
 
 ## 2. moai CLI 상류
 
