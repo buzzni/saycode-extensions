@@ -19,7 +19,10 @@ export const SLACK_RECEIVE_IDLE_MAX_MS = 3_000
 /** The ceiling after a failed call, so a broken capability is not retried every few seconds. */
 export const SLACK_RECEIVE_MAX_MS = 30_000
 
-export function nextSlackReceiveDelayMs(currentDelayMs: number, hadEvents: boolean, failed = false): number {
+/** `idleMaxMs` is raised to `SLACK_RECEIVE_MAX_MS` when Core wakes the loop itself (an intake hint). */
+export function nextSlackReceiveDelayMs(
+  currentDelayMs: number, hadEvents: boolean, failed = false, idleMaxMs = SLACK_RECEIVE_IDLE_MAX_MS,
+): number {
   if (hadEvents) return SLACK_RECEIVE_BASE_MS
-  return Math.min(Math.max(currentDelayMs, SLACK_RECEIVE_BASE_MS) * 2, failed ? SLACK_RECEIVE_MAX_MS : SLACK_RECEIVE_IDLE_MAX_MS)
+  return Math.min(Math.max(currentDelayMs, SLACK_RECEIVE_BASE_MS) * 2, failed ? SLACK_RECEIVE_MAX_MS : idleMaxMs)
 }

@@ -16,7 +16,10 @@ export const DISCORD_RECEIVE_IDLE_MAX_MS = 3_000
 /** The ceiling after a failed call, so a broken capability is not retried every few seconds. */
 export const DISCORD_RECEIVE_MAX_MS = 30_000
 
-export function nextDiscordReceiveDelayMs(currentDelayMs: number, hadEvents: boolean, failed = false): number {
+/** `idleMaxMs` is raised to `DISCORD_RECEIVE_MAX_MS` when Core wakes the loop itself (an intake hint). */
+export function nextDiscordReceiveDelayMs(
+  currentDelayMs: number, hadEvents: boolean, failed = false, idleMaxMs = DISCORD_RECEIVE_IDLE_MAX_MS,
+): number {
   if (hadEvents) return DISCORD_RECEIVE_BASE_MS
-  return Math.min(Math.max(currentDelayMs, DISCORD_RECEIVE_BASE_MS) * 2, failed ? DISCORD_RECEIVE_MAX_MS : DISCORD_RECEIVE_IDLE_MAX_MS)
+  return Math.min(Math.max(currentDelayMs, DISCORD_RECEIVE_BASE_MS) * 2, failed ? DISCORD_RECEIVE_MAX_MS : idleMaxMs)
 }

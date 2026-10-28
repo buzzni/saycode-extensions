@@ -17,7 +17,10 @@ export const TELEGRAM_POLL_IDLE_MAX_MS = 3_000
 /** The ceiling after a failed call, so a broken capability is not retried every few seconds. */
 export const TELEGRAM_POLL_MAX_MS = 30_000
 
-export function nextTelegramPollDelayMs(currentDelayMs: number, hadEvents: boolean, failed = false): number {
+/** `idleMaxMs` is raised to `TELEGRAM_POLL_MAX_MS` when Core wakes the loop itself (an intake hint). */
+export function nextTelegramPollDelayMs(
+  currentDelayMs: number, hadEvents: boolean, failed = false, idleMaxMs = TELEGRAM_POLL_IDLE_MAX_MS,
+): number {
   if (hadEvents) return TELEGRAM_POLL_BASE_MS
-  return Math.min(Math.max(currentDelayMs, TELEGRAM_POLL_BASE_MS) * 2, failed ? TELEGRAM_POLL_MAX_MS : TELEGRAM_POLL_IDLE_MAX_MS)
+  return Math.min(Math.max(currentDelayMs, TELEGRAM_POLL_BASE_MS) * 2, failed ? TELEGRAM_POLL_MAX_MS : idleMaxMs)
 }
