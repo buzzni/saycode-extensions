@@ -190,7 +190,7 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
     } catch (error) {
       if (currentEpoch !== epoch) return
       deps.onError?.(error)
-      delayMs = nextTelegramPollDelayMs(delayMs, false)
+      delayMs = nextTelegramPollDelayMs(delayMs, false, true)
       await delay(delayMs)
       return
     }
@@ -225,7 +225,7 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
       }
     }
 
-    delayMs = nextTelegramPollDelayMs(delayMs, batchComplete && hadEvents)
+    delayMs = nextTelegramPollDelayMs(delayMs, batchComplete && hadEvents, !batchComplete)
     await delay(delayMs)
   }
 

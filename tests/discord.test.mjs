@@ -201,12 +201,51 @@ test('mapDiscordStructuredCommand refuses use/prompt when the required argument 
 
 // ---- backoff (white-box: pure function) --------------------------------------------------------
 
-test('receive backoff resets on events and is bounded when idle', async () => {
-  const { nextDiscordReceiveDelayMs, DISCORD_RECEIVE_BASE_MS, DISCORD_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
-  let delay = DISCORD_RECEIVE_BASE_MS
-  for (let i = 0; i < 10; i++) delay = nextDiscordReceiveDelayMs(delay, false)
-  assert.equal(delay, DISCORD_RECEIVE_MAX_MS)
-  assert.equal(nextDiscordReceiveDelayMs(delay, true), DISCORD_RECEIVE_BASE_MS)
+test('receive backoff resets on events, stays short while idle, and backs off further only on failure', async () => {
+  const { nextDiscordReceiveDelayMs, DISCORD_RECEIVE_BASE_MS, DISCORD_RECEIVE_IDLE_MAX_MS, DISCORD_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
+  let idle = DISCORD_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) idle = nextDiscordReceiveDelayMs(idle, false)
+  assert.equal(idle, DISCORD_RECEIVE_IDLE_MAX_MS)
+  assert.ok(DISCORD_RECEIVE_IDLE_MAX_MS <= 3_000)
+  let failing = DISCORD_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) failing = nextDiscordReceiveDelayMs(failing, false, true)
+  assert.equal(failing, DISCORD_RECEIVE_MAX_MS)
+  // An empty window after a failure is idle again, not still failing.
+  assert.equal(nextDiscordReceiveDelayMs(failing, false), DISCORD_RECEIVE_IDLE_MAX_MS)
+  assert.equal(nextDiscordReceiveDelayMs(failing, true), DISCORD_RECEIVE_BASE_MS)
+})
+
+// Core admits messages in real time but has no "new work is waiting" push, so the time between a
+// message arriving and this adapter dispatching it is the idle poll interval. It was 30s, and a
+// follow-up sent after a short pause sat in Core's queue for up to that long.
+test('an idle connection dispatches a new message within 3s, however long it has been quiet', async (t) => {
+  const { createDiscordIntakeRuntime } = await bundleModule('src/intakeLoop.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createDiscordIntakeRuntime({ invokeCapability, connectionId: 'conn-1' })
+  runtime.start()
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settle() }
+  // Arrive just after a poll: the worst case, where the whole idle interval is waited out.
+  const before = receives
+  while (receives === before) { t.mock.timers.tick(1_000); await settle() }
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  t.mock.timers.tick(3_000)
+  await settle()
+
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
 })
 
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --

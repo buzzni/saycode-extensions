@@ -195,7 +195,7 @@ export function createDiscordIntakeRuntime(deps: DiscordIntakeRuntimeDeps): Disc
     } catch (error) {
       if (currentEpoch !== epoch) return
       deps.onError?.(error)
-      delayMs = nextDiscordReceiveDelayMs(delayMs, false)
+      delayMs = nextDiscordReceiveDelayMs(delayMs, false, true)
       await delay(delayMs)
       return
     }
@@ -230,7 +230,7 @@ export function createDiscordIntakeRuntime(deps: DiscordIntakeRuntimeDeps): Disc
       }
     }
 
-    delayMs = nextDiscordReceiveDelayMs(delayMs, batchComplete && hadEvents)
+    delayMs = nextDiscordReceiveDelayMs(delayMs, batchComplete && hadEvents, !batchComplete)
     await delay(delayMs)
   }
 

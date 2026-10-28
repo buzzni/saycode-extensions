@@ -156,12 +156,51 @@ test('unrecognized bracketed content â€” plain text or code, not Slack markup â€
 
 // ---- backoff (white-box: pure function) --------------------------------------------------------
 
-test('receive backoff resets on events and is bounded when idle', async () => {
-  const { nextSlackReceiveDelayMs, SLACK_RECEIVE_BASE_MS, SLACK_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
-  let delay = SLACK_RECEIVE_BASE_MS
-  for (let i = 0; i < 10; i++) delay = nextSlackReceiveDelayMs(delay, false)
-  assert.equal(delay, SLACK_RECEIVE_MAX_MS)
-  assert.equal(nextSlackReceiveDelayMs(delay, true), SLACK_RECEIVE_BASE_MS)
+test('receive backoff resets on events, stays short while idle, and backs off further only on failure', async () => {
+  const { nextSlackReceiveDelayMs, SLACK_RECEIVE_BASE_MS, SLACK_RECEIVE_IDLE_MAX_MS, SLACK_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
+  let idle = SLACK_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) idle = nextSlackReceiveDelayMs(idle, false)
+  assert.equal(idle, SLACK_RECEIVE_IDLE_MAX_MS)
+  assert.ok(SLACK_RECEIVE_IDLE_MAX_MS <= 3_000)
+  let failing = SLACK_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) failing = nextSlackReceiveDelayMs(failing, false, true)
+  assert.equal(failing, SLACK_RECEIVE_MAX_MS)
+  // An empty window after a failure is idle again, not still failing.
+  assert.equal(nextSlackReceiveDelayMs(failing, false), SLACK_RECEIVE_IDLE_MAX_MS)
+  assert.equal(nextSlackReceiveDelayMs(failing, true), SLACK_RECEIVE_BASE_MS)
+})
+
+// Core admits messages in real time but has no "new work is waiting" push, so the time between a
+// message arriving and this adapter dispatching it is the idle poll interval. It was 30s, and a
+// follow-up sent after a short pause sat in Core's queue for up to that long.
+test('an idle connection dispatches a new message within 3s, however long it has been quiet', async (t) => {
+  const { createSlackIntakeRuntime } = await bundleModule('src/intakeLoop.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createSlackIntakeRuntime({ invokeCapability, connectionId: 'conn-1' })
+  runtime.start()
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settle() }
+  // Arrive just after a poll: the worst case, where the whole idle interval is waited out.
+  const before = receives
+  while (receives === before) { t.mock.timers.tick(1_000); await settle() }
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  t.mock.timers.tick(3_000)
+  await settle()
+
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
 })
 
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --

@@ -8,9 +8,16 @@
  */
 
 export const TELEGRAM_POLL_BASE_MS = 1_000
+/**
+ * The ceiling while Core simply has nothing waiting. It is also the longest a message that arrives
+ * during a quiet stretch waits before this adapter sees it, since nothing tells the adapter it
+ * arrived; at 30s a follow-up sent after a short pause sat in Core's queue for up to that long.
+ */
+export const TELEGRAM_POLL_IDLE_MAX_MS = 3_000
+/** The ceiling after a failed call, so a broken capability is not retried every few seconds. */
 export const TELEGRAM_POLL_MAX_MS = 30_000
 
-export function nextTelegramPollDelayMs(currentDelayMs: number, hadEvents: boolean): number {
+export function nextTelegramPollDelayMs(currentDelayMs: number, hadEvents: boolean, failed = false): number {
   if (hadEvents) return TELEGRAM_POLL_BASE_MS
-  return Math.min(Math.max(currentDelayMs, TELEGRAM_POLL_BASE_MS) * 2, TELEGRAM_POLL_MAX_MS)
+  return Math.min(Math.max(currentDelayMs, TELEGRAM_POLL_BASE_MS) * 2, failed ? TELEGRAM_POLL_MAX_MS : TELEGRAM_POLL_IDLE_MAX_MS)
 }

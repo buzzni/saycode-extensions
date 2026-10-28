@@ -178,7 +178,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
     } catch (error) {
       if (currentEpoch !== epoch) return
       deps.onError?.(error)
-      delayMs = nextSlackReceiveDelayMs(delayMs, false)
+      delayMs = nextSlackReceiveDelayMs(delayMs, false, true)
       await delay(delayMs)
       return
     }
@@ -213,7 +213,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
       }
     }
 
-    delayMs = nextSlackReceiveDelayMs(delayMs, batchComplete && hadEvents)
+    delayMs = nextSlackReceiveDelayMs(delayMs, batchComplete && hadEvents, !batchComplete)
     await delay(delayMs)
   }
 
