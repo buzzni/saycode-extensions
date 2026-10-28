@@ -4,6 +4,9 @@ import type {
   ExtensionChannelIntake,
   ExtensionChannelIntakeHandler,
   ExtensionChannelLifecycle,
+  ExtensionChannelNormalizeMessagesRequest,
+  ExtensionChannelNormalizeMessagesResult,
+  ExtensionChannelNormalizer,
   ExtensionChannelReplyFormatter,
   ExtensionChannelReplyFormatRequest,
   ExtensionChannelReplyFormatResult,
@@ -11,6 +14,9 @@ import type {
   JsonValue,
   SaycodeExtension,
 } from '@buzzni/saycode-extension-sdk'
+import { checkNormalizeResult } from './channelNormalize.js'
+
+export { fakeSlackHistory, type FakeSlackHistoryOptions, type FakeSlackMessage } from './channelNormalize.js'
 
 export interface ExtensionTestHost {
   activate(extension: SaycodeExtension): Promise<void>
@@ -19,6 +25,8 @@ export interface ExtensionTestHost {
   /** Sends an intake hint; a no-op when the extension registered no `onIntake` handler. */
   deliverIntake(event: ExtensionChannelIntake): Promise<void>
   formatChannelReply(input: ExtensionChannelReplyFormatRequest): Promise<ExtensionChannelReplyFormatResult>
+  /** Rejects a result Core's strict parser would discard as a whole (contracts §5.2 rules 1–2). */
+  normalizeChannelMessages(input: ExtensionChannelNormalizeMessagesRequest): Promise<ExtensionChannelNormalizeMessagesResult>
   deactivate(): Promise<void>
 }
 
@@ -40,6 +48,7 @@ export function createTestHost(
   const channels = new Map<string, ExtensionChannelHandler>()
   const formatters = new Map<string, ExtensionChannelReplyFormatter>()
   const intakeHandlers = new Map<string, ExtensionChannelIntakeHandler>()
+  const normalizers = new Map<string, ExtensionChannelNormalizer>()
   let active: SaycodeExtension | null = null
   return {
     async activate(extension) {
@@ -48,6 +57,7 @@ export function createTestHost(
       const registeredChannels = new Map<string, ExtensionChannelHandler>()
       const registeredFormatters = new Map<string, ExtensionChannelReplyFormatter>()
       const registeredIntake = new Map<string, ExtensionChannelIntakeHandler>()
+      const registeredNormalizers = new Map<string, ExtensionChannelNormalizer>()
       await extension.activate({
         extensionId,
         invokeCapability(permission, action, args) {
@@ -77,6 +87,12 @@ export function createTestHost(
               registeredIntake.set(id, handler)
             },
           }),
+          registerNormalizer(id, normalizer) {
+            if (!id.startsWith(`${extensionId}.`) || registeredNormalizers.has(id) || typeof normalizer !== 'function') {
+              throw new Error('normalizer must be namespaced and registered once')
+            }
+            registeredNormalizers.set(id, normalizer)
+          },
         },
         commands: {
           register(id, handler) {
@@ -90,6 +106,7 @@ export function createTestHost(
       for (const [id, handler] of registeredChannels) channels.set(id, handler)
       for (const [id, formatter] of registeredFormatters) formatters.set(id, formatter)
       for (const [id, handler] of registeredIntake) intakeHandlers.set(id, handler)
+      for (const [id, normalizer] of registeredNormalizers) normalizers.set(id, normalizer)
       active = extension
     },
     async invokeCommand(id, args) {
@@ -113,6 +130,12 @@ export function createTestHost(
       if (!formatter) throw new Error('channel formatter is not registered')
       return formatter(Object.freeze({ ...input }))
     },
+    async normalizeChannelMessages(input) {
+      if (!active) throw new Error('test host is not active')
+      const normalizer = normalizers.get(input.channelId)
+      if (!normalizer) throw new Error('channel normalizer is not registered')
+      return checkNormalizeResult(await normalizer(Object.freeze({ ...input })), input)
+    },
     async deactivate() {
       const extension = active
       active = null
@@ -120,6 +143,7 @@ export function createTestHost(
       channels.clear()
       formatters.clear()
       intakeHandlers.clear()
+      normalizers.clear()
       await extension?.deactivate?.()
     },
   }
