@@ -231,6 +231,9 @@ test('fake Slack history refuses projections Core would never send', () => {
     [{ blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'broadcast', range: 'invalid' }] }] }] }, /range: unsupported invalid/],
     [{ attachments: [{ is_share: 'false' }] }, /is_share: expected a boolean/],
     [{ files: [{ name: 'a.png', size: 'large' }] }, /size: expected a byte count/],
+    // A type naming an inherited property (`toString`) is not a shape.
+    [{ blocks: [{ type: 'toString', accessory: { type: 'image', image_url: 'https://a.b/c.png' } }] }, /blocks\[0\]\.type: unsupported toString/],
+    [{ blocks: [{ type: 'rich_text', elements: [{ type: 'constructor', elements: [] }] }] }, /elements\[0\]\.type: unsupported constructor/],
     // A hole in an array is `null` on the wire.
     [{ blocks: new Array(1) }, /blocks\[0\]\.type: unsupported undefined/],
   ]

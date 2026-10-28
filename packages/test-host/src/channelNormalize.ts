@@ -146,7 +146,7 @@ const shape = (fields: Shape, required: readonly string[] = []): Check => (value
 /** Picks the shape by `type`; an unknown type is unsupported rather than an unknown field. */
 const byType = (shapes: Record<string, Check>): Check => (value, path) => {
   const type = (value as { type?: unknown } | null)?.type
-  const check = typeof type === 'string' ? shapes[type] : undefined
+  const check = typeof type === 'string' && Object.hasOwn(shapes, type) ? shapes[type] : undefined
   if (!check) throw new Error(`${path}.type: unsupported ${String(type)}`)
   check(value, path)
 }
