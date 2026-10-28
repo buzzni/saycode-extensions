@@ -14,6 +14,7 @@
     "package:plugin-manager": "npm run --workspace @buzzni/saycode-extension-plugin-manager pack",
     "package:artifact-publisher": "npm run --workspace @buzzni/saycode-extension-artifact-publisher pack",
     "package:media-preview": "npm run --workspace @buzzni/saycode-extension-media-preview pack",
+    "package:react-source-locator": "npm run --workspace @buzzni/saycode-extension-react-source-locator pack",
     "package:telegram": "npm run --workspace @buzzni/saycode-extension-telegram pack",
     "package:slack": "npm run --workspace @buzzni/saycode-extension-slack pack",
     "package:discord": "npm run --workspace @buzzni/saycode-extension-discord pack",

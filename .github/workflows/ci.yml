@@ -55,6 +55,8 @@ jobs:
       - run: npm run package:fixture
       - run: node --test packages/media-preview/tests/*.test.mjs
       - run: npm run package:media-preview
+      - run: node --test packages/react-source-locator/tests/*.test.mjs
+      - run: npm run package:react-source-locator
 
   publish-contract:
     # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first
