@@ -27,6 +27,8 @@ export interface TelegramPollRuntimeDeps {
   sleep?(ms: number): Promise<void>
   mintClientRequestId?(): string
   onError?(error: unknown): void
+  /** The empty-window ceiling; raised when Core sends intake hints, since a hint wakes the loop. */
+  idleMaxMs?: number
 }
 
 export interface TelegramPollRuntime {
@@ -34,6 +36,12 @@ export interface TelegramPollRuntime {
   start(): void
   /** Idempotent and awaitable: resolves once the in-flight iteration has actually exited. */
   stop(): Promise<void>
+  /**
+   * Core queued something: ask now instead of waiting out the idle delay. A hint that arrives while
+   * a receive is already out is kept for the next wait, because that receive may have read the
+   * queue just before the message landed.
+   */
+  hint(): void
 }
 
 /**
@@ -124,12 +132,15 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
   // Bounded FIFO: `Set` preserves insertion order, so the oldest key is always `.values().next()`.
   const dispatched = new Set<string>()
 
+  let pendingHint = false
+
   function wake(): void {
     cancelPendingDelay?.()
     cancelPendingDelay = null
   }
 
   async function delay(ms: number): Promise<void> {
+    if (pendingHint) { pendingHint = false; return }
     if (deps.sleep) return deps.sleep(ms)
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, ms)
@@ -190,7 +201,7 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
     } catch (error) {
       if (currentEpoch !== epoch) return
       deps.onError?.(error)
-      delayMs = nextTelegramPollDelayMs(delayMs, false)
+      delayMs = nextTelegramPollDelayMs(delayMs, false, true)
       await delay(delayMs)
       return
     }
@@ -225,7 +236,7 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
       }
     }
 
-    delayMs = nextTelegramPollDelayMs(delayMs, batchComplete && hadEvents)
+    delayMs = nextTelegramPollDelayMs(delayMs, batchComplete && hadEvents, !batchComplete, deps.idleMaxMs)
     await delay(delayMs)
   }
 
@@ -245,6 +256,10 @@ export function createTelegramPollRuntime(deps: TelegramPollRuntimeDeps): Telegr
         .catch((error) => deps.onError?.(error))
         .then(() => { inFlightGenerations.delete(generation) })
       inFlightGenerations.add(generation)
+    },
+    hint() {
+      if (cancelPendingDelay) wake()
+      else pendingHint = true
     },
     async stop() {
       epoch += 1

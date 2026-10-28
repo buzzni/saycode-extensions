@@ -8,6 +8,7 @@ import type {
 import { formatSlackApproval } from './approval.js'
 import { formatSlackReply } from './reply.js'
 import { createSlackIntakeRuntime, type SlackIntakeRuntime } from './intakeLoop.js'
+import { SLACK_RECEIVE_MAX_MS } from './backoff.js'
 
 /** Must equal the `channels` contribution id in `extension.json`. */
 export const SLACK_CHANNEL_ID = 'buzzni.slack.bot'
@@ -16,12 +17,19 @@ export default defineExtension({
   activate(context) {
     const runtimes = new Map<string, SlackIntakeRuntime>()
 
+    // A Desktop that sends intake hints wakes the loop when Core queues a message, so a quiet
+    // connection can ask rarely. An older Desktop has no `onIntake`, and the loop keeps its short
+    // idle poll there. Polling stays either way: a hint can be missed.
+    const hinted = typeof context.channels.onIntake === 'function'
+    context.channels.onIntake?.(SLACK_CHANNEL_ID, (event) => { runtimes.get(event.connectionId)?.hint() })
+
     context.channels.register(SLACK_CHANNEL_ID, (event: ExtensionChannelLifecycle) => {
       if (event.state === 'start') {
         runtimes.get(event.connectionId)?.stop().catch(() => undefined)
         const runtime = createSlackIntakeRuntime({
           invokeCapability: context.invokeCapability,
           connectionId: event.connectionId,
+          ...(hinted ? { idleMaxMs: SLACK_RECEIVE_MAX_MS } : {}),
         })
         runtimes.set(event.connectionId, runtime)
         runtime.start()

@@ -1,6 +1,8 @@
 import type {
   ExtensionCommandHandler,
   ExtensionChannelHandler,
+  ExtensionChannelIntake,
+  ExtensionChannelIntakeHandler,
   ExtensionChannelLifecycle,
   ExtensionChannelReplyFormatter,
   ExtensionChannelReplyFormatRequest,
@@ -14,6 +16,8 @@ export interface ExtensionTestHost {
   activate(extension: SaycodeExtension): Promise<void>
   invokeCommand(id: string, args: JsonValue[]): Promise<JsonValue>
   deliverChannelLifecycle(event: ExtensionChannelLifecycle): Promise<void>
+  /** Sends an intake hint; a no-op when the extension registered no `onIntake` handler. */
+  deliverIntake(event: ExtensionChannelIntake): Promise<void>
   formatChannelReply(input: ExtensionChannelReplyFormatRequest): Promise<ExtensionChannelReplyFormatResult>
   deactivate(): Promise<void>
 }
@@ -24,6 +28,8 @@ export interface ExtensionTestHostOptions {
     action: string,
     args: JsonValue,
   ): Promise<JsonValue>
+  /** `false` imitates a Desktop that predates intake hints: the context has no `onIntake`. */
+  intake?: boolean
 }
 
 export function createTestHost(
@@ -33,6 +39,7 @@ export function createTestHost(
   const commands = new Map<string, ExtensionCommandHandler>()
   const channels = new Map<string, ExtensionChannelHandler>()
   const formatters = new Map<string, ExtensionChannelReplyFormatter>()
+  const intakeHandlers = new Map<string, ExtensionChannelIntakeHandler>()
   let active: SaycodeExtension | null = null
   return {
     async activate(extension) {
@@ -40,6 +47,7 @@ export function createTestHost(
       const registered = new Map<string, ExtensionCommandHandler>()
       const registeredChannels = new Map<string, ExtensionChannelHandler>()
       const registeredFormatters = new Map<string, ExtensionChannelReplyFormatter>()
+      const registeredIntake = new Map<string, ExtensionChannelIntakeHandler>()
       await extension.activate({
         extensionId,
         invokeCapability(permission, action, args) {
@@ -61,6 +69,14 @@ export function createTestHost(
             }
             registeredFormatters.set(id, formatter)
           },
+          ...(options.intake === false ? {} : {
+            onIntake(id: string, handler: ExtensionChannelIntakeHandler) {
+              if (!id.startsWith(`${extensionId}.`) || registeredIntake.has(id) || typeof handler !== 'function') {
+                throw new Error('intake handler must be namespaced and registered once')
+              }
+              registeredIntake.set(id, handler)
+            },
+          }),
         },
         commands: {
           register(id, handler) {
@@ -73,6 +89,7 @@ export function createTestHost(
       for (const [id, handler] of registered) commands.set(id, handler)
       for (const [id, handler] of registeredChannels) channels.set(id, handler)
       for (const [id, formatter] of registeredFormatters) formatters.set(id, formatter)
+      for (const [id, handler] of registeredIntake) intakeHandlers.set(id, handler)
       active = extension
     },
     async invokeCommand(id, args) {
@@ -86,6 +103,10 @@ export function createTestHost(
       if (!handler) throw new Error('channel is not registered')
       await handler(Object.freeze({ ...event }))
     },
+    async deliverIntake(event) {
+      if (!active) throw new Error('test host is not active')
+      await intakeHandlers.get(event.channelId)?.(Object.freeze({ ...event }))
+    },
     async formatChannelReply(input) {
       if (!active) throw new Error('test host is not active')
       const formatter = formatters.get(input.channelId)
@@ -98,6 +119,7 @@ export function createTestHost(
       commands.clear()
       channels.clear()
       formatters.clear()
+      intakeHandlers.clear()
       await extension?.deactivate?.()
     },
   }

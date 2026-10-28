@@ -140,12 +140,51 @@ test('/use and /start are recognized as Core\'s own aliases for select and new (
 
 // ---- backoff (white-box: pure function) --------------------------------------------------------
 
-test('poll backoff resets on events and is bounded when idle', async () => {
-  const { nextTelegramPollDelayMs, TELEGRAM_POLL_BASE_MS, TELEGRAM_POLL_MAX_MS } = await bundleModule('src/backoff.ts')
-  let delay = TELEGRAM_POLL_BASE_MS
-  for (let i = 0; i < 10; i++) delay = nextTelegramPollDelayMs(delay, false)
-  assert.equal(delay, TELEGRAM_POLL_MAX_MS)
-  assert.equal(nextTelegramPollDelayMs(delay, true), TELEGRAM_POLL_BASE_MS)
+test('poll backoff resets on events, stays short while idle, and backs off further only on failure', async () => {
+  const { nextTelegramPollDelayMs, TELEGRAM_POLL_BASE_MS, TELEGRAM_POLL_IDLE_MAX_MS, TELEGRAM_POLL_MAX_MS } = await bundleModule('src/backoff.ts')
+  let idle = TELEGRAM_POLL_BASE_MS
+  for (let i = 0; i < 10; i++) idle = nextTelegramPollDelayMs(idle, false)
+  assert.equal(idle, TELEGRAM_POLL_IDLE_MAX_MS)
+  assert.ok(TELEGRAM_POLL_IDLE_MAX_MS <= 3_000)
+  let failing = TELEGRAM_POLL_BASE_MS
+  for (let i = 0; i < 10; i++) failing = nextTelegramPollDelayMs(failing, false, true)
+  assert.equal(failing, TELEGRAM_POLL_MAX_MS)
+  // An empty window after a failure is idle again, not still failing.
+  assert.equal(nextTelegramPollDelayMs(failing, false), TELEGRAM_POLL_IDLE_MAX_MS)
+  assert.equal(nextTelegramPollDelayMs(failing, true), TELEGRAM_POLL_BASE_MS)
+})
+
+// Core admits messages in real time but has no "new work is waiting" push, so the time between a
+// message arriving and this adapter dispatching it is the idle poll interval. It was 30s, and a
+// follow-up sent after a short pause sat in Core's queue for up to that long.
+test('an idle connection dispatches a new message within 3s, however long it has been quiet', async (t) => {
+  const { createTelegramPollRuntime } = await bundleModule('src/pollLoop.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createTelegramPollRuntime({ invokeCapability, connectionId: 'conn-1' })
+  runtime.start()
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settle() }
+  // Arrive just after a poll: the worst case, where the whole idle interval is waited out.
+  const before = receives
+  while (receives === before) { t.mock.timers.tick(1_000); await settle() }
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  t.mock.timers.tick(3_000)
+  await settle()
+
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
 })
 
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --
@@ -624,4 +663,91 @@ test('/clear and /reset map to the clear operation Core classifies', async () =>
   assert.deepEqual(parseTelegramCommand('/CLEAR'), { operation: 'clear' })
   // Still plain text when it is not the command word.
   assert.deepEqual(parseTelegramCommand('clear the cache please'), { operation: 'prompt', text: 'clear the cache please' })
+})
+
+// ---- intake hints (specs/channel-intake-wake) --------------------------------------------------
+
+async function hintedHost(extension, hostOptions) {
+  const waiting = []
+  const dispatched = []
+  const counter = { receives: 0 }
+  const host = createTestHost('buzzni.telegram', {
+    ...hostOptions,
+    async invokeCapability(permission, action, args) {
+      if (permission === 'channels.receive') {
+        counter.receives += 1
+        return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+      }
+      if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+      return {}
+    },
+  })
+  await host.activate(extension)
+  const identity = { apiVersion: 1, channelId: 'buzzni.telegram.bot', connectionId: 'conn-hint', provider: 'telegram', connectionRevision: 1 }
+  await host.deliverChannelLifecycle({ ...identity, state: 'start' })
+  return { host, identity, waiting, dispatched, counter }
+}
+const settleHint = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+test('with a Desktop that sends intake hints, a quiet connection polls rarely and a hint fetches a new message at once', async (t) => {
+  const packed = await packedTelegram()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { host, identity, waiting, dispatched, counter } = await hintedHost(packed.extension)
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settleHint() }
+  assert.ok(counter.receives <= 20, `polled ${counter.receives} times in five quiet minutes`)
+
+  waiting.push(envelope({ eventHandle: 'hinted', semanticMessageId: 'hinted-msg' }))
+  await host.deliverIntake(identity)
+  await settleHint()
+  assert.deepEqual(dispatched, ['hinted'])
+  await host.deliverChannelLifecycle({ ...identity, state: 'stop' })
+  await host.deactivate()
+})
+
+test('with an older Desktop that has no onIntake, activation still works and a message is fetched within 3s', async (t) => {
+  const packed = await packedTelegram()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { host, identity, waiting, dispatched, counter } = await hintedHost(packed.extension, { intake: false })
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settleHint() }
+  const before = counter.receives
+  while (counter.receives === before) { t.mock.timers.tick(1_000); await settleHint() }
+  waiting.push(envelope({ eventHandle: 'polled', semanticMessageId: 'polled-msg' }))
+  t.mock.timers.tick(3_000)
+  await settleHint()
+  assert.deepEqual(dispatched, ['polled'])
+  await host.deliverChannelLifecycle({ ...identity, state: 'stop' })
+  await host.deactivate()
+})
+
+test('a hint that lands while a receive is in flight is not lost to the long idle wait', async (t) => {
+  const { createTelegramPollRuntime } = await bundleModule('src/pollLoop.ts')
+  const { TELEGRAM_POLL_MAX_MS } = await bundleModule('src/backoff.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  let releaseReceive = null
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      const events = waiting.splice(0)
+      if (receives === 3) await new Promise((resolve) => { releaseReceive = resolve })
+      return { events, cursor: events.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createTelegramPollRuntime({ invokeCapability, connectionId: 'conn-1', idleMaxMs: TELEGRAM_POLL_MAX_MS })
+  runtime.start()
+  while (releaseReceive === null) { t.mock.timers.tick(1_000); await settleHint() }
+  // The message lands after this receive read the queue, so it comes back empty; the hint for it
+  // arrives while the call is still out.
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  runtime.hint()
+  releaseReceive()
+  await settleHint()
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
 })

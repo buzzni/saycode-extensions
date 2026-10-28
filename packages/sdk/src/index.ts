@@ -26,6 +26,13 @@ export interface ExtensionChannelLifecycle {
   connectionRevision: number
 }
 export type ExtensionChannelHandler = (event: ExtensionChannelLifecycle) => void | Promise<void>
+/**
+ * "Core has queued something for this connection" (Desktop specs/channel-intake-wake). A hint only:
+ * no message and no state — read the work through `channels.receive` as usual, and keep polling,
+ * because a hint can be missed.
+ */
+export type ExtensionChannelIntake = Omit<ExtensionChannelLifecycle, 'state'>
+export type ExtensionChannelIntakeHandler = (event: ExtensionChannelIntake) => void | Promise<void>
 
 /** Only Core-approved current final/status text; chunk limits count UTF-16 code units. */
 interface ChannelReplyFormatBase extends Omit<ExtensionChannelLifecycle, 'state'> {
@@ -67,6 +74,8 @@ export interface ExtensionContext {
     register(id: string, handler: ExtensionChannelHandler): void
     /** Return nonempty Unicode-safe chunks whose concatenation is exactly the supplied text. */
     registerFormatter(id: string, formatter: ExtensionChannelReplyFormatter): void
+    /** Absent on a Desktop that does not send intake hints; check before calling. */
+    onIntake?(id: string, handler: ExtensionChannelIntakeHandler): void
   }
   invokeCapability(permission: ExtensionPermission, action: string, args: JsonValue): Promise<JsonValue>
   readonly commands: {
