@@ -188,12 +188,15 @@ async function pack(projectPath: string): Promise<void> {
       addFile(zip, panel.entrypoint, panelBytes)
     }
     for (const inspector of manifest.contributes.elementPickInspectors ?? []) {
-      const scriptPath = join(root, inspector.script)
+      // Contained before any file access, and again after following links.
+      const scriptPath = resolve(root, inspector.script)
+      if (!scriptPath.startsWith(`${root}${sep}`)) throw new Error(`inspector script must stay inside the extension: ${inspector.script}`)
       const scriptStat = await lstat(scriptPath)
       if (scriptStat.isSymbolicLink() || !scriptStat.isFile()) throw new Error(`inspector script must be a regular file: ${inspector.script}`)
       const realRoot = await realpath(root)
-      if (!(await realpath(scriptPath)).startsWith(`${realRoot}${sep}`)) throw new Error(`inspector script must stay inside the extension: ${inspector.script}`)
-      const scriptBytes = await readFile(scriptPath)
+      const realScriptPath = await realpath(scriptPath)
+      if (!realScriptPath.startsWith(`${realRoot}${sep}`)) throw new Error(`inspector script must stay inside the extension: ${inspector.script}`)
+      const scriptBytes = await readFile(realScriptPath)
       assertInspectorLoadable(inspector.script, scriptBytes)
       addFile(zip, inspector.script, scriptBytes)
     }
