@@ -151,6 +151,14 @@ function assertPanelLoadable(entrypoint: string, bytes: Buffer): void {
   }
 }
 
+// Mirrors Desktop electron/extensions/installedElementPickInspectorService.ts: an inspector script is read as at most
+// 64 KiB of strict UTF-8; a larger one installs fine and then never runs.
+const MAX_INSPECTOR_BYTES = 64 * 1024
+function assertInspectorLoadable(script: string, bytes: Buffer): void {
+  if (bytes.byteLength > MAX_INSPECTOR_BYTES) throw new Error(`inspector script ${script} is ${bytes.byteLength} bytes; Desktop loads at most 64 KiB`)
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { throw new Error(`inspector script ${script} must be valid UTF-8`) }
+}
+
 async function pack(projectPath: string): Promise<void> {
   const root = resolve(projectPath)
   const manifest = await manifestAt(root)
@@ -178,6 +186,16 @@ async function pack(projectPath: string): Promise<void> {
       const panelBytes = await readFile(realPanelPath)
       assertPanelLoadable(panel.entrypoint, panelBytes)
       addFile(zip, panel.entrypoint, panelBytes)
+    }
+    for (const inspector of manifest.contributes.elementPickInspectors ?? []) {
+      const scriptPath = join(root, inspector.script)
+      const scriptStat = await lstat(scriptPath)
+      if (scriptStat.isSymbolicLink() || !scriptStat.isFile()) throw new Error(`inspector script must be a regular file: ${inspector.script}`)
+      const realRoot = await realpath(root)
+      if (!(await realpath(scriptPath)).startsWith(`${realRoot}${sep}`)) throw new Error(`inspector script must stay inside the extension: ${inspector.script}`)
+      const scriptBytes = await readFile(scriptPath)
+      assertInspectorLoadable(inspector.script, scriptBytes)
+      addFile(zip, inspector.script, scriptBytes)
     }
     const output = resolve(argument('--output') ?? join(root, `${manifest.id}-${manifest.version}.saycode-extension`))
     await mkdir(resolve(output, '..'), { recursive: true })

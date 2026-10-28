@@ -4,7 +4,7 @@ export const EXTENSION_PERMISSIONS = [
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
-  'artifacts.publishPublic', 'filePreviews.read',
+  'artifacts.publishPublic', 'filePreviews.read', 'browserPicks.inspect',
   // One permission per channel wire method, deliberately not a single `channels.adapter`.
   // A transport adapter needs to receive and ack; being able to *control a session* or to
   // *approve a tool call once* is a different and much larger authority, and a blanket grant
@@ -89,8 +89,11 @@ export interface ExtensionProjectToolContribution {
   command: string
 }
 export interface ExtensionFileViewer { id: string; title: string; extensions: string[]; panelId: string }
+/** A static script (one function expression `(element) => result`) Desktop runs in the page for an element the user picked; API 4. */
+export interface ExtensionElementPickInspector { id: string; title: string; script: string }
 export interface ExtensionContributions {
   fileViewers?: ExtensionFileViewer[]
+  elementPickInspectors?: ExtensionElementPickInspector[]
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
   panels?: ExtensionPanelContribution[]
@@ -497,6 +500,7 @@ export function parseExtensionManifest(
   if (!SEMVER.test(version)) throw new Error('manifest.version: expected semantic version')
   const engines = record(raw.engines, 'manifest.engines')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('filePreviews.read')) throw new Error('filePreviews.read requires API 4')
+  if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('browserPicks.inspect')) throw new Error('browserPicks.inspect requires API 4')
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {
     const permission = text(item, `manifest.permissions[${index}]`)
     if (!PERMISSIONS.has(permission)) throw new Error(`manifest.permissions: unknown ${permission}`)
@@ -536,6 +540,19 @@ export function parseExtensionManifest(
     if (Object.keys(source).sort().join() !== 'extensions,id,panelId,title' || !Array.isArray(source.extensions) || !source.extensions.length || source.extensions.length > 30 || source.extensions.some(extension => typeof extension !== 'string' || !/^[a-z0-9]{1,12}$/.test(extension)) || new Set(source.extensions).size !== source.extensions.length) throw new Error('invalid fileViewers')
     return { ...contributionBase(item, `fileViewers[${index}]`), extensions: source.extensions as string[], panelId: text(source.panelId, 'fileViewers.panelId') }
   })
+  // Mirrors Desktop src/domain/extensionElementPickInspectors.ts: the permission and the contribution come together.
+  if (apiVersion < 4 && contributions.elementPickInspectors !== undefined) throw new Error('elementPickInspectors requires API 4')
+  const elementPickInspectors = contributions.elementPickInspectors === undefined ? undefined : list(contributions.elementPickInspectors, 'elementPickInspectors').map((item, index) => {
+    const path = `elementPickInspectors[${index}]`
+    const source = record(item, path)
+    if (Object.keys(source).sort().join() !== 'id,script,title') throw new Error(`${path}: expected id, title and script`)
+    const script = safePath(source.script, `${path}.script`)
+    if (!/\.(?:cjs|mjs|js)$/.test(script)) throw new Error(`${path}.script: expected a .js file`)
+    return { ...contributionBase(item, path), script }
+  })
+  if ((elementPickInspectors?.length ?? 0) > 0 !== permissions.includes('browserPicks.inspect')) {
+    throw new Error('elementPickInspectors: requires browserPicks.inspect permission and an inspector that uses it')
+  }
 
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
@@ -638,6 +655,7 @@ export function parseExtensionManifest(
       || !commands?.some((command) => command.id === action.command)
     ) throw new Error(`machineActions[${index}].id/command: expected ids declared by the same extension`)
   }
+  for (const inspector of elementPickInspectors ?? []) if (!inspector.id.startsWith(`${String(raw.id)}.`)) throw new Error('elementPickInspectors: expected an id declared by the same extension')
   for (const viewer of fileViewers ?? []) if (!viewer.id.startsWith(`${String(raw.id)}.`) || !viewer.panelId.startsWith(`${String(raw.id)}.`) || !panels?.some(panel => panel.id === viewer.panelId)) throw new Error('fileViewers must reference an owned panel')
   for (const [index, tool] of (projectTools ?? []).entries()) {
     const extensionPrefix = `${text(raw.id, 'manifest.id')}.`
@@ -703,6 +721,7 @@ export function parseExtensionManifest(
     ...(projectTools ?? []),
     ...(artifactActions ?? []),
     ...(fileViewers ?? []),
+    ...(elementPickInspectors ?? []),
     ...(channels ?? []),
   ].map((contribution) => contribution.id)
   if (new Set(contributionIds).size !== contributionIds.length) {
@@ -719,6 +738,6 @@ export function parseExtensionManifest(
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
     activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers },
+    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers, elementPickInspectors },
   }
 }

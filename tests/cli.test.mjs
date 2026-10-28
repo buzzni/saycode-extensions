@@ -167,3 +167,52 @@ test('pack writes byte-for-byte deterministic archives for the same inputs', asy
     await rm(temporary, { recursive: true, force: true })
   }
 })
+
+// Desktop specs/element-pick-source-inspector R1, R8: an API 4 extension ships a static inspector script that
+// Desktop runs in the page for a picked element. The SDK must keep the contribution and pack the script.
+async function packInspector({ apiVersion = 4, permissions = ['browserPicks.inspect'], script = 'inspector.js', content = '(element) => null', inspectors } = {}) {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-inspector-'))
+  const archive = join(temporary, 'inspector.saycode-extension')
+  try {
+    await mkdir(join(temporary, 'src'), { recursive: true })
+    await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
+    await writeFile(join(temporary, 'inspector.js'), content)
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify({
+      id: 'buzzni.inspector', version: '1.0.0', apiVersion,
+      engines: { saycode: '^1.0.0' }, entrypoint: 'index.js', permissions, activationEvents: [],
+      contributes: { elementPickInspectors: inspectors ?? [{ id: 'buzzni.inspector.source', title: 'Source', script }] },
+    }))
+    try {
+      await exec('node', [cli, 'pack', temporary, '--output', archive])
+    } catch (error) {
+      return { packed: false, stderr: String(error.stderr) }
+    }
+    const zip = await JSZip.loadAsync(await readFile(archive))
+    return { packed: true, zip, manifest: JSON.parse(await zip.file('extension.json').async('string')) }
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+}
+
+test('pack keeps an element pick inspector and ships its script', async () => {
+  const result = await packInspector()
+  assert.equal(result.packed, true, result.stderr)
+  assert.deepEqual(result.manifest.contributes.elementPickInspectors, [{ id: 'buzzni.inspector.source', title: 'Source', script: 'inspector.js' }])
+  assert.equal(await result.zip.file('inspector.js').async('string'), '(element) => null')
+})
+
+test('pack refuses an inspector without API 4, its permission, an owned id, a safe .js path, or under 64 KiB', async () => {
+  for (const options of [
+    { apiVersion: 3 },
+    { permissions: [] },
+    { inspectors: [] },
+    { inspectors: [{ id: 'other.source', title: 'Source', script: 'inspector.js' }] },
+    { script: '../inspector.js' },
+    { script: 'inspector.ts' },
+    { inspectors: [{ id: 'buzzni.inspector.source', title: 'Source', script: 'inspector.js', url: 'https://example.com' }] },
+    { content: `(e) => null // ${'x'.repeat(64 * 1024)}` },
+  ]) {
+    const result = await packInspector(options)
+    assert.equal(result.packed, false, JSON.stringify(options).slice(0, 120))
+  }
+})
