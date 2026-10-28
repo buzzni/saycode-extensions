@@ -54,11 +54,11 @@ export function fakeSlackHistory(options: FakeSlackHistoryOptions): ExtensionCha
     purpose,
     userLabels,
     items: options.messages.map((message, index) => {
-      const projection = message.projection ?? {}
+      const projection = throughWire(message.projection ?? {})
       checkProjection(projection, `items[${index}].projection`)
       return {
         itemRef: `i${index}`,
-        primaryText: message.primaryText,
+        primaryText: text(message.primaryText, `items[${index}].primaryText`),
         projection,
         maxAdditionsBytes: purpose === 'currentInput'
           ? ADDITIONS_BYTES.currentInput
@@ -66,6 +66,16 @@ export function fakeSlackHistory(options: FakeSlackHistoryOptions): ExtensionCha
       }
     }),
   }
+}
+
+/**
+ * What the other side of Desktop's JSON wire receives: a separate copy, with holes in arrays turned
+ * into `null` and `undefined` keys gone — so a normalizer can neither change the request Core judges
+ * its result against nor pass a value that only exists in memory.
+ */
+export function throughWire<T>(value: T): T {
+  const serialized = JSON.stringify(value)
+  return serialized === undefined ? undefined as T : JSON.parse(serialized) as T
 }
 
 export function checkNormalizeResult(
@@ -102,105 +112,108 @@ export function checkNormalizeResult(
 }
 
 // ---- projection allow-list (contracts §5.2 SlackMessageProjection) --------------------------------
+//
+// Every shape lists its fields with their checks and which are required; anything else is a field Core
+// never copies, so a test that relies on it would pass against a host that cannot exist.
 
-const TEXT_OBJECT = ['type', 'text']
-const BLOCK_FIELDS: Record<string, string[]> = {
-  rich_text: ['type', 'elements'],
-  section: ['type', 'text', 'fields'],
-  header: ['type', 'text'],
-  context: ['type', 'elements'],
-  table: ['type', 'rows'],
+type Check = (value: unknown, path: string) => void
+type Shape = Record<string, Check>
+
+const string: Check = (value, path) => { text(value, path) }
+const boolean: Check = (value, path) => {
+  if (typeof value !== 'boolean') throw new Error(`${path}: expected a boolean`)
 }
-const CONTAINER_TYPES = new Set(['rich_text_section', 'rich_text_quote', 'rich_text_preformatted', 'rich_text_list'])
-const LEAF_FIELDS: Record<string, string[]> = {
-  text: ['type', 'text', 'style'],
-  link: ['type', 'url', 'text'],
-  user: ['type', 'user_id'],
-  channel: ['type', 'channel_id'],
-  usergroup: ['type', 'usergroup_id'],
-  emoji: ['type', 'name'],
-  broadcast: ['type', 'range'],
+const size: Check = (value, path) => {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(`${path}: expected a byte count`)
 }
-const ATTACHMENT_FIELDS = ['text', 'fallback', 'pretext', 'title', 'author_name', 'footer',
-  'title_link', 'from_url', 'original_url', 'is_share', 'is_msg_unfurl', 'message_blocks']
-const ATTACHMENT_URLS = ['title_link', 'from_url', 'original_url']
-const FILE_FIELDS = ['name', 'title', 'filetype', 'mimetype', 'size']
+const oneOf = (...values: string[]): Check => (value, path) => {
+  if (!values.includes(value as string)) throw new Error(`${path}: unsupported ${String(value)}`)
+}
+const httpUrl: Check = (value, path) => {
+  if (typeof value !== 'string' || value.length > 2048 || !/^https?:\/\//i.test(value)) {
+    throw new Error(`${path}: expected an http(s) URL`)
+  }
+}
+const listOf = (check: Check): Check => (value, path) => {
+  array(value, path).forEach((entry, index) => check(entry, `${path}[${index}]`))
+}
+const shape = (fields: Shape, required: readonly string[] = []): Check => (value, path) => {
+  const source = known(value, path, Object.keys(fields))
+  const missing = required.find((key) => source[key] === undefined)
+  if (missing !== undefined) throw new Error(`${path}: missing field ${missing}`)
+  for (const [key, check] of Object.entries(fields)) if (source[key] !== undefined) check(source[key], `${path}.${key}`)
+}
+/** Picks the shape by `type`; an unknown type is unsupported rather than an unknown field. */
+const byType = (shapes: Record<string, Check>): Check => (value, path) => {
+  const type = (value as { type?: unknown } | null)?.type
+  const check = typeof type === 'string' ? shapes[type] : undefined
+  if (!check) throw new Error(`${path}.type: unsupported ${String(type)}`)
+  check(value, path)
+}
+
+const textObject = shape({ type: oneOf('mrkdwn', 'plain_text'), text: string }, ['type', 'text'])
+const LEAVES: Record<string, Check> = {
+  text: shape({ type: string, text: string, style: shape({ bold: boolean, italic: boolean, strike: boolean, code: boolean }) }, ['text']),
+  link: shape({ type: string, url: httpUrl, text: string }, ['url']),
+  user: shape({ type: string, user_id: string }, ['user_id']),
+  channel: shape({ type: string, channel_id: string }, ['channel_id']),
+  usergroup: shape({ type: string, usergroup_id: string }, ['usergroup_id']),
+  emoji: shape({ type: string, name: string }, ['name']),
+  broadcast: shape({ type: string, range: oneOf('here', 'channel', 'everyone') }, ['range']),
+}
+const CONTAINER_TYPES = ['rich_text_section', 'rich_text_quote', 'rich_text_preformatted', 'rich_text_list']
+
+/** Depth counts the block as 1 and each container below it as one more. */
+function container(depth: number): Check {
+  return (value, path) => {
+    if (depth > MAX_DEPTH) throw new Error(`${path}: deeper than ${MAX_DEPTH}`)
+    shape({
+      type: string,
+      elements: listOf(byType({ ...LEAVES, ...containersAt(depth + 1) })),
+      style: oneOf('bullet', 'ordered'),
+    }, ['elements'])(value, path)
+  }
+}
+function containersAt(depth: number): Record<string, Check> {
+  return Object.fromEntries(CONTAINER_TYPES.map((type) => [type, container(depth)]))
+}
+/** A block's own elements are containers; below that, containers and leaves mix. */
+const richTextElements = listOf(byType(containersAt(2)))
+
+const block = byType({
+  rich_text: shape({ type: string, elements: richTextElements }, ['elements']),
+  section: shape({ type: string, text: textObject, fields: listOf(textObject) }),
+  header: shape({ type: string, text: textObject }, ['text']),
+  context: shape({ type: string, elements: listOf(textObject) }, ['elements']),
+  table: shape({ type: string, rows: listOf(listOf(byType({
+    raw_text: shape({ type: string, text: string }, ['text']),
+    rich_text: shape({ type: string, elements: richTextElements }, ['elements']),
+  }))) }, ['rows']),
+})
+const blocks: Check = (value, path) => {
+  if (array(value, path).length > MAX_BLOCKS) throw new Error(`${path}: at most ${MAX_BLOCKS} blocks`)
+  listOf(block)(value, path)
+}
+const attachments: Check = (value, path) => {
+  if (array(value, path).length > MAX_ATTACHMENTS) throw new Error(`${path}: at most ${MAX_ATTACHMENTS} attachments`)
+  listOf(shape({
+    text: string, fallback: string, pretext: string, title: string, author_name: string, footer: string,
+    title_link: httpUrl, from_url: httpUrl, original_url: httpUrl, is_share: boolean, is_msg_unfurl: boolean,
+    message_blocks: listOf(shape({ message: shape({ blocks }, ['blocks']) }, ['message'])),
+  }))(value, path)
+}
+const projectionShape = shape({
+  blocks,
+  attachments,
+  files: listOf(shape({ name: string, title: string, filetype: string, mimetype: string, size })),
+  subtype: string,
+})
 
 function checkProjection(projection: ExtensionSlackMessageProjection, path: string): void {
-  const source = known(projection, path, ['blocks', 'attachments', 'files', 'subtype'])
-  if (source.blocks !== undefined) checkBlocks(source.blocks, `${path}.blocks`)
-  if (source.attachments !== undefined) {
-    const attachments = array(source.attachments, `${path}.attachments`)
-    if (attachments.length > MAX_ATTACHMENTS) throw new Error(`${path}: at most ${MAX_ATTACHMENTS} attachments`)
-    attachments.forEach((attachment, index) => {
-      const entryPath = `${path}.attachments[${index}]`
-      const entry = known(attachment, entryPath, ATTACHMENT_FIELDS)
-      for (const key of ATTACHMENT_URLS) if (entry[key] !== undefined) httpUrl(entry[key], `${entryPath}.${key}`)
-      if (entry.message_blocks !== undefined) {
-        array(entry.message_blocks, `${entryPath}.message_blocks`).forEach((forwarded, position) => {
-          const forwardPath = `${entryPath}.message_blocks[${position}]`
-          const message = known(fields(forwarded, forwardPath, ['message']).message, `${forwardPath}.message`, ['blocks'])
-          checkBlocks(message.blocks, `${forwardPath}.message.blocks`)
-        })
-      }
-    })
-  }
-  if (source.files !== undefined) {
-    array(source.files, `${path}.files`).forEach((file, index) => known(file, `${path}.files[${index}]`, FILE_FIELDS))
-  }
+  projectionShape(projection, path)
   if (new TextEncoder().encode(JSON.stringify(projection)).length > MAX_PROJECTION_BYTES) {
     throw new Error(`${path}: over ${MAX_PROJECTION_BYTES} bytes`)
   }
-}
-
-function checkBlocks(value: unknown, path: string): void {
-  const blocks = array(value, path)
-  if (blocks.length > MAX_BLOCKS) throw new Error(`${path}: at most ${MAX_BLOCKS} blocks`)
-  blocks.forEach((block, index) => {
-    const blockPath = `${path}[${index}]`
-    const type = (block as { type?: unknown } | null)?.type
-    const allowed = typeof type === 'string' ? BLOCK_FIELDS[type] : undefined
-    if (!allowed) throw new Error(`${blockPath}.type: unsupported ${String(type)}`)
-    const entry = known(block, blockPath, allowed)
-    if (type === 'rich_text') checkContainers(entry.elements, `${blockPath}.elements`, 2)
-    if (type === 'section' && entry.fields !== undefined) {
-      array(entry.fields, `${blockPath}.fields`).forEach((field, position) => textObject(field, `${blockPath}.fields[${position}]`))
-    }
-    if ((type === 'section' || type === 'header') && entry.text !== undefined) textObject(entry.text, `${blockPath}.text`)
-    if (type === 'context') {
-      array(entry.elements, `${blockPath}.elements`).forEach((element, position) => textObject(element, `${blockPath}.elements[${position}]`))
-    }
-    if (type === 'table') {
-      array(entry.rows, `${blockPath}.rows`).forEach((row, rowIndex) => array(row, `${blockPath}.rows[${rowIndex}]`).forEach((cell, cellIndex) => {
-        const cellPath = `${blockPath}.rows[${rowIndex}][${cellIndex}]`
-        const cellType = (cell as { type?: unknown } | null)?.type
-        if (cellType === 'raw_text') known(cell, cellPath, TEXT_OBJECT)
-        else if (cellType === 'rich_text') checkContainers(known(cell, cellPath, ['type', 'elements']).elements, `${cellPath}.elements`, 2)
-        else throw new Error(`${cellPath}.type: unsupported ${String(cellType)}`)
-      }))
-    }
-  })
-}
-
-/**
- * A block's own elements are containers; below that, containers and leaves mix. Depth counts the
- * block as 1 and each container below it as one more.
- */
-function checkContainers(value: unknown, path: string, depth: number): void {
-  array(value, path).forEach((element, index) => {
-    const elementPath = `${path}[${index}]`
-    const type = (element as { type?: unknown } | null)?.type
-    if (typeof type === 'string' && CONTAINER_TYPES.has(type)) {
-      if (depth > MAX_DEPTH) throw new Error(`${elementPath}: deeper than ${MAX_DEPTH}`)
-      checkContainers(known(element, elementPath, ['type', 'elements', 'style']).elements, `${elementPath}.elements`, depth + 1)
-      return
-    }
-    const allowed = depth > 2 && typeof type === 'string' ? LEAF_FIELDS[type] : undefined
-    if (!allowed) throw new Error(`${elementPath}.type: unsupported ${String(type)}`)
-    const leaf = known(element, elementPath, allowed)
-    if (type === 'link') httpUrl(leaf.url, `${elementPath}.url`)
-    if (leaf.style !== undefined) known(leaf.style, `${elementPath}.style`, ['bold', 'italic', 'strike', 'code'])
-  })
 }
 
 // ---- primitives -------------------------------------------------------------------------------
@@ -234,15 +247,4 @@ function array(value: unknown, path: string): unknown[] {
 function text(value: unknown, path: string): string {
   if (typeof value !== 'string') throw new Error(`${path}: expected a string`)
   return value
-}
-
-function textObject(value: unknown, path: string): void {
-  const type = known(value, path, TEXT_OBJECT).type
-  if (type !== 'mrkdwn' && type !== 'plain_text') throw new Error(`${path}.type: unsupported ${String(type)}`)
-}
-
-function httpUrl(value: unknown, path: string): void {
-  if (typeof value !== 'string' || value.length > 2048 || !/^https?:\/\//i.test(value)) {
-    throw new Error(`${path}: expected an http(s) URL`)
-  }
 }

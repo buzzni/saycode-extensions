@@ -14,7 +14,7 @@ import type {
   JsonValue,
   SaycodeExtension,
 } from '@buzzni/saycode-extension-sdk'
-import { checkNormalizeResult } from './channelNormalize.js'
+import { checkNormalizeResult, throughWire } from './channelNormalize.js'
 
 export { fakeSlackHistory, type FakeSlackHistoryOptions, type FakeSlackMessage } from './channelNormalize.js'
 
@@ -134,7 +134,7 @@ export function createTestHost(
       if (!active) throw new Error('test host is not active')
       const normalizer = normalizers.get(input.channelId)
       if (!normalizer) throw new Error('channel normalizer is not registered')
-      return checkNormalizeResult(await normalizer(Object.freeze({ ...input })), input)
+      return checkNormalizeResult(throughWire(await normalizer(Object.freeze(throughWire(input)))), input)
     },
     async deactivate() {
       const extension = active

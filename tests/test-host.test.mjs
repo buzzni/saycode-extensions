@@ -225,6 +225,14 @@ test('fake Slack history refuses projections Core would never send', () => {
     [{ attachments: Array.from({ length: 21 }, () => ({ text: 'a' })) }, /at most 20 attachments/],
     [{ blocks: [{ type: 'rich_text', elements: [nested(6)] }] }, /deeper than 6/],
     [{ subtype: 'x'.repeat(16_384) }, /over 16384 bytes/],
+    // Required fields, value types and closed value sets, not only unknown keys.
+    [{ blocks: [{ type: 'header' }] }, /blocks\[0\]: missing field text/],
+    [{ blocks: [{ type: 'section', text: { type: 'mrkdwn', text: 42 } }] }, /text\.text: expected a string/],
+    [{ blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'broadcast', range: 'invalid' }] }] }] }, /range: unsupported invalid/],
+    [{ attachments: [{ is_share: 'false' }] }, /is_share: expected a boolean/],
+    [{ files: [{ name: 'a.png', size: 'large' }] }, /size: expected a byte count/],
+    // A hole in an array is `null` on the wire.
+    [{ blocks: new Array(1) }, /blocks\[0\]\.type: unsupported undefined/],
   ]
   for (const [projection, error] of refused) {
     assert.throws(() => fakeSlackHistory({ channelId: SLACK_CHANNEL, messages: [{ primaryText: 't', projection }] }), error)
@@ -290,6 +298,25 @@ test('normalizeChannelMessages refuses any result Core would discard', async () 
     await assert.rejects(host.normalizeChannelMessages(request), error)
     await host.deactivate()
   }
+  // Holes in arrays become `null` on Desktop's JSON wire, which Core's parser refuses.
+  for (const result of [{ items: [item('i0'), item('i1', { additions: new Array(1) })] }, { items: [item('i0'), , item('i1')] }]) {
+    const host = await hostWithNormalizer(() => result)
+    await assert.rejects(host.normalizeChannelMessages(request), /expected an object|exactly once/)
+    await host.deactivate()
+  }
+  // The normalizer gets its own copy: changing it cannot move the budget or the refs it is judged by.
+  const mutating = await hostWithNormalizer(input => {
+    input.items[1].maxAdditionsBytes = 99_999
+    input.items[1].itemRef = 'invented'
+    return { items: [item('i0'), item('invented')] }
+  })
+  await assert.rejects(mutating.normalizeChannelMessages(request), /every requested item exactly once/)
+  assert.equal(request.items[1].itemRef, 'i1')
+  const overBudget = await hostWithNormalizer(input => {
+    input.items[1].maxAdditionsBytes = 99_999
+    return { items: [item('i0'), item('i1', { additions: [{ source: 'quote', text: 'a'.repeat(2001) }] })] }
+  })
+  await assert.rejects(overBudget.normalizeChannelMessages(request), /over its 2000-byte budget/)
   // 2,000 bytes exactly is within budget (667 Hangul syllables would be 2,001).
   const host = await hostWithNormalizer(() => ({ items: [item('i1', { additions: [{ source: 'quote', text: '가'.repeat(666) + 'ab' }] }), item('i0')] }))
   assert.equal((await host.normalizeChannelMessages(request)).items.length, 2)
