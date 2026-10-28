@@ -342,6 +342,17 @@ test('channelApiVersion is itself gated on Extension API 3', () => {
 
 // ---- channel API 2 (Desktop specs/slack-bot-improvements contracts §1·§2) ------------------------
 
+test('channel API 2 SDK types accept the normalize and rendered-reply contracts and refuse misuse', async () => {
+  // Types are the contract an adapter compiles against, so they are checked by compiling a fixture
+  // whose `@ts-expect-error` lines must keep failing.
+  const root = new URL('..', import.meta.url).pathname
+  await exec(join(root, 'node_modules/.bin/tsc'), [
+    '--noEmit', '--strict', '--noUncheckedIndexedAccess', '--target', 'es2022',
+    '--module', 'nodenext', '--moduleResolution', 'nodenext',
+    join(root, 'tests/fixtures/sdk-types/channelV2.ts'),
+  ]).catch((error) => assert.fail(`${error.stdout}${error.stderr}`))
+})
+
 const CHANNEL_HOST_V2 = { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 2, minimumSupportedChannelApiVersion: 1 }
 
 function slackChannelManifest(overrides = {}) {
