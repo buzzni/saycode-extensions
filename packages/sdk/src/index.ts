@@ -46,14 +46,17 @@ type ChannelReplyFormatKind =
   | { kind: 'final' | 'status'; approval?: never }
   | { kind: 'approval'; approval: { approvalHandle: string; approveLabel: string; denyLabel: string } }
 /**
- * Channel API 2 adds a mode. `verbatim` means exactly the v1 request; `rendered` asks for Slack
- * mrkdwn chunks that each say which part of the approved text they show (`ExtensionChannelRenderedReplyResult`).
+ * Channel API 2 adds a mode for final and status replies. `verbatim` means exactly the v1 request;
+ * `rendered` asks for Slack mrkdwn chunks that each say which part of the approved text they show
+ * (`ExtensionChannelRenderedReplyResult`). Approval requests stay v1.
  */
 export type ExtensionChannelReplyFormatRequestV2 = Omit<ChannelReplyFormatBase, 'apiVersion'> & {
   apiVersion: 2
+  kind: 'final' | 'status'
+  approval?: never
   mode: 'verbatim' | 'rendered'
   dialect: 'slack-mrkdwn'
-} & ChannelReplyFormatKind
+}
 export type ExtensionChannelReplyFormatRequest =
   | (ChannelReplyFormatBase & ChannelReplyFormatKind & { mode?: never; dialect?: never })
   | ExtensionChannelReplyFormatRequestV2

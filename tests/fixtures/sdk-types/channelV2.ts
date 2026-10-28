@@ -74,7 +74,9 @@ const v2Status: ExtensionChannelReplyFormatRequest = {
 const v1WithMode: ExtensionChannelReplyFormatRequest = { ...v2Status, apiVersion: 1 }
 // @ts-expect-error -- a v2 request names its dialect
 const v2WithoutDialect: ExtensionChannelReplyFormatRequest = { ...v2Status, dialect: undefined }
+// @ts-expect-error -- approval requests stay channel API 1, never rendered
+const v2Approval: ExtensionChannelReplyFormatRequest = { ...v2Status, kind: 'approval', approval: { approvalHandle: 'a', approveLabel: 'y', denyLabel: 'n' } }
 // @ts-expect-error -- rendered chunks and verbatim chunks are different results
 const mixed: ExtensionChannelReplyFormatResult = { chunks: ['a'], rendered: [{ text: 'a', sourceStart: 0, sourceEnd: 1 }] }
 
-export { accessory, badSource, fileUrl, mixed, otherProvider, request, v1WithMode, v2WithoutDialect }
+export { accessory, badSource, v2Approval, fileUrl, mixed, otherProvider, request, v1WithMode, v2WithoutDialect }
