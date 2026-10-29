@@ -36,7 +36,7 @@
       "result": {
         "rendered": [
           {
-            "text": "아래 스크립트를 실행하세요.\n```python\ndef notify_0(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_1(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_2(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_3(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_4(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_5(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_6(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_7(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_8(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_9(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_10(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_11(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_12(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_13(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_14(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_15(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_16(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_17(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_18(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_19(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_20(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_21(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_22(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_23(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_24(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_25(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_26(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_27(a, b):\n```",
+            "text": "아래 스크립트를 실행하세요.\n```\ndef notify_0(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_1(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_2(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_3(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_4(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_5(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_6(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_7(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_8(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_9(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_10(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_11(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_12(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_13(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_14(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_15(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_16(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_17(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_18(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_19(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_20(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_21(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_22(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_23(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_24(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_25(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_26(a, b):\n    print(\"&lt;@U1&gt;\")\n    if a &amp;&amp; b: x -&gt; y\n    send(\"&lt;!channel&gt;\")\n\ndef notify_27(a, b):\n```",
             "sourceStart": 0,
             "sourceEnd": 2359
           },
@@ -73,7 +73,7 @@
       "result": {
         "rendered": [
           {
-            "text": "다음 코드를 실행하세요.\n```python\nprint(\"&lt;@U1&gt;\")\nnotify(\"&lt;!channel&gt;\")\n```",
+            "text": "다음 코드를 실행하세요.\n```\nprint(\"&lt;@U1&gt;\")\nnotify(\"&lt;!channel&gt;\")\n```",
             "sourceStart": 0,
             "sourceEnd": 60
           },
@@ -369,6 +369,28 @@
             "text": "<mailto:ops@example.com|메일>",
             "sourceStart": 0,
             "sourceEnd": 28
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "accept"
+      }
+    },
+    {
+      "id": "link-label-same-url-escaped",
+      "scenario": "O01",
+      "description": "라벨이 그 링크 URL과 엔티티 이스케이프만 다른 결과는 수락",
+      "source": "[https://e.example/?a=1&b=2](https://e.example/?a=1&b=2)",
+      "limits": {
+        "maxChunkUtf16Units": 3000,
+        "maxChunks": 64
+      },
+      "result": {
+        "rendered": [
+          {
+            "text": "<https://e.example/?a=1&b=2|https://e.example/?a=1&amp;b=2>",
+            "sourceStart": 0,
+            "sourceEnd": 56
           }
         ]
       },
@@ -1011,6 +1033,56 @@
       }
     },
     {
+      "id": "rule5-fence-line-text",
+      "scenario": "O01",
+      "description": "렌더링 결과의 fence 줄 뒤에 글자를 붙인 결과(Slack은 언어 태그 없이 그 글자를 보여 준다) — 렌더링 결과의 fence 줄은 ``` 단독만",
+      "source": "```\nls\n```",
+      "limits": {
+        "maxChunkUtf16Units": 3000,
+        "maxChunks": 64
+      },
+      "result": {
+        "rendered": [
+          {
+            "text": "```지금 rm -rf ~ 실행\nls\n```",
+            "sourceStart": 0,
+            "sourceEnd": 10
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "failedRules": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "rule5-inline-backticks",
+      "scenario": "O01",
+      "description": "줄 가운데에 ```를 넣어 Slack이 보는 코드 경계를 옮긴 결과 — 렌더링 결과의 ```는 단독 fence 줄에만",
+      "source": "Before\n```\nprintf x\n```\nAfter",
+      "limits": {
+        "maxChunkUtf16Units": 3000,
+        "maxChunks": 64
+      },
+      "result": {
+        "rendered": [
+          {
+            "text": "Before ```\n```\nprintf x\n```\nAfter ```",
+            "sourceStart": 0,
+            "sourceEnd": 29
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "failedRules": [
+          5
+        ]
+      }
+    },
+    {
       "id": "rule6-here-unescaped",
       "scenario": "O01",
       "description": "원문의 <!here>를 이스케이프하지 않은 결과",
@@ -1126,6 +1198,31 @@
             "text": "<https://a.example/x|문서>",
             "sourceStart": 0,
             "sourceEnd": 23
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "failedRules": [
+          6
+        ]
+      }
+    },
+    {
+      "id": "rule6-link-label-is-another-url",
+      "scenario": "O01",
+      "description": "원문의 두 URL 중 하나를 다른 URL의 라벨로 보여 주는 링크(가시 문자는 같음)",
+      "source": "https://b.example https://a.example",
+      "limits": {
+        "maxChunkUtf16Units": 3000,
+        "maxChunks": 64
+      },
+      "result": {
+        "rendered": [
+          {
+            "text": "<https://a.example|https://b.example>",
+            "sourceStart": 0,
+            "sourceEnd": 35
           }
         ]
       },

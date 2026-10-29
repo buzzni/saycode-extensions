@@ -63,6 +63,12 @@
       "expected": "별밑줄#샵[괄호]"
     },
     {
+      "id": "md-escaped-backslash",
+      "dialect": "markdown",
+      "input": "경로 C:\\\\Users \\\\* 별",
+      "expected": "경로C:\\Users\\별"
+    },
+    {
       "id": "md-fence-lines-dropped",
       "dialect": "markdown",
       "input": "```js\nconst a = 1\n```",

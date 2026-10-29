@@ -109,7 +109,7 @@ test('Slack packs as an installable API v3 archive', async () => {
 // ---- Desktop shared fixtures (channel-contract-v2) ------------------------------------------
 
 const contractFixtures = join(packageRoot, 'test/fixtures/channel-contract-v2')
-/** sha256 of each file at Desktop ad7ec2ac7f874d96e37900c63e3bdfe18325c3be tests/fixtures/channel-contract-v2/. */
+/** sha256 of each file at Desktop d162cbd4aafc0d34f200bb5d4420304fa2d75852 tests/fixtures/channel-contract-v2/. */
 const CONTRACT_FIXTURE_SHA256 = {
   'normalize-result.json': '2a94a97261356351b8d112e5a58800b45ce254816b791b0a5a34855f65c2f9b1',
   'normalize/forward.json': 'b2ff8335d7ca1e4eb6355117faf2aa7cb874d2df8e742ff947ba44be5d66ed5b',
@@ -117,8 +117,8 @@ const CONTRACT_FIXTURE_SHA256 = {
   'normalize/same-text-blocks.json': '39fec781ff4e750f9bcf01d52a5a6881b636cb16bf138ca654e20f1494463167',
   'normalize/table.json': '6b39590cfcc8694c9a35aab86f40dbf5fdda6a6e6a1d9b4b7ace8323d2fd7882',
   'normalize/unfurl-only.json': 'ffef0f63ad57f2f82ced4bd3394e96b6e6bbd798ac22827206d5783734c60cc3',
-  'rendered-reply.json': '37697c787b180dcdb65411807afe03acfae1696cf95c6b00f69d7741f68265e7',
-  'skeleton.json': '0f4a052eb263a58d27895ef6a6ad466fd36624b93bb0dc89b6052375516e61cc',
+  'rendered-reply.json': 'd571033648b1b12fd02a83edcb5654d382e94dcc30d01c49f75d2407265f325f',
+  'skeleton.json': 'e58eab66f53be3333a023408ffe35eb183e5114aeb1804467077fdd72a98e232',
   'slack-text-tokens.json': 'dcaeadbb37fe9649f9b104bd98a7a458859c8ab1e5ea0be669a049697ffcd00f',
 }
 
@@ -129,7 +129,7 @@ async function contractFixture(relativePath) {
 test('the channel-contract-v2 copies are byte-identical to the Desktop source recorded in their README', async () => {
   // Edited copies would silently move this adapter off the contract Core checks against.
   const readme = await readFile(join(contractFixtures, 'README.md'), 'utf8')
-  assert.match(readme, /커밋 `ad7ec2ac7f874d96e37900c63e3bdfe18325c3be`/)
+  assert.match(readme, /커밋 `d162cbd4aafc0d34f200bb5d4420304fa2d75852`/)
   const recorded = new Map([...readme.matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \|$/gm)].map(match => [match[1], match[2]]))
   // Pinned here as well, so a copy edited together with its README row still fails until the source moves.
   assert.deepEqual(Object.fromEntries(recorded), CONTRACT_FIXTURE_SHA256)
