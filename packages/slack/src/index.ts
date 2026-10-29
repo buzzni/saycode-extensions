@@ -7,6 +7,7 @@ import type {
 
 import { formatSlackApproval } from './approval.js'
 import { formatSlackReply } from './reply.js'
+import { normalizeSlackMessages } from './normalize.js'
 import { createSlackIntakeRuntime, type SlackIntakeRuntime } from './intakeLoop.js'
 import { SLACK_RECEIVE_MAX_MS } from './backoff.js'
 
@@ -44,6 +45,10 @@ export default defineExtension({
     // so Desktop's host manager requires that permission to register a formatter at all — even
     // though this extension never calls `channels.send` itself (Core's own send path posts via
     // `chat.postMessage`; see `intakeLoop.ts`).
+    // Channel API 2: Core sends thread history here only while `channels.normalize` is approved.
+    // Absent on a Desktop below channel API 2, which never asks.
+    context.channels.registerNormalizer?.(SLACK_CHANNEL_ID, normalizeSlackMessages)
+
     context.channels.registerFormatter(
       SLACK_CHANNEL_ID,
       (input: ExtensionChannelReplyFormatRequest): ExtensionChannelReplyFormatResult =>
