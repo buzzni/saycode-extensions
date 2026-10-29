@@ -20,6 +20,12 @@
 "메신저 채널" 설정 화면에 Slack 행 자체는 표시되지만, 활성화하기 전에는 "어댑터 Extension이 설치되어
 있지 않습니다" 경고가 뜨고 페어링을 진행할 수 없습니다.
 
+1.4.0부터 채널 API 2를 쓰므로 채널 API 2를 지원하는 Desktop에서만 설치됩니다. 요청 권한에 `channels.normalize`가
+추가됐습니다. 이 권한을 승인하면 Core가 현재 입력과 스레드의 이전 글(다른 사람 글 포함)에서 허용된 필드만 이
+Extension에 보내고, Extension은 인용·전달된 글·표·링크 미리보기·첨부 이름을 읽을 수 있는 텍스트로 돌려줍니다.
+원래 글의 문장은 Core가 만들고 이 Extension은 바꿀 수 없습니다. Slack mrkdwn 렌더링 답변은 아직 없으며,
+Desktop은 그 요청을 평문 답변으로 대체합니다.
+
 ## Slack 앱 생성 및 Socket Mode 설정
 
 1. https://api.slack.com/apps?new_app=1 에서 새 앱을 만듭니다.

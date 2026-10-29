@@ -51,8 +51,14 @@ export default defineExtension({
 
     context.channels.registerFormatter(
       SLACK_CHANNEL_ID,
-      (input: ExtensionChannelReplyFormatRequest): ExtensionChannelReplyFormatResult =>
-        input.kind === 'approval' ? formatSlackApproval(input) : formatSlackReply(input),
+      (input: ExtensionChannelReplyFormatRequest): ExtensionChannelReplyFormatResult => {
+        // Channel API 2 may ask for mrkdwn rendering, which this adapter does not do yet. Refusing
+        // sends Core down its plain-text path; a verbatim result would be a malformed rendered reply.
+        if (input.apiVersion === 2 && input.mode === 'rendered') {
+          throw new Error('Slack rendered replies are not available in this version')
+        }
+        return input.kind === 'approval' ? formatSlackApproval(input) : formatSlackReply(input)
+      },
     )
   },
 })

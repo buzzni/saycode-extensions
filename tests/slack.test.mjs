@@ -60,14 +60,19 @@ function envelope(overrides) {
 
 // ---- manifest --------------------------------------------------------------------------------
 
+const CHANNEL_V2_HOST = { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 2, minimumSupportedChannelApiVersion: 1 }
+
 test('Slack manifest declares exactly the channel it uses and nothing wider', async () => {
-  const manifest = parseExtensionManifest(
-    JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8')),
-    { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 },
-  )
+  const raw = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  const manifest = parseExtensionManifest(raw, CHANNEL_V2_HOST)
   assert.equal(manifest.id, 'buzzni.slack')
-  assert.equal(manifest.channelApiVersion, 1)
-  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'sessions.control', 'sessions.approveOnce'])
+  // Channel API 2 for thread-history normalization; a Desktop that speaks only channel API 1 refuses it.
+  assert.equal(manifest.channelApiVersion, 2)
+  assert.throws(
+    () => parseExtensionManifest(raw, { ...CHANNEL_V2_HOST, supportedChannelApiVersion: 1, minimumSupportedChannelApiVersion: 1 }),
+    /channelApiVersion: unsupported 2/,
+  )
+  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'channels.normalize', 'sessions.control', 'sessions.approveOnce'])
   assert.deepEqual(manifest.activationEvents, ['onChannel:buzzni.slack.bot'])
   assert.deepEqual(manifest.contributes.channels, [{ id: 'buzzni.slack.bot', provider: 'slack' }])
 })
@@ -94,10 +99,7 @@ test('Slack packs as an installable API v3 archive', async () => {
   try {
     assert.deepEqual(Object.keys(packed.zip.files).sort(), ['extension.json', 'index.js'])
     const manifest = JSON.parse(await packed.zip.file('extension.json').async('string'))
-    assert.equal(
-      parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 }).id,
-      'buzzni.slack',
-    )
+    assert.equal(parseExtensionManifest(manifest, CHANNEL_V2_HOST).id, 'buzzni.slack')
     assert.ok(typeof packed.extension.activate === 'function')
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
@@ -161,6 +163,29 @@ test('the test host fake history builds the same requests as the Desktop fixture
       })),
     })
     assert.deepEqual(rebuilt, request, name)
+  }
+})
+
+test('channel API 2 format requests: verbatim reads as v1, rendered is refused until the renderer exists', async () => {
+  // Refusing sends Core down its plain-text path (§6.4) with FORMAT_RENDER_UNAVAILABLE, instead of a
+  // verbatim result Core would have to reject as a malformed rendered reply.
+  const packed = await packedSlack()
+  try {
+    const host = createTestHost('buzzni.slack')
+    await host.activate(packed.extension)
+    const base = {
+      channelId: 'buzzni.slack.bot', connectionId: 'c1', provider: 'slack', connectionRevision: 1,
+      requestId: 'r1', kind: 'final', text: '완료 & <b>', maxChunkUtf16Units: 3000, maxChunks: 64,
+    }
+    const v1 = await host.formatChannelReply({ ...base, apiVersion: 1 })
+    assert.deepEqual(await host.formatChannelReply({ ...base, apiVersion: 2, mode: 'verbatim', dialect: 'slack-mrkdwn' }), v1)
+    await assert.rejects(
+      host.formatChannelReply({ ...base, apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' }),
+      /rendered replies are not available/,
+    )
+    await host.deactivate()
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
   }
 })
 
