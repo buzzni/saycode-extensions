@@ -15,7 +15,9 @@ export function sanitizeSlackLabel(label: string): string {
 }
 
 export function slackUserLabel(userId: string, userLabels: Readonly<Record<string, string>>, tokenLabel?: string): string {
-  return `@${sanitizeSlackLabel(userLabels[userId] ?? tokenLabel ?? userId)}`
+  // Own string values only: `constructor` or `__proto__` as an id must not reach Object.prototype.
+  const resolved = Object.hasOwn(userLabels, userId) ? userLabels[userId] : undefined
+  return `@${sanitizeSlackLabel(typeof resolved === 'string' ? resolved : tokenLabel ?? userId)}`
 }
 
 export function slackLinkText(url: string, label: string | undefined): string {
@@ -43,7 +45,7 @@ function token(body: string, userLabels: Readonly<Record<string, string>>): stri
   const label = bar === -1 ? undefined : body.slice(bar + 1)
   if (/^@U[A-Z0-9]+$/.test(head)) return slackUserLabel(head.slice(1), userLabels, label)
   if (/^#C[A-Z0-9]+$/.test(head)) return `#${label === undefined ? head.slice(1) : sanitizeSlackLabel(label)}`
-  if (label === undefined && BROADCASTS[head]) return BROADCASTS[head]
+  if (label === undefined && Object.hasOwn(BROADCASTS, head)) return BROADCASTS[head]!
   if (/^!subteam\^S[A-Z0-9]+$/.test(head)) return label === undefined ? '@usergroup' : sanitizeSlackLabel(label)
   if (head.startsWith('!date^') && label !== undefined) return label
   if (URL_SCHEME.test(head)) return slackLinkText(head, label)

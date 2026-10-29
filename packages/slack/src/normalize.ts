@@ -9,7 +9,7 @@ import type {
   ExtensionSlackTextObject,
 } from '@buzzni/saycode-extension-sdk'
 
-import { renderSlackTextTokens, sanitizeSlackLabel, slackLinkText, slackUserLabel } from './slackTextTokens.js'
+import { renderSlackTextTokens, slackLinkText, slackUserLabel } from './slackTextTokens.js'
 
 /**
  * `channel.normalizeMessages` for Slack (Desktop specs/slack-bot-improvements contracts §5.2): what a
@@ -48,10 +48,9 @@ function projectionAdditions(projection: ExtensionSlackMessageProjection, labels
 function blockAdditions(block: ExtensionSlackBlockProjection, labels: Labels): Addition[] {
   switch (block.type) {
     case 'rich_text':
-      // One addition per top-level container; a quote keeps its marker once, on its first line.
-      return block.elements.map((container): Addition => container.type === 'rich_text_quote'
-        ? { source: 'quote', text: `[인용] ${containerText(container, labels)}` }
-        : { source: 'blocks', text: containerText(container, labels) })
+      // One addition per quote container, wherever it is nested, with its marker once on its first
+      // line; the text around a nested quote is its own addition.
+      return block.elements.flatMap((container) => richTextAdditions(container, labels))
     case 'section':
       return [{
         source: 'blocks',
@@ -66,7 +65,7 @@ function blockAdditions(block: ExtensionSlackBlockProjection, labels: Labels): A
         source: 'table',
         text: block.rows.map((row) => row.map((cell) => cell.type === 'raw_text'
           ? cell.text
-          : cell.elements.map((container) => containerText(container, labels)).join(' ')).join(' | ')).join('\n'),
+          : cell.elements.flatMap((container) => richTextAdditions(container, labels)).map((part) => part.text).join(' ')).join(' | ')).join('\n'),
       }]
     default:
       return []
@@ -78,11 +77,11 @@ type Attachment = NonNullable<ExtensionSlackMessageProjection['attachments']>[nu
 function attachmentAdditions(attachment: Attachment, labels: Labels): Addition[] {
   // Only the forwarded words: author, source link and the `fallback` summary stay out.
   if (attachment.is_share || attachment.message_blocks?.length) {
-    const body = attachment.message_blocks?.length
-      ? attachment.message_blocks
-        .flatMap((forwarded) => forwarded.message.blocks.flatMap((block) => blockAdditions(block, labels)))
-        .map((addition) => addition.text).join('\n')
-      : mrkdwn(attachment.text ?? '', labels)
+    // The forwarded blocks when they say something, else the attachment's own text.
+    const fromBlocks = (attachment.message_blocks ?? [])
+      .flatMap((forwarded) => forwarded.message.blocks.flatMap((block) => blockAdditions(block, labels)))
+      .map((addition) => addition.text).join('\n')
+    const body = fromBlocks.trim() ? fromBlocks : mrkdwn(attachment.text ?? '', labels)
     return body.trim() ? [{ source: 'forward', text: `[전달된 글] ${body}` }] : []
   }
   if (attachment.is_msg_unfurl || attachment.original_url) {
@@ -98,18 +97,28 @@ function attachmentAdditions(attachment: Attachment, labels: Labels): Addition[]
   }]
 }
 
-function containerText(container: ExtensionSlackRichTextContainer, labels: Labels): string {
+function richTextAdditions(container: ExtensionSlackRichTextContainer, labels: Labels): Addition[] {
+  const quotes: string[] = []
+  const text = containerText(container, labels, quotes)
+  const own: Addition = container.type === 'rich_text_quote'
+    ? { source: 'quote', text: `[인용] ${text}` }
+    : { source: 'blocks', text }
+  return [own, ...quotes.map((quote): Addition => ({ source: 'quote', text: `[인용] ${quote}` }))]
+}
+
+/** Text of one container; nested quotes are taken out into `quotes` instead. */
+function containerText(container: ExtensionSlackRichTextContainer, labels: Labels, quotes: string[]): string {
   if (container.type === 'rich_text_list') {
     return container.elements.map((element, index) => {
       const marker = container.style === 'ordered' ? `${index + 1}. ` : '- '
       // A list item is a section of its own, not text that runs on from the marker's line.
-      return marker + ('elements' in element ? containerText(element, labels) : elementText(element, labels))
+      return marker + ('elements' in element ? containerText(element, labels, quotes) : elementText(element, labels, quotes))
     }).join('\n')
   }
-  return container.elements.map((element) => elementText(element, labels)).join('')
+  return container.elements.map((element) => elementText(element, labels, quotes)).join('')
 }
 
-function elementText(element: ExtensionSlackRichTextContainer | ExtensionSlackRichTextLeaf, labels: Labels): string {
+function elementText(element: ExtensionSlackRichTextContainer | ExtensionSlackRichTextLeaf, labels: Labels, quotes: string[]): string {
   switch (element.type) {
     case 'text': return element.text
     case 'link': return slackLinkText(element.url, element.text)
@@ -118,11 +127,13 @@ function elementText(element: ExtensionSlackRichTextContainer | ExtensionSlackRi
     case 'usergroup': return '@usergroup'
     case 'emoji': return `:${element.name}:`
     case 'broadcast': return `@${element.range}`
-    case 'rich_text_section':
     case 'rich_text_quote':
+      quotes.push(containerText(element, labels, quotes))
+      return ''
+    case 'rich_text_section':
     case 'rich_text_preformatted':
     case 'rich_text_list':
-      return `\n${containerText(element, labels)}\n`
+      return `\n${containerText(element, labels, quotes)}\n`
     default:
       return ''
   }
@@ -141,7 +152,8 @@ type SlackFile = NonNullable<ExtensionSlackMessageProjection['files']>[number]
 function fileText(file: SlackFile): string {
   const details = [file.filetype ?? file.mimetype, file.size === undefined ? undefined : byteSize(file.size)]
     .filter((part): part is string => Boolean(part))
-  const name = sanitizeSlackLabel(file.name ?? file.title ?? '') || '파일'
+  // Not cut like a display label: two long names sharing a prefix must stay two files.
+  const name = (file.name ?? file.title ?? '').replace(/[\u0000-\u001F\u007F-\u009F]/g, '') || '파일'
   return `[첨부: ${name}${details.length ? ` (${details.join(', ')})` : ''}]`
 }
 
