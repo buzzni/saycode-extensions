@@ -80,7 +80,7 @@ test('Slack manifest declares exactly the channel it uses and nothing wider', as
 test('the release workflow publishes the Slack artifact under the manifest version', async () => {
   // The archive is named from extension.json; a stale name in release.yml fails the tag build.
   const { version } = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
-  assert.equal(version, '1.4.0')
+  assert.equal(version, '1.4.1')
   const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
   const names = [...workflow.matchAll(/buzzni\.slack-([0-9.]+)\.saycode-extension/g)].map(match => match[1])
   assert.equal(names.length, 3)
