@@ -139,6 +139,16 @@ test('release gate tests, packs, checksums, and publishes Media Preview', async 
   assert.ok(workflow.includes(`packages/media-preview/${archive}.sha256\n`))
 })
 
+test('release gate tests, packs, checksums, and publishes React Source Locator', async () => {
+  const manifest = JSON.parse(await readFile(new URL('packages/react-source-locator/extension.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+  assert.match(workflow, /node --test packages\/react-source-locator\/tests\/\*\.test\.mjs/)
+  assert.match(workflow, /npm run package:react-source-locator/)
+  assert.ok(workflow.includes(`packages/react-source-locator/${archive}\n`))
+  assert.ok(workflow.includes(`packages/react-source-locator/${archive}.sha256\n`))
+})
+
 test('every checksummed release package publishes the archive its manifest version produces', async () => {
   const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
   const dirs = [...workflow.matchAll(/working-directory: (\S+)\n\s+run: sha256sum/g)].map((match) => match[1])

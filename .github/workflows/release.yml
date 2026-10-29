@@ -32,6 +32,8 @@ jobs:
       - run: node --test packages/media-preview/tests/*.test.mjs
       - run: npm run package:media-preview
       - run: npm run package:moai
+      - run: node --test packages/react-source-locator/tests/*.test.mjs
+      - run: npm run package:react-source-locator
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
@@ -65,6 +67,9 @@ jobs:
       - name: Create Media Preview checksum
         working-directory: packages/media-preview
         run: sha256sum *.saycode-extension > buzzni.media-preview-1.0.0.saycode-extension.sha256
+      - name: Create React Source Locator checksum
+        working-directory: packages/react-source-locator
+        run: sha256sum *.saycode-extension > buzzni.react-source-locator-1.0.0.saycode-extension.sha256
       - name: Publish GitHub release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -92,6 +97,8 @@ jobs:
           packages/moai/buzzni.moai-2.1.0.saycode-extension.sha256
           packages/media-preview/buzzni.media-preview-1.0.0.saycode-extension
           packages/media-preview/buzzni.media-preview-1.0.0.saycode-extension.sha256
+          packages/react-source-locator/buzzni.react-source-locator-1.0.0.saycode-extension
+          packages/react-source-locator/buzzni.react-source-locator-1.0.0.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 
