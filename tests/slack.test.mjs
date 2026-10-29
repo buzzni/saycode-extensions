@@ -344,6 +344,27 @@ test('normalizeSlackMessages keeps nested quotes, forwarded text without usable 
   ])
 })
 
+test('normalizeSlackMessages keeps quotes where they stand, under lists too, so the budget cuts the end first', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const quote = (text) => ({ type: 'rich_text_quote', elements: [{ type: 'text', text }] })
+  const ordered = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [{ type: 'text', text: '앞' }, quote('가운데 인용'), { type: 'text', text: '뒤' }] },
+    { type: 'rich_text_list', style: 'bullet', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: '항목' }] }, quote('삭제 금지')] },
+  ] }] }]]))
+  assert.deepEqual(ordered.items[0].additions, [
+    { source: 'blocks', text: '앞' },
+    { source: 'quote', text: '[인용] 가운데 인용' },
+    { source: 'blocks', text: '뒤' },
+    { source: 'blocks', text: '- 항목' },
+    { source: 'quote', text: '[인용] 삭제 금지' },
+  ])
+  const budgeted = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [quote('운영 DB 삭제 금지'), { type: 'text', text: 'a'.repeat(2500) }] },
+  ] }] }]]))
+  assert.equal(budgeted.items[0].truncated, true)
+  assert.deepEqual(budgeted.items[0].additions[0], { source: 'quote', text: '[인용] 운영 DB 삭제 금지' })
+})
+
 test('normalizeSlackMessages reads forwards and unfurls without their author or source link', async () => {
   const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
   const request = normalizeRequest([['링크', { attachments: [

@@ -97,28 +97,66 @@ function attachmentAdditions(attachment: Attachment, labels: Labels): Addition[]
   }]
 }
 
+/** A run of plain rich text, or one quote, in the order they appear. */
+type Segment = { quote: boolean; text: string }
+
 function richTextAdditions(container: ExtensionSlackRichTextContainer, labels: Labels): Addition[] {
-  const quotes: string[] = []
-  const text = containerText(container, labels, quotes)
-  const own: Addition = container.type === 'rich_text_quote'
-    ? { source: 'quote', text: `[인용] ${text}` }
-    : { source: 'blocks', text }
-  return [own, ...quotes.map((quote): Addition => ({ source: 'quote', text: `[인용] ${quote}` }))]
+  // One addition per quote, wherever it is nested and with its marker once on its first line; the text
+  // on either side of a quote is its own addition. Order is kept, so a budget cuts from the end.
+  return containerSegments(container, labels)
+    .filter((segment) => segment.text.trim())
+    .map((segment): Addition => segment.quote
+      ? { source: 'quote', text: `[인용] ${segment.text}` }
+      : { source: 'blocks', text: segment.text })
 }
 
-/** Text of one container; nested quotes are taken out into `quotes` instead. */
-function containerText(container: ExtensionSlackRichTextContainer, labels: Labels, quotes: string[]): string {
-  if (container.type === 'rich_text_list') {
-    return container.elements.map((element, index) => {
-      const marker = container.style === 'ordered' ? `${index + 1}. ` : '- '
-      // A list item is a section of its own, not text that runs on from the marker's line.
-      return marker + ('elements' in element ? containerText(element, labels, quotes) : elementText(element, labels, quotes))
-    }).join('\n')
+function containerSegments(container: ExtensionSlackRichTextContainer, labels: Labels): Segment[] {
+  if (container.type === 'rich_text_quote') {
+    return elementSegments(container.elements, labels).map((segment) => ({ quote: true, text: segment.text }))
   }
-  return container.elements.map((element) => elementText(element, labels, quotes)).join('')
+  if (container.type === 'rich_text_list') {
+    const segments: Segment[] = []
+    container.elements.forEach((element, index) => {
+      if (element.type === 'rich_text_quote') {
+        for (const segment of containerSegments(element, labels)) append(segments, segment)
+        return
+      }
+      // A list item is a section of its own, not text that runs on from the marker's line.
+      const marker = `${index === 0 ? '' : '\n'}${container.style === 'ordered' ? `${index + 1}. ` : '- '}`
+      append(segments, { quote: false, text: marker })
+      for (const segment of 'elements' in element ? containerSegments(element, labels) : [{ quote: false, text: leafText(element, labels) }]) {
+        append(segments, segment)
+      }
+    })
+    return segments
+  }
+  return elementSegments(container.elements, labels)
 }
 
-function elementText(element: ExtensionSlackRichTextContainer | ExtensionSlackRichTextLeaf, labels: Labels, quotes: string[]): string {
+function elementSegments(elements: ReadonlyArray<ExtensionSlackRichTextContainer | ExtensionSlackRichTextLeaf>, labels: Labels): Segment[] {
+  const segments: Segment[] = []
+  for (const element of elements) {
+    if (!('elements' in element)) {
+      append(segments, { quote: false, text: leafText(element, labels) })
+    } else if (element.type === 'rich_text_quote') {
+      for (const segment of containerSegments(element, labels)) append(segments, segment)
+    } else {
+      append(segments, { quote: false, text: '\n' })
+      for (const segment of containerSegments(element, labels)) append(segments, segment)
+      append(segments, { quote: false, text: '\n' })
+    }
+  }
+  return segments
+}
+
+/** Plain text joins the run before it; a quote always starts its own segment. */
+function append(segments: Segment[], segment: Segment): void {
+  const last = segments.at(-1)
+  if (!segment.quote && last && !last.quote) last.text += segment.text
+  else segments.push({ ...segment })
+}
+
+function leafText(element: ExtensionSlackRichTextLeaf, labels: Labels): string {
   switch (element.type) {
     case 'text': return element.text
     case 'link': return slackLinkText(element.url, element.text)
@@ -127,15 +165,7 @@ function elementText(element: ExtensionSlackRichTextContainer | ExtensionSlackRi
     case 'usergroup': return '@usergroup'
     case 'emoji': return `:${element.name}:`
     case 'broadcast': return `@${element.range}`
-    case 'rich_text_quote':
-      quotes.push(containerText(element, labels, quotes))
-      return ''
-    case 'rich_text_section':
-    case 'rich_text_preformatted':
-    case 'rich_text_list':
-      return `\n${containerText(element, labels, quotes)}\n`
-    default:
-      return ''
+    default: return ''
   }
 }
 
