@@ -157,6 +157,28 @@ test('Slack tokens in Slack-authored text read exactly as Core renders them', as
   }
 })
 
+test('Slack token readings the shared vectors leave open match Desktop channelSlackTextTokens', async () => {
+  // Desktop d162cbd4aa src/domain/channelSlackTextTokens.ts: a date fallback is a label too (control
+  // characters out, 64 UTF-16 units), a link url has no whitespace, and an empty link label stays a label.
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  assert.equal(renderSlackTextTokens(`<!date^1793000000^{date}|${'가'.repeat(70)}\u0007>`, {}), '가'.repeat(64))
+  assert.equal(renderSlackTextTokens('<http://a b|문서> <http://a b>', {}), '<http://a b|문서> <http://a b>')
+  assert.equal(renderSlackTextTokens('<https://x|>', {}), ' (https://x)')
+})
+
+test('a long date fallback cannot push a later quote out of the budget', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['회의', { blocks: [
+    { type: 'section', text: { type: 'mrkdwn', text: `<!date^1793000000^{date}|${'a'.repeat(2100)}>` } },
+    { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: '운영 DB 삭제 금지' }] }] },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0], {
+    itemRef: 'i0',
+    additions: [{ source: 'blocks', text: 'a'.repeat(64) }, { source: 'quote', text: '[인용] 운영 DB 삭제 금지' }],
+    truncated: false,
+  })
+})
+
 test('normalizeSlackMessages produces each shared I02 fixture result exactly', async () => {
   const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
   for (const name of NORMALIZE_FIXTURES) {

@@ -159,7 +159,7 @@ function append(segments: Segment[], segment: Segment): void {
 function leafText(element: ExtensionSlackRichTextLeaf, labels: Labels): string {
   switch (element.type) {
     case 'text': return element.text
-    case 'link': return slackLinkText(element.url, element.text)
+    case 'link': return slackLinkText(element.url, element.text || undefined)
     case 'user': return slackUserLabel(element.user_id, labels)
     case 'channel': return `#${element.channel_id}`
     case 'usergroup': return '@usergroup'
