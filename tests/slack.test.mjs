@@ -72,6 +72,16 @@ test('Slack manifest declares exactly the channel it uses and nothing wider', as
   assert.deepEqual(manifest.contributes.channels, [{ id: 'buzzni.slack.bot', provider: 'slack' }])
 })
 
+test('the release workflow publishes the Slack artifact under the manifest version', async () => {
+  // The archive is named from extension.json; a stale name in release.yml fails the tag build.
+  const { version } = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  assert.equal(version, '1.4.0')
+  const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
+  const names = [...workflow.matchAll(/buzzni\.slack-([0-9.]+)\.saycode-extension/g)].map(match => match[1])
+  assert.equal(names.length, 3)
+  assert.deepEqual([...new Set(names)], [version])
+})
+
 test('Slack never actually calls channels.send despite declaring it', async () => {
   const source = await readFile(join(packageRoot, 'src/intakeLoop.ts'), 'utf8')
   const indexSource = await readFile(join(packageRoot, 'src/index.ts'), 'utf8')
