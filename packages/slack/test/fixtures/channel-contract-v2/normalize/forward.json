@@ -1,0 +1,99 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2",
+  "id": "i02-forward",
+  "scenario": "I02",
+  "description": "다른 채널 글 forward(is_share + message_blocks) — 원글(i0)과 댓글(i1)이 한 요청에",
+  "request": {
+    "apiVersion": 2,
+    "channelId": "slack",
+    "connectionId": "conn-fixture",
+    "provider": "slack",
+    "connectionRevision": 1,
+    "requestId": "req-fixture",
+    "purpose": "threadHistory",
+    "userLabels": {},
+    "items": [
+      {
+        "itemRef": "i0",
+        "primaryText": "이거 참고하세요",
+        "maxAdditionsBytes": 6000,
+        "projection": {
+          "attachments": [
+            {
+              "is_share": true,
+              "author_name": "Park",
+              "from_url": "https://example.slack.com/archives/C2/p1793000000000100",
+              "fallback": "[2026-10-01] Park: 다음 주 점검 일정: 화요일 02시",
+              "text": "다음 주 점검 일정: 화요일 02시",
+              "message_blocks": [
+                {
+                  "message": {
+                    "blocks": [
+                      {
+                        "type": "rich_text",
+                        "elements": [
+                          {
+                            "type": "rich_text_section",
+                            "elements": [
+                              {
+                                "type": "text",
+                                "text": "다음 주 점검 일정: 화요일 02시"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "itemRef": "i1",
+        "primaryText": "확인했습니다",
+        "maxAdditionsBytes": 2000,
+        "projection": {
+          "blocks": [
+            {
+              "type": "rich_text",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "확인했습니다"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedResult": {
+    "items": [
+      {
+        "itemRef": "i0",
+        "additions": [
+          {
+            "source": "forward",
+            "text": "[전달된 글] 다음 주 점검 일정: 화요일 02시"
+          }
+        ],
+        "truncated": false
+      },
+      {
+        "itemRef": "i1",
+        "additions": [],
+        "truncated": false
+      }
+    ]
+  }
+}

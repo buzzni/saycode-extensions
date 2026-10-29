@@ -1,0 +1,50 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2",
+  "id": "i02-unfurl-only",
+  "scenario": "I02",
+  "description": "링크만 있는 글의 unfurl — [링크 미리보기] 제목 — URL",
+  "request": {
+    "apiVersion": 2,
+    "channelId": "slack",
+    "connectionId": "conn-fixture",
+    "provider": "slack",
+    "connectionRevision": 1,
+    "requestId": "req-fixture",
+    "purpose": "threadHistory",
+    "userLabels": {},
+    "items": [
+      {
+        "itemRef": "i0",
+        "primaryText": "https://news.example/a",
+        "maxAdditionsBytes": 2000,
+        "projection": {
+          "attachments": [
+            {
+              "original_url": "https://news.example/a",
+              "from_url": "https://news.example/a",
+              "title_link": "https://news.example/a",
+              "title": "점검 공지",
+              "text": "이번 주 금요일 22시 점검",
+              "footer": "News"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedResult": {
+    "items": [
+      {
+        "itemRef": "i0",
+        "additions": [
+          {
+            "source": "unfurl",
+            "text": "[링크 미리보기] 점검 공지 — https://news.example/a"
+          }
+        ],
+        "truncated": false
+      }
+    ]
+  }
+}

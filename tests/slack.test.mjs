@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -90,6 +91,30 @@ test('Slack packs as an installable API v3 archive', async () => {
     assert.ok(typeof packed.extension.activate === 'function')
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+// ---- Desktop shared fixtures (channel-contract-v2) ------------------------------------------
+
+const contractFixtures = join(packageRoot, 'test/fixtures/channel-contract-v2')
+
+async function contractFixture(relativePath) {
+  return JSON.parse(await readFile(join(contractFixtures, relativePath), 'utf8'))
+}
+
+test('the channel-contract-v2 copies are byte-identical to the Desktop source recorded in their README', async () => {
+  // Edited copies would silently move this adapter off the contract Core checks against.
+  const readme = await readFile(join(contractFixtures, 'README.md'), 'utf8')
+  assert.match(readme, /커밋 `ad7ec2ac7f874d96e37900c63e3bdfe18325c3be`/)
+  const recorded = new Map([...readme.matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \|$/gm)].map(match => [match[1], match[2]]))
+  const files = [
+    ...(await readdir(contractFixtures)).filter(name => name.endsWith('.json')),
+    ...(await readdir(join(contractFixtures, 'normalize'))).map(name => `normalize/${name}`),
+  ].sort()
+  assert.deepEqual([...recorded.keys()].sort(), files)
+  for (const file of files) {
+    const digest = createHash('sha256').update(await readFile(join(contractFixtures, file))).digest('hex')
+    assert.equal(digest, recorded.get(file), file)
   }
 })
 
