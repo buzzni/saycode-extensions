@@ -45,6 +45,31 @@ test('browser build rejects Node ambient authority', async () => {
   }
 })
 
+test('pack accepts a channel API 2 adapter that asks for channels.normalize', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-channel-v2-pack-'))
+  const archive = join(temporary, 'slack.saycode-extension')
+  try {
+    await mkdir(join(temporary, 'src'), { recursive: true })
+    await writeFile(join(temporary, 'src/index.ts'), 'export default { activate() {} }')
+    const manifest = {
+      id: 'buzzni.slackv2', version: '1.0.0', apiVersion: 3, channelApiVersion: 2,
+      engines: { saycode: '^1.0.0' }, entrypoint: 'index.js',
+      permissions: ['channels.receive', 'channels.ack', 'channels.normalize'], activationEvents: [],
+      contributes: { channels: [{ id: 'buzzni.slackv2.adapter', provider: 'slack' }] },
+    }
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify(manifest))
+
+    await exec('node', [cli, 'pack', temporary, '--output', archive])
+    const zip = await JSZip.loadAsync(await readFile(archive))
+    assert.equal(JSON.parse(await zip.file('extension.json').async('string')).channelApiVersion, 2)
+
+    await writeFile(join(temporary, 'extension.json'), JSON.stringify({ ...manifest, channelApiVersion: 3 }))
+    await assert.rejects(exec('node', [cli, 'validate', temporary]), /channelApiVersion: unsupported 3/)
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
+
 test('pack includes declared project-template asset trees', async () => {
   const temporary = await mkdtemp(join(tmpdir(), 'saycode-extension-template-pack-'))
   const archive = join(temporary, 'templates.saycode-extension')

@@ -340,6 +340,72 @@ test('channelApiVersion is itself gated on Extension API 3', () => {
   }, CHANNEL_HOST), /manifest\.channelApiVersion: requires Extension API version 3/)
 })
 
+// ---- channel API 2 (Desktop specs/slack-bot-improvements contracts §1·§2) ------------------------
+
+test('channel API 2 SDK types accept the normalize and rendered-reply contracts and refuse misuse', async () => {
+  // Types are the contract an adapter compiles against, so they are checked by compiling a fixture
+  // whose `@ts-expect-error` lines must keep failing.
+  const root = new URL('..', import.meta.url).pathname
+  await exec(join(root, 'node_modules/.bin/tsc'), [
+    '--noEmit', '--strict', '--noUncheckedIndexedAccess', '--target', 'es2022',
+    '--module', 'nodenext', '--moduleResolution', 'nodenext',
+    join(root, 'tests/fixtures/sdk-types/channelV2.ts'),
+  ]).catch((error) => assert.fail(`${error.stdout}${error.stderr}`))
+})
+
+const CHANNEL_HOST_V2 = { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 2, minimumSupportedChannelApiVersion: 1 }
+
+function slackChannelManifest(overrides = {}) {
+  return channelManifest({
+    id: 'buzzni.slack', channelApiVersion: 2,
+    permissions: ['channels.receive', 'channels.ack', 'channels.send', 'channels.normalize'],
+    contributes: { channels: [{ id: 'buzzni.slack.adapter', provider: 'slack' }] },
+    ...overrides,
+  })
+}
+
+test('a [1,2] channel host accepts both contracts and nothing beyond them', () => {
+  assert.equal(parseExtensionManifest(channelManifest(), CHANNEL_HOST_V2).channelApiVersion, 1)
+  assert.equal(parseExtensionManifest(channelManifest({ channelApiVersion: 2 }), CHANNEL_HOST_V2).channelApiVersion, 2)
+  assert.throws(
+    () => parseExtensionManifest(channelManifest({ channelApiVersion: 3 }), CHANNEL_HOST_V2),
+    /manifest\.channelApiVersion: unsupported 3/,
+  )
+  assert.throws(
+    () => parseExtensionManifest(channelManifest(), { ...CHANNEL_HOST_V2, supportedChannelApiVersion: 3 }),
+    /unsupported host window/,
+  )
+})
+
+test('without channel options the parser speaks the current [1,2] window', () => {
+  // The CLI (validate/pack) passes no channel options, so this default is what packs a v2 Slack
+  // adapter while Telegram and Discord stay on channel API 1.
+  const host = { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }
+  assert.equal(parseExtensionManifest(channelManifest(), host).channelApiVersion, 1)
+  assert.equal(parseExtensionManifest(slackChannelManifest(), host).channelApiVersion, 2)
+  assert.throws(() => parseExtensionManifest(channelManifest({ channelApiVersion: 3 }), host), /unsupported 3/)
+})
+
+test('channels.normalize is a channel permission of channel API 2', () => {
+  const parsed = parseExtensionManifest(slackChannelManifest(), CHANNEL_HOST_V2)
+  assert.ok(parsed.permissions.includes('channels.normalize'))
+
+  // Under channel API 1 Core never calls a normalizer, so declaring one would ask the user to
+  // approve an authority nothing exercises.
+  assert.throws(
+    () => parseExtensionManifest(slackChannelManifest({ channelApiVersion: 1 }), CHANNEL_HOST_V2),
+    /manifest\.permissions: channels\.normalize requires manifest\.channelApiVersion 2/,
+  )
+  assert.throws(
+    () => parseExtensionManifest(slackChannelManifest({ permissions: ['channels.normalize'], contributes: {} }), CHANNEL_HOST_V2),
+    /manifest\.permissions: channels\.normalize requires a channels contribution/,
+  )
+  assert.throws(
+    () => parseExtensionManifest(slackChannelManifest({ apiVersion: 2 }), CHANNEL_HOST_V2),
+    /Extension API version 3/,
+  )
+})
+
 // ---- declarative per-channel commands (P3: Discord Application Command registration) -----------
 
 function discordChannelManifest(commands) {

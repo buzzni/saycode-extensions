@@ -11,6 +11,9 @@ export const EXTENSION_PERMISSIONS = [
   // would hand both to anything that could merely read messages. The host still enforces each
   // one against the live grant at call time — declaring it here only makes it askable.
   'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  // Not a wire method the adapter calls: Core calls the adapter's normalizer with thread history
+  // (other people's messages included), so receiving that is an authority of its own (channel API 2).
+  'channels.normalize',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
   'localTools.inspect', 'localTools.install', 'localTools.control', 'localBrowser.setup',
 ] as const
@@ -224,7 +227,7 @@ function uniqueStrings(value: unknown, path: string, parse: (item: unknown, item
 const CHANNEL_PROVIDERS = new Set(['telegram', 'slack', 'discord'])
 /** Channel-scoped permissions, in the order the wire contract defines them. */
 const CHANNEL_PERMISSIONS = new Set<string>([
-  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport', 'channels.normalize',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
 ])
 
@@ -450,6 +453,9 @@ function parseMachineCommands(value: unknown, extensionId: string, apiVersion: n
   return { version: 1, profiles }
 }
 
+const CHANNEL_API_VERSION = 2
+const MINIMUM_CHANNEL_API_VERSION = 1
+
 /**
  * Parsed on its own axis, with the same one-version window `apiVersion` uses: a host may accept at
  * most the current channel contract and the one before it, so a manifest can never be written
@@ -460,8 +466,11 @@ function parseChannelApiVersion(
   apiVersion: number,
   options: { supportedChannelApiVersion?: number; minimumSupportedChannelApiVersion?: number },
 ): number | undefined {
-  const supported = options.supportedChannelApiVersion ?? 1
-  const minimum = options.minimumSupportedChannelApiVersion ?? supported
+  const supported = options.supportedChannelApiVersion ?? CHANNEL_API_VERSION
+  // The default window keeps channel API 1 adapters (Telegram, Discord) packable next to v2 ones;
+  // an explicit `supportedChannelApiVersion` keeps meaning "exactly that version" unless widened.
+  const minimum = options.minimumSupportedChannelApiVersion
+    ?? (options.supportedChannelApiVersion === undefined ? MINIMUM_CHANNEL_API_VERSION : supported)
   if (supported - minimum > 1) throw new Error('manifest.channelApiVersion: unsupported host window')
   if (value === undefined) return undefined
   // Gated on the declaration itself, not only on what it unlocks: accepting it under API 2 while
@@ -518,6 +527,9 @@ export function parseExtensionManifest(
       // manifest that never declared which channel contract it speaks cannot hold one of these.
       if (channelApiVersion === undefined) {
         throw new Error(`manifest.permissions: ${permission} requires manifest.channelApiVersion`)
+      }
+      if (permission === 'channels.normalize' && channelApiVersion < 2) {
+        throw new Error('manifest.permissions: channels.normalize requires manifest.channelApiVersion 2')
       }
     }
     return permission as ExtensionPermission
