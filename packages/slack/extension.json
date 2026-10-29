@@ -1,6 +1,6 @@
 {
   "id": "buzzni.slack",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "apiVersion": 3,
   "channelApiVersion": 2,
   "engines": { "saycode": "^1.0.0" },

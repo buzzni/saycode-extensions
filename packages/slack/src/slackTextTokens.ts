@@ -7,7 +7,8 @@
 
 const LABEL_MAX_UTF16_UNITS = 64
 const BROADCASTS: Record<string, string> = { '!here': '@here', '!channel': '@channel', '!everyone': '@everyone' }
-const URL_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/
+/** As Desktop's link template: a URI scheme, then no `|` or whitespace. */
+const LINK_URL = /^[A-Za-z][A-Za-z0-9+.-]*:[^|\s]*$/
 
 /** Control characters removed, then cut to 64 UTF-16 units; spaces stay (`@Justin Kim`). */
 export function sanitizeSlackLabel(label: string): string {
@@ -20,8 +21,9 @@ export function slackUserLabel(userId: string, userLabels: Readonly<Record<strin
   return `@${sanitizeSlackLabel(typeof resolved === 'string' ? resolved : tokenLabel ?? userId)}`
 }
 
+/** An absent label is a bare url; an empty one is still a label, as in Core (` (url)`). */
 export function slackLinkText(url: string, label: string | undefined): string {
-  return label ? `${sanitizeSlackLabel(label)} (${url})` : url
+  return label === undefined ? url : `${sanitizeSlackLabel(label)} (${url})`
 }
 
 export function renderSlackTextTokens(text: string, userLabels: Readonly<Record<string, string>>): string {
@@ -47,7 +49,7 @@ function token(body: string, userLabels: Readonly<Record<string, string>>): stri
   if (/^#C[A-Z0-9]+$/.test(head)) return `#${label === undefined ? head.slice(1) : sanitizeSlackLabel(label)}`
   if (label === undefined && Object.hasOwn(BROADCASTS, head)) return BROADCASTS[head]!
   if (/^!subteam\^S[A-Z0-9]+$/.test(head)) return label === undefined ? '@usergroup' : sanitizeSlackLabel(label)
-  if (head.startsWith('!date^') && label !== undefined) return label
-  if (URL_SCHEME.test(head)) return slackLinkText(head, label)
+  if (head.startsWith('!date^') && label !== undefined) return sanitizeSlackLabel(label)
+  if (LINK_URL.test(head)) return slackLinkText(head, label)
   return `<${body}>`
 }
