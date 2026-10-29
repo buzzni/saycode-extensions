@@ -1,0 +1,144 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §6.3 skeleton(dialect, s)",
+  "vectors": [
+    {
+      "id": "md-emphasis",
+      "dialect": "markdown",
+      "input": "**굵게** 와 _기울임_ ~~취소~~ `코드`",
+      "expected": "굵게와기울임취소코드"
+    },
+    {
+      "id": "md-headings",
+      "dialect": "markdown",
+      "input": "# 제목\n## 소제목\n###### 여섯",
+      "expected": "제목소제목여섯"
+    },
+    {
+      "id": "md-list-markers",
+      "dialect": "markdown",
+      "input": "- 하나\n* 둘\n+ 셋",
+      "expected": "하나둘셋"
+    },
+    {
+      "id": "md-ordered-list-kept",
+      "dialect": "markdown",
+      "input": "1. 첫째\n2. 둘째",
+      "expected": "1.첫째2.둘째"
+    },
+    {
+      "id": "md-quote-nested",
+      "dialect": "markdown",
+      "input": "> 인용\n>> 중첩\n> > 띄운 중첩",
+      "expected": "인용중첩띄운중첩"
+    },
+    {
+      "id": "md-link",
+      "dialect": "markdown",
+      "input": "[링크](https://x.example/a)",
+      "expected": "링크https://x.example/a"
+    },
+    {
+      "id": "md-image",
+      "dialect": "markdown",
+      "input": "![그림](https://x.example/a.png)",
+      "expected": "그림https://x.example/a.png"
+    },
+    {
+      "id": "md-table",
+      "dialect": "markdown",
+      "input": "| a | b |\n|:--|--:|\n| 1 | 2 |",
+      "expected": "ab12"
+    },
+    {
+      "id": "md-horizontal-rule",
+      "dialect": "markdown",
+      "input": "위\n---\n아래",
+      "expected": "위아래"
+    },
+    {
+      "id": "md-backslash-escapes",
+      "dialect": "markdown",
+      "input": "\\*별\\* \\_밑줄\\_ \\# 샵 \\[괄호\\]",
+      "expected": "별밑줄#샵[괄호]"
+    },
+    {
+      "id": "md-fence-lines-dropped",
+      "dialect": "markdown",
+      "input": "```js\nconst a = 1\n```",
+      "expected": "consta=1"
+    },
+    {
+      "id": "md-no-entity-decoding",
+      "dialect": "markdown",
+      "input": "&lt;b&gt; &amp;",
+      "expected": "&lt;b&gt;&amp;"
+    },
+    {
+      "id": "md-unicode-whitespace",
+      "dialect": "markdown",
+      "input": "가 나　다\t라\n마",
+      "expected": "가나다라마"
+    },
+    {
+      "id": "mrkdwn-emphasis",
+      "dialect": "slack-mrkdwn",
+      "input": "*굵게* _기울임_ ~취소~ `코드`",
+      "expected": "굵게기울임취소코드"
+    },
+    {
+      "id": "mrkdwn-link-with-label",
+      "dialect": "slack-mrkdwn",
+      "input": "<https://x.example/a|링크>",
+      "expected": "링크https://x.example/a"
+    },
+    {
+      "id": "mrkdwn-link-bare",
+      "dialect": "slack-mrkdwn",
+      "input": "<https://x.example/a>",
+      "expected": "https://x.example/a"
+    },
+    {
+      "id": "mrkdwn-mailto",
+      "dialect": "slack-mrkdwn",
+      "input": "<mailto:ops@example.com|메일>",
+      "expected": "메일mailto:ops@example.com"
+    },
+    {
+      "id": "mrkdwn-entities",
+      "dialect": "slack-mrkdwn",
+      "input": "&lt;@U1&gt; a &amp;&amp; b -&gt; c",
+      "expected": "<@U1>a&&b->c"
+    },
+    {
+      "id": "mrkdwn-entity-single-pass",
+      "dialect": "slack-mrkdwn",
+      "input": "&amp;lt; &amp;amp;",
+      "expected": "&lt;&amp;"
+    },
+    {
+      "id": "mrkdwn-bullets",
+      "dialect": "slack-mrkdwn",
+      "input": "• 하나\n◦ 둘\n▪ 셋\n- 넷",
+      "expected": "하나둘셋넷"
+    },
+    {
+      "id": "mrkdwn-quote-entity",
+      "dialect": "slack-mrkdwn",
+      "input": "&gt; 인용\n> 원문 표기",
+      "expected": "인용원문표기"
+    },
+    {
+      "id": "mrkdwn-non-link-token-kept",
+      "dialect": "slack-mrkdwn",
+      "input": "<!here> <#C1>",
+      "expected": "<!here><#C1>"
+    },
+    {
+      "id": "mrkdwn-table-in-code",
+      "dialect": "slack-mrkdwn",
+      "input": "```\n이름 | 값\n-----+---\na    | 1\n```",
+      "expected": "이름값a1"
+    }
+  ]
+}

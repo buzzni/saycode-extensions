@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -10,7 +11,7 @@ import { build } from 'esbuild'
 import JSZip from 'jszip'
 
 import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
-import { createTestHost } from '../packages/test-host/dist/index.js'
+import { createTestHost, fakeSlackHistory } from '../packages/test-host/dist/index.js'
 
 const exec = promisify(execFile)
 const root = new URL('..', import.meta.url).pathname
@@ -59,16 +60,31 @@ function envelope(overrides) {
 
 // ---- manifest --------------------------------------------------------------------------------
 
+const CHANNEL_V2_HOST = { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 2, minimumSupportedChannelApiVersion: 1 }
+
 test('Slack manifest declares exactly the channel it uses and nothing wider', async () => {
-  const manifest = parseExtensionManifest(
-    JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8')),
-    { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 },
-  )
+  const raw = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  const manifest = parseExtensionManifest(raw, CHANNEL_V2_HOST)
   assert.equal(manifest.id, 'buzzni.slack')
-  assert.equal(manifest.channelApiVersion, 1)
-  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'sessions.control', 'sessions.approveOnce'])
+  // Channel API 2 for thread-history normalization; a Desktop that speaks only channel API 1 refuses it.
+  assert.equal(manifest.channelApiVersion, 2)
+  assert.throws(
+    () => parseExtensionManifest(raw, { ...CHANNEL_V2_HOST, supportedChannelApiVersion: 1, minimumSupportedChannelApiVersion: 1 }),
+    /channelApiVersion: unsupported 2/,
+  )
+  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'channels.normalize', 'sessions.control', 'sessions.approveOnce'])
   assert.deepEqual(manifest.activationEvents, ['onChannel:buzzni.slack.bot'])
   assert.deepEqual(manifest.contributes.channels, [{ id: 'buzzni.slack.bot', provider: 'slack' }])
+})
+
+test('the release workflow publishes the Slack artifact under the manifest version', async () => {
+  // The archive is named from extension.json; a stale name in release.yml fails the tag build.
+  const { version } = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  assert.equal(version, '1.4.0')
+  const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
+  const names = [...workflow.matchAll(/buzzni\.slack-([0-9.]+)\.saycode-extension/g)].map(match => match[1])
+  assert.equal(names.length, 3)
+  assert.deepEqual([...new Set(names)], [version])
 })
 
 test('Slack never actually calls channels.send despite declaring it', async () => {
@@ -83,14 +99,284 @@ test('Slack packs as an installable API v3 archive', async () => {
   try {
     assert.deepEqual(Object.keys(packed.zip.files).sort(), ['extension.json', 'index.js'])
     const manifest = JSON.parse(await packed.zip.file('extension.json').async('string'))
-    assert.equal(
-      parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 }).id,
-      'buzzni.slack',
-    )
+    assert.equal(parseExtensionManifest(manifest, CHANNEL_V2_HOST).id, 'buzzni.slack')
     assert.ok(typeof packed.extension.activate === 'function')
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
   }
+})
+
+// ---- Desktop shared fixtures (channel-contract-v2) ------------------------------------------
+
+const contractFixtures = join(packageRoot, 'test/fixtures/channel-contract-v2')
+/** sha256 of each file at Desktop ad7ec2ac7f874d96e37900c63e3bdfe18325c3be tests/fixtures/channel-contract-v2/. */
+const CONTRACT_FIXTURE_SHA256 = {
+  'normalize-result.json': '2a94a97261356351b8d112e5a58800b45ce254816b791b0a5a34855f65c2f9b1',
+  'normalize/forward.json': 'b2ff8335d7ca1e4eb6355117faf2aa7cb874d2df8e742ff947ba44be5d66ed5b',
+  'normalize/quote.json': '448c321beb2c6def47ac73d75f8833656edd61614ed481c44245710e1676678d',
+  'normalize/same-text-blocks.json': '39fec781ff4e750f9bcf01d52a5a6881b636cb16bf138ca654e20f1494463167',
+  'normalize/table.json': '6b39590cfcc8694c9a35aab86f40dbf5fdda6a6e6a1d9b4b7ace8323d2fd7882',
+  'normalize/unfurl-only.json': 'ffef0f63ad57f2f82ced4bd3394e96b6e6bbd798ac22827206d5783734c60cc3',
+  'rendered-reply.json': '37697c787b180dcdb65411807afe03acfae1696cf95c6b00f69d7741f68265e7',
+  'skeleton.json': '0f4a052eb263a58d27895ef6a6ad466fd36624b93bb0dc89b6052375516e61cc',
+  'slack-text-tokens.json': 'dcaeadbb37fe9649f9b104bd98a7a458859c8ab1e5ea0be669a049697ffcd00f',
+}
+
+async function contractFixture(relativePath) {
+  return JSON.parse(await readFile(join(contractFixtures, relativePath), 'utf8'))
+}
+
+test('the channel-contract-v2 copies are byte-identical to the Desktop source recorded in their README', async () => {
+  // Edited copies would silently move this adapter off the contract Core checks against.
+  const readme = await readFile(join(contractFixtures, 'README.md'), 'utf8')
+  assert.match(readme, /커밋 `ad7ec2ac7f874d96e37900c63e3bdfe18325c3be`/)
+  const recorded = new Map([...readme.matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \|$/gm)].map(match => [match[1], match[2]]))
+  // Pinned here as well, so a copy edited together with its README row still fails until the source moves.
+  assert.deepEqual(Object.fromEntries(recorded), CONTRACT_FIXTURE_SHA256)
+  const files = [
+    ...(await readdir(contractFixtures)).filter(name => name.endsWith('.json')),
+    ...(await readdir(join(contractFixtures, 'normalize'))).map(name => `normalize/${name}`),
+  ].sort()
+  assert.deepEqual([...recorded.keys()].sort(), files)
+  for (const file of files) {
+    const digest = createHash('sha256').update(await readFile(join(contractFixtures, file))).digest('hex')
+    assert.equal(digest, recorded.get(file), file)
+  }
+})
+
+// ---- channel.normalizeMessages (contracts §5.2) ------------------------------------------------
+
+const NORMALIZE_FIXTURES = ['forward', 'quote', 'same-text-blocks', 'table', 'unfurl-only']
+
+test('Slack tokens in Slack-authored text read exactly as Core renders them', async () => {
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  const { vectors } = await contractFixture('slack-text-tokens.json')
+  assert.ok(vectors.length > 0)
+  for (const vector of vectors) {
+    assert.equal(renderSlackTextTokens(vector.text, vector.userLabels), vector.expected, vector.id)
+  }
+})
+
+test('normalizeSlackMessages produces each shared I02 fixture result exactly', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  for (const name of NORMALIZE_FIXTURES) {
+    const fixture = await contractFixture(`normalize/${name}.json`)
+    assert.deepEqual(normalizeSlackMessages(fixture.request), fixture.expectedResult, fixture.id)
+  }
+})
+
+test('the test host fake history builds the same requests as the Desktop fixtures', async () => {
+  // Cross-check promised in PR #62: the test host's Core fake and Desktop's fixtures agree on shape.
+  for (const name of NORMALIZE_FIXTURES) {
+    const { request } = await contractFixture(`normalize/${name}.json`)
+    const rebuilt = fakeSlackHistory({
+      channelId: request.channelId, connectionId: request.connectionId, connectionRevision: request.connectionRevision,
+      requestId: request.requestId, purpose: request.purpose, userLabels: request.userLabels,
+      messages: request.items.map(item => ({
+        primaryText: item.primaryText, projection: item.projection, root: item.maxAdditionsBytes === 6000,
+      })),
+    })
+    assert.deepEqual(rebuilt, request, name)
+  }
+})
+
+test('channel API 2 format requests: verbatim reads as v1, rendered is refused until the renderer exists', async () => {
+  // Refusing sends Core down its plain-text path (§6.4) with FORMAT_RENDER_UNAVAILABLE, instead of a
+  // verbatim result Core would have to reject as a malformed rendered reply.
+  const packed = await packedSlack()
+  try {
+    const host = createTestHost('buzzni.slack')
+    await host.activate(packed.extension)
+    const base = {
+      channelId: 'buzzni.slack.bot', connectionId: 'c1', provider: 'slack', connectionRevision: 1,
+      requestId: 'r1', kind: 'final', text: '완료 & <b>', maxChunkUtf16Units: 3000, maxChunks: 64,
+    }
+    const v1 = await host.formatChannelReply({ ...base, apiVersion: 1 })
+    assert.deepEqual(await host.formatChannelReply({ ...base, apiVersion: 2, mode: 'verbatim', dialect: 'slack-mrkdwn' }), v1)
+    await assert.rejects(
+      host.formatChannelReply({ ...base, apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' }),
+      /rendered replies are not available/,
+    )
+    await host.deactivate()
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+test('the packaged extension registers its normalizer and passes the test host contract check', async () => {
+  const packed = await packedSlack()
+  try {
+    const host = createTestHost('buzzni.slack')
+    await host.activate(packed.extension)
+    for (const name of NORMALIZE_FIXTURES) {
+      const fixture = await contractFixture(`normalize/${name}.json`)
+      assert.deepEqual(
+        await host.normalizeChannelMessages({ ...fixture.request, channelId: 'buzzni.slack.bot' }),
+        fixture.expectedResult,
+        fixture.id,
+      )
+    }
+    await host.deactivate()
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+function normalizeRequest(items, overrides = {}) {
+  return fakeSlackHistory({
+    channelId: 'buzzni.slack.bot', userLabels: { U1: 'kim' },
+    messages: items.map(([primaryText, projection, root = false]) => ({ primaryText, projection, root })),
+    ...overrides,
+  })
+}
+
+function utf8(text) { return new TextEncoder().encode(text).length }
+
+test('normalizeSlackMessages writes blocks, lists, code, attachments and files as readable additions', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([
+    ['배포 공지', {
+      blocks: [
+        { type: 'header', text: { type: 'plain_text', text: '배포 공지' } },
+        { type: 'section', text: { type: 'mrkdwn', text: '담당 <@U1> &amp; <#C1|ops>' }, fields: [{ type: 'mrkdwn', text: '*환경* prod' }] },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: '자동 알림' }, { type: 'plain_text', text: 'v2' }] },
+        { type: 'rich_text', elements: [
+          { type: 'rich_text_list', style: 'ordered', elements: [
+            { type: 'rich_text_section', elements: [{ type: 'text', text: '빌드' }] },
+            { type: 'rich_text_section', elements: [{ type: 'link', url: 'https://ci.example/1', text: '로그' }, { type: 'broadcast', range: 'here' }] },
+          ] },
+          { type: 'rich_text_preformatted', elements: [{ type: 'text', text: 'npm run deploy\nexit 0' }] },
+          { type: 'rich_text_section', elements: [{ type: 'usergroup', usergroup_id: 'S1' }, { type: 'text', text: ' ' }, { type: 'emoji', name: 'tada' }, { type: 'channel', channel_id: 'C9' }] },
+        ] },
+      ],
+      attachments: [{ pretext: '알림', title: '빌드 결과', text: '성공 <!channel>' }],
+      files: [{ name: 'log.txt', filetype: 'text', size: 1536 }, { title: '스크린샷', mimetype: 'image/png' }, {}],
+    }, true],
+  ])
+  assert.deepEqual(normalizeSlackMessages(request).items, [{
+    itemRef: 'i0',
+    truncated: false,
+    additions: [
+      // The header repeats the primary text, so it is left out.
+      { source: 'blocks', text: '담당 @kim & #ops\n*환경* prod' },
+      { source: 'blocks', text: '자동 알림 v2' },
+      { source: 'blocks', text: '1. 빌드\n2. 로그 (https://ci.example/1)@here' },
+      { source: 'blocks', text: 'npm run deploy\nexit 0' },
+      { source: 'blocks', text: '@usergroup :tada:#C9' },
+      { source: 'blocks', text: '알림\n빌드 결과\n성공 @channel' },
+      { source: 'files', text: '[첨부: log.txt (text, 1.5 KB)]' },
+      { source: 'files', text: '[첨부: 스크린샷 (image/png)]' },
+      { source: 'files', text: '[첨부: 파일]' },
+    ],
+  }])
+})
+
+test('normalizeSlackMessages leaves out lines Core would drop as duplicates', async () => {
+  // Same line rule as Core (§5.2 rule 3): whole lines only, compared with whitespace folded.
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['회의는  3시\nA', { blocks: [
+    { type: 'section', text: { type: 'mrkdwn', text: '회의는 3시\nBACKUP' } },
+    { type: 'section', text: { type: 'mrkdwn', text: ' A ' } },
+    { type: 'section', text: { type: 'mrkdwn', text: 'BACKUP\n회의는 3시 이후 공지' } },
+    { type: 'rich_text', elements: [{ type: 'rich_text_preformatted', elements: [{ type: 'text', text: 'if (a) {\n  }\n}' }] }] },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'blocks', text: 'BACKUP' },
+    { source: 'blocks', text: '회의는 3시 이후 공지' },
+    // Lines repeated inside one addition stay: Core only drops lines seen earlier.
+    { source: 'blocks', text: 'if (a) {\n  }\n}' },
+  ])
+})
+
+test('normalizeSlackMessages keeps every result within budget and free of characters Core refuses', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const long = '가'.repeat(1000)
+  const request = normalizeRequest([
+    ['원글', { blocks: [{ type: 'section', text: { type: 'plain_text', text: long } }, { type: 'section', text: { type: 'plain_text', text: '뒤 블록' } }] }],
+    ['깨진 글', { blocks: [{ type: 'section', text: { type: 'plain_text', text: 'a\u0000b\uD800c\u0007d\te' } }] }],
+  ])
+  const [reply, broken] = normalizeSlackMessages(request).items
+  assert.equal(reply.truncated, true)
+  assert.equal(reply.additions.length, 1)
+  assert.ok(reply.additions[0].text.endsWith('…(잘림)'))
+  assert.ok(utf8(reply.additions.map(addition => addition.text).join('')) <= 2000)
+  assert.deepEqual(broken.additions, [{ source: 'blocks', text: 'ab�cd\te' }])
+  assert.equal(broken.truncated, false)
+
+  // A surrogate pair is never cut in half at the budget edge.
+  const emoji = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'section', text: { type: 'plain_text', text: '😀'.repeat(600) } }] }]]))
+  const text = emoji.items[0].additions[0].text
+  assert.ok(utf8(text) <= 2000)
+  assert.doesNotMatch(text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''), /[\uD800-\uDFFF]/)
+})
+
+test('normalizeSlackMessages survives ids and tokens that name Object.prototype properties', async () => {
+  // An inherited `userLabels.constructor` is a function, not a label; one such item must not lose them all.
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  assert.equal(renderSlackTextTokens('<toString> <!constructor> <@Uconstructor>', {}), '<toString> <!constructor> <@Uconstructor>')
+  const request = normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [
+    { type: 'user', user_id: 'constructor' }, { type: 'user', user_id: '__proto__' },
+  ] }] }] }]], { userLabels: {} })
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [{ source: 'blocks', text: '@constructor@__proto__' }])
+})
+
+test('normalizeSlackMessages keeps nested quotes, forwarded text without usable blocks, and long file names', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const longName = `${'a'.repeat(70)}`
+  const request = normalizeRequest([['x', {
+    blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [
+      { type: 'text', text: '설명' }, { type: 'rich_text_quote', elements: [{ type: 'text', text: '삭제 금지' }] },
+    ] }] }],
+    attachments: [
+      { is_share: true, text: '원문 중요 내용', message_blocks: [{ message: { blocks: [] } }] },
+      { is_share: true, text: '두 번째 원문', message_blocks: [{ message: { blocks: [{ type: 'section' }] } }] },
+    ],
+    files: [{ name: `${longName}-1.txt`, filetype: 'text', size: 1 }, { name: `${longName}-2.txt`, filetype: 'text', size: 1 }],
+  }, true]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'blocks', text: '설명' },
+    { source: 'quote', text: '[인용] 삭제 금지' },
+    { source: 'forward', text: '[전달된 글] 원문 중요 내용' },
+    { source: 'forward', text: '[전달된 글] 두 번째 원문' },
+    { source: 'files', text: `[첨부: ${longName}-1.txt (text, 1 B)]` },
+    { source: 'files', text: `[첨부: ${longName}-2.txt (text, 1 B)]` },
+  ])
+})
+
+test('normalizeSlackMessages keeps quotes where they stand, under lists too, so the budget cuts the end first', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const quote = (text) => ({ type: 'rich_text_quote', elements: [{ type: 'text', text }] })
+  const ordered = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [{ type: 'text', text: '앞' }, quote('가운데 인용'), { type: 'text', text: '뒤' }] },
+    { type: 'rich_text_list', style: 'bullet', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: '항목' }] }, quote('삭제 금지')] },
+  ] }] }]]))
+  assert.deepEqual(ordered.items[0].additions, [
+    { source: 'blocks', text: '앞' },
+    { source: 'quote', text: '[인용] 가운데 인용' },
+    { source: 'blocks', text: '뒤' },
+    { source: 'blocks', text: '- 항목' },
+    { source: 'quote', text: '[인용] 삭제 금지' },
+  ])
+  const budgeted = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [quote('운영 DB 삭제 금지'), { type: 'text', text: 'a'.repeat(2500) }] },
+  ] }] }]]))
+  assert.equal(budgeted.items[0].truncated, true)
+  assert.deepEqual(budgeted.items[0].additions[0], { source: 'quote', text: '[인용] 운영 DB 삭제 금지' })
+})
+
+test('normalizeSlackMessages reads forwards and unfurls without their author or source link', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['링크', { attachments: [
+    { is_share: true, author_name: 'Park', from_url: 'https://a.slack.com/archives/C2/p1', text: '본문만 <@U1>' },
+    { is_msg_unfurl: true, original_url: 'https://a.slack.com/archives/C3/p2', text: '다른 채널 글' },
+    { original_url: 'https://news.example/b' },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'forward', text: '[전달된 글] 본문만 @kim' },
+    { source: 'unfurl', text: '[링크 미리보기] 다른 채널 글 — https://a.slack.com/archives/C3/p2' },
+    { source: 'unfurl', text: '[링크 미리보기] https://news.example/b' },
+  ])
 })
 
 // ---- command parsing / mention & mrkdwn normalization (white-box: pure functions) -------------

@@ -1,0 +1,65 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2",
+  "id": "i02-quote",
+  "scenario": "I02",
+  "description": "text에 없는 rich_text_quote — primary와 같은 section은 넣지 않고 인용만 [인용]으로",
+  "request": {
+    "apiVersion": 2,
+    "channelId": "slack",
+    "connectionId": "conn-fixture",
+    "provider": "slack",
+    "connectionRevision": 1,
+    "requestId": "req-fixture",
+    "purpose": "currentInput",
+    "userLabels": {},
+    "items": [
+      {
+        "itemRef": "i0",
+        "primaryText": "검토 부탁해요",
+        "maxAdditionsBytes": 8192,
+        "projection": {
+          "blocks": [
+            {
+              "type": "rich_text",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "검토 부탁해요"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_quote",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "운영 DB 접근은 금지\n배포는 금요일 제외"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedResult": {
+    "items": [
+      {
+        "itemRef": "i0",
+        "additions": [
+          {
+            "source": "quote",
+            "text": "[인용] 운영 DB 접근은 금지\n배포는 금요일 제외"
+          }
+        ],
+        "truncated": false
+      }
+    ]
+  }
+}
