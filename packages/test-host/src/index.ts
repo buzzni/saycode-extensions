@@ -133,7 +133,8 @@ export function createTestHost(
     async normalizeChannelMessages(input) {
       if (!active) throw new Error('test host is not active')
       const normalizer = normalizers.get(input.channelId)
-      if (!normalizer) throw new Error('channel normalizer is not registered')
+      // The id comes from the request; only a registered function is ever called with it.
+      if (typeof normalizer !== 'function') throw new Error('channel normalizer is not registered')
       return checkNormalizeResult(throughWire(await normalizer(Object.freeze(throughWire(input)))), input)
     },
     async deactivate() {
