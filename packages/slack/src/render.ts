@@ -285,8 +285,15 @@ function proseRows(source: string, span: LineSpan, maxUnits: number): Row[] {
   const whole = proseLine(line, false)
   if (whole === null) throw new SlackRenderUnsupportedError('a line has no Slack form Core accepts')
   if (whole.length <= maxUnits) return [{ start: span.start, end: span.next, text: whole, group: null }]
+  // Where a cut must not land: inside a link, code span or address (CODE), and of those inside a link or
+  // address (ADDRESS) — a piece of an address is an address the answer only holds as part of a longer one.
+  const CODE = 1
+  const ADDRESS = 2
   const inside = new Uint8Array(line.length + 1)
-  for (const part of inlineSpans(line)) if (part.kind !== 'escape') inside.fill(1, part.start + 1, part.end)
+  for (const part of inlineSpans(line)) {
+    if (part.kind === 'escape') continue
+    inside.fill(part.kind === 'code' ? CODE : CODE | ADDRESS, part.start + 1, part.end)
+  }
   const between = range(1, line.length).filter((at) => !inside[at] && /[ \t]/.test(line[at - 1]!) && !/[ \t]/.test(line[at]!))
   const rows: Row[] = []
   // Rendering seldom shrinks text below half (`**` → `*`), so longer pieces are not tried: bounding each
@@ -306,7 +313,10 @@ function proseRows(source: string, span: LineSpan, maxUnits: number): Row[] {
       const text = proseLine(line.slice(from, to), continuation)
       return text !== null && text.length <= maxUnits && /\S/.test(text) ? text : null
     }
-    const cut = lastFitting(between.filter((at) => at > from && at <= from + reach), shown) ?? lastFitting(hardCuts(line, from, from + reach), shown)
+    const hard = hardCuts(line, from, from + reach)
+    const cut = lastFitting(between.filter((at) => at > from && at <= from + reach), shown)
+      ?? lastFitting(hard.filter((at) => !inside[at]), shown)
+      ?? lastFitting(hard.filter((at) => !(inside[at]! & ADDRESS)), shown)
     if (cut === null) throw new SlackRenderUnsupportedError('a line cannot be cut to fit a chunk')
     rows.push({ start: span.start + from, end: span.start + cut, text: shown(cut)!, group: null, breakBefore: continuation })
     from = cut

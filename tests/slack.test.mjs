@@ -803,6 +803,19 @@ test('a long line is never cut into a piece that shows nothing', async () => {
   assert.ok(chunks.length >= 2 && chunks.every(chunk => /\S/.test(chunk.text)))
 })
 
+test('a long line without spaces is cut before an address, never inside one', async () => {
+  // A cut at `/sec` would show (and Slack would link) a shorter address that the answer only contains
+  // as part of a longer one.
+  const source = '{"data":"' + 'a'.repeat(2959) + '","url":"https://example.com/secure"}'
+  const chunks = await renderedAndAccepted(source)
+  assert.ok(chunks.length >= 2)
+  assert.ok(chunks.some(chunk => chunk.text.includes('https://example.com/secure')))
+  // An address longer than a chunk cannot be shown whole: the plain path sends it.
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  assert.throws(() => renderSlackMarkdown('https://example.com/' + 'a'.repeat(4000), RENDER_LIMITS), SlackRenderUnsupportedError)
+  assert.throws(() => renderSlackMarkdown('[문서](https://example.com/' + 'a'.repeat(4000) + ')', RENDER_LIMITS), SlackRenderUnsupportedError)
+})
+
 test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
   for (const source of [
     '첫 줄\r\n둘째 줄\r\n',
