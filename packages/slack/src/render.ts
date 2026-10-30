@@ -184,6 +184,7 @@ function codeRows(source: string, span: LineSpan, fence: boolean, group: Group, 
   // Slack ends code at a ``` anywhere in a line, and rule 5 refuses one outside a bare fence line.
   if (line.includes(FENCE)) throw new SlackRenderUnsupportedError('a code block holds ```')
   const budget = maxUnits - FENCE_COST
+  const addresses = addressRanges(line).map(([start, end]) => [span.start + start, span.start + end] as const)
   const rows: Row[] = []
   let from = span.start
   for (;;) {
@@ -191,6 +192,9 @@ function codeRows(source: string, span: LineSpan, fence: boolean, group: Group, 
     let length = 0
     while (cut < span.end && length + slackEscape(source[cut]!).length <= budget) length += slackEscape(source[cut++]!).length
     if (cut < span.end && isLowSurrogate(source, cut)) cut -= 1
+    // Before an address the cut would split, when the piece keeps something before it.
+    const split = addresses.find(([start, end]) => start < cut && cut < end)
+    if (split && split[0] > from) cut = split[0]
     if (cut >= span.end) {
       rows.push({ start: from, end: span.next, text: slackEscape(source.slice(from, span.end)), group, breakBefore: from > span.start })
       return rows
@@ -294,6 +298,8 @@ function proseRows(source: string, span: LineSpan, maxUnits: number): Row[] {
     if (part.kind === 'escape') continue
     inside.fill(part.kind === 'code' ? CODE : CODE | ADDRESS, part.start + 1, part.end)
   }
+  // Addresses inside code spans as well: a middle piece of a long code span shows no backticks.
+  for (const [start, end] of addressRanges(line)) inside.fill(CODE | ADDRESS, start + 1, end)
   const between = range(1, line.length).filter((at) => !inside[at] && /[ \t]/.test(line[at - 1]!) && !/[ \t]/.test(line[at]!))
   const rows: Row[] = []
   // Rendering seldom shrinks text below half (`**` → `*`), so longer pieces are not tried: bounding each
@@ -420,7 +426,8 @@ const URL_LIKE = /:\/\/|mailto:/i
  * no form Core accepts, and the answer goes plain.
  */
 const ADDRESS_ANCHOR = /:\/\/|mailto:|www\.|@/gi
-const ADDRESS_STOP = /[\s<>`|]/
+// A double quote ends an address too, so one in minified JSON does not run on to the end of the line.
+const ADDRESS_STOP = /[\s<>`|"]/
 const ADDRESS_TRAILING = /[*_~.,;:!?'")\]]/
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/
 // Every character an unquoted local part may hold (RFC 5322 atext, `'` included) and `\`, so neither an

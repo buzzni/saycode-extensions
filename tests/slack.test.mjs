@@ -814,6 +814,16 @@ test('a long line without spaces is cut before an address, never inside one', as
   const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
   assert.throws(() => renderSlackMarkdown('https://example.com/' + 'a'.repeat(4000), RENDER_LIMITS), SlackRenderUnsupportedError)
   assert.throws(() => renderSlackMarkdown('[문서](https://example.com/' + 'a'.repeat(4000) + ')', RENDER_LIMITS), SlackRenderUnsupportedError)
+  // Inside a long code span too: a middle chunk of it shows no backticks, and Slack links what it sees.
+  const code = '`' + 'a '.repeat(2990) + 'https://example.com.evil/secure ' + 'b'.repeat(100) + '`'
+  assert.ok((await renderedAndAccepted(code)).some(chunk => chunk.text.includes('https://example.com.evil/secure')))
+  assert.throws(() => renderSlackMarkdown('`x https://example.com/' + 'a'.repeat(4000) + '`', RENDER_LIMITS), SlackRenderUnsupportedError)
+  // A code block line over a chunk is cut before an address as well.
+  const block = '```\n' + 'a'.repeat(2970) + ' https://example.com/secure\n```'
+  assert.ok((await renderedAndAccepted(block)).some(chunk => chunk.text.includes('https://example.com/secure')))
+  // An address in minified JSON ends at its closing quote, so the rest of the line can still be cut.
+  const json = '{"url":"https://example.com/a","data":"' + 'a'.repeat(5000) + '"}'
+  assert.ok((await renderedAndAccepted(json)).some(chunk => chunk.text.includes('https://example.com/a&quot;') || chunk.text.includes('https://example.com/a"')))
 })
 
 test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
