@@ -553,6 +553,198 @@ test('the ported verifier stays linear on adversarial link text', async () => {
   }
 })
 
+// ---- Markdown → Slack mrkdwn renderer (contracts §6.1–§6.3, scenario O01) ---------------------
+
+const RENDER_LIMITS = { maxChunkUtf16Units: 3000, maxChunks: 64 }
+
+/** Renders `source` and holds the result to the ported Core check; returns the chunks. */
+async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
+  const { renderSlackMarkdown } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  const rendered = renderSlackMarkdown(source, limits)
+  const verdict = verifyRenderedReply(source, { rendered }, limits)
+  assert.ok(verdict.ok, `refused by rule ${verdict.rule}: ${JSON.stringify(rendered).slice(0, 400)}`)
+  return rendered
+}
+
+function fencesBalanced(text) {
+  const lines = text.split('\n')
+  return lines.filter(line => line.startsWith('```')).length % 2 === 0 && lines.every(line => !line.includes('```') || line === '```')
+}
+
+test('every shared fixture answer renders to a result Core accepts, except one that holds a control character', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const testCase of (await contractFixture('rendered-reply.json')).cases) {
+    if (/[\u0000-\u0008\u000b-\u001f]/.test(testCase.source)) {
+      // Rule 2 refuses the bell in any chunk and rule 3 refuses dropping it: only the plain path can send it.
+      assert.throws(() => renderSlackMarkdown(testCase.source, testCase.limits), SlackRenderUnsupportedError, testCase.id)
+      continue
+    }
+    const rendered = renderSlackMarkdown(testCase.source, testCase.limits)
+    const verdict = verifyRenderedReply(testCase.source, { rendered }, testCase.limits)
+    assert.ok(verdict.ok, `${testCase.id}: rule ${verdict.rule}`)
+  }
+})
+
+test('O01 (a): a short Markdown answer is rendered too, as Slack bold, bullets and a labeled link', async () => {
+  const source = '# 제목\n**굵게** 설명과 [링크](https://x.example)\n- 목록 하나\n- 목록 둘'
+  assert.deepEqual(await renderedAndAccepted(source), [{
+    text: '*제목*\n*굵게* 설명과 <https://x.example|링크>\n• 목록 하나\n• 목록 둘', sourceStart: 0, sourceEnd: source.length,
+  }])
+})
+
+test('O01 (b): a 40-row table becomes one aligned code block with balanced fences', async () => {
+  const rows = Array.from({ length: 40 }, (_, i) => `| api-${i + 1} | ${i % 7 === 0 ? '점검 중' : '정상'} |`)
+  const source = ['| 서버 | 상태 |', '|---|---|', ...rows].join('\n')
+  const [chunk, ...rest] = await renderedAndAccepted(source)
+  assert.equal(rest.length, 0)
+  assert.ok(fencesBalanced(chunk.text))
+  const lines = chunk.text.split('\n')
+  assert.deepEqual([lines[0], lines.at(-1)], ['```', '```'])
+  assert.equal(lines.length, 2 + 42)
+  assert.equal(lines[1], '| 서버   | 상태    |')
+  assert.equal(lines[3], '| api-1  | 점검 중 |')
+  assert.equal(lines[4], '| api-2  | 정상    |')
+})
+
+test('O01 (c): a 9,000-character code block goes out as 3–4 chunks that each open and close a fence, code only escaped', async () => {
+  const testCase = (await contractFixture('rendered-reply.json')).cases.find(c => c.id === 'o01-long-code-escaped-chunks')
+  const chunks = await renderedAndAccepted(testCase.source)
+  assert.ok(chunks.length >= 3 && chunks.length <= 4, `${chunks.length} chunks`)
+  for (const { text } of chunks) {
+    assert.ok(text.length <= 3000)
+    assert.ok(fencesBalanced(text))
+    assert.doesNotMatch(text, /<[!@#]/)
+  }
+  const shown = chunks.map(chunk => chunk.text).join('\n')
+  assert.match(shown, /print\("&lt;@U1&gt;"\)/)
+  assert.match(shown, /if a &amp;&amp; b: x -&gt; y/)
+  assert.match(shown, /send\("&lt;!channel&gt;"\)/)
+})
+
+test('O01 (d): a joined emoji on the 3,000 boundary is never cut, and a long paragraph is split between words', async () => {
+  const emoji = (await contractFixture('rendered-reply.json')).cases.find(c => c.id === 'o01-emoji-at-3000-boundary')
+  const chunks = await renderedAndAccepted(emoji.source)
+  assert.ok(chunks.some(chunk => chunk.text.startsWith('👨‍👩‍👧')))
+  const sentence = '배포 전에 [체크리스트](https://wiki.example/release) 를 확인하고 `npm test` 를 실행합니다. '
+  const paragraph = sentence.repeat(160)
+  for (const chunk of await renderedAndAccepted(paragraph)) {
+    assert.ok(chunk.text.length <= 3000)
+    // Cuts land after a space, never inside the link or the code span.
+    assert.ok(chunk.sourceEnd === paragraph.length || paragraph[chunk.sourceEnd - 1] === ' ', String(chunk.sourceEnd))
+    assert.doesNotMatch(chunk.text, /<https:\/\/wiki\.example\/release\|체크리스트>[^ ]|\[체크/)
+  }
+})
+
+test('Slack special tokens and HTML in the answer are escaped, outside code as well as inside', async () => {
+  const [chunk] = await renderedAndAccepted('공지 <!here> 담당 <@U2> 채널 <#C1> <b>굵게</b> a && b\n`<!channel>` 는 쓰지 마세요')
+  assert.equal(chunk.text, '공지 &lt;!here&gt; 담당 &lt;@U2&gt; 채널 &lt;#C1&gt; &lt;b&gt;굵게&lt;/b&gt; a &amp;&amp; b\n`&lt;!channel&gt;` 는 쓰지 마세요')
+})
+
+test('inline Markdown reads as Slack mrkdwn: emphasis, strike, code, quotes, images and links Slack cannot open', async () => {
+  const source = [
+    '## 요약',
+    '이번 변경은 **중요**하고 *조심*해야 하며 ~~예전 방식~~ 은 버립니다. `rm -rf` 는 금지.',
+    '> 인용한 문장',
+    '>> 중첩 인용',
+    '![구성도](https://img.example/a.png) 와 [내부](ftp://files.example/x) 참고',
+    '[https://a.example](https://b.example) 는 다른 주소입니다',
+    '---',
+    '1. 첫째',
+    '2. 둘째',
+    '   - 하위 항목',
+    '   * 별 하위',
+  ].join('\n')
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '*요약*',
+    '이번 변경은 *중요*하고 _조심_해야 하며 ~예전 방식~ 은 버립니다. `rm -rf` 는 금지.',
+    '> 인용한 문장',
+    '> 중첩 인용',
+    '<https://img.example/a.png|구성도> 와 내부 ftp://files.example/x 참고',
+    'https://a.example <https://b.example> 는 다른 주소입니다',
+    '---',
+    '1. 첫째',
+    '2. 둘째',
+    '   - 하위 항목',
+    '   * 별 하위',
+  ])
+})
+
+test('code blocks keep their bytes (escaped), lose only the language tag, and a fence nested in a list item is a code block too', async () => {
+  const source = [
+    '설치:',
+    '```bash',
+    'npm i && npm test > out.txt',
+    '```',
+    '1. 빌드',
+    '   ```sh',
+    '   make all',
+    '   ```',
+  ].join('\n')
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '설치:', '```', 'npm i &amp;&amp; npm test &gt; out.txt', '```', '1. 빌드', '_sh_', '```', 'make all', '```',
+  ])
+})
+
+test('a nested fence showing the same code as a later code block does not take that block\'s place in Core\'s check', async () => {
+  // Core pairs each source code block with the first rendered block of the same content; the nested
+  // one is not a source code block, so the answer is written without it as a block.
+  const source = '1. 테스트\n   ```\n   npm test\n   ```\n다시 한 번:\n```\nnpm test\n```'
+  const [chunk] = await renderedAndAccepted(source)
+  assert.equal(chunk.text.split('\n').filter(line => line === '```').length, 2)
+})
+
+test('a table honors its column alignment and keeps cells past the header', async () => {
+  const source = '| 항목 | 수량 | 비고 |\n|:--|--:|:-:|\n| 사과 | 3 | 빨강 |\n| 배 | 12 | 노랑 | 추가 |'
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '```',
+    '| 항목 | 수량 | 비고 |      |',
+    '|------|------|------|------|',
+    '| 사과 |    3 | 빨강 |      |',
+    '| 배   |   12 | 노랑 | 추가 |',
+    '```',
+  ])
+})
+
+test('the renderer refuses what only the plain path can send', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  for (const source of [
+    '',
+    'a\u0000b',
+    '```\nconst fence = "``` inside"\n```',
+    '```\r\nwindows line\r\n```',
+    '\ud800 lone',
+  ]) {
+    assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, JSON.stringify(source))
+  }
+  assert.throws(() => renderSlackMarkdown('가 '.repeat(100), { maxChunkUtf16Units: 10, maxChunks: 3 }), SlackRenderUnsupportedError)
+})
+
+// Core waits 3 s for a rendering (§6.4); the approved text can be 64 KiB on one line.
+test('rendering stays fast on adversarial 64 KiB answers', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  for (const source of ['['.repeat(65_536), '**a '.repeat(16_000), '*a '.repeat(20_000), '\\*'.repeat(30_000), '[a](https://x) '.repeat(4_000), 'a\n'.repeat(30_000)]) {
+    const started = performance.now()
+    try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
+    assert.ok(performance.now() - started < 2_000, `${source.slice(0, 8)}: ${performance.now() - started}ms`)
+  }
+})
+
+test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
+  for (const source of [
+    '첫 줄\r\n둘째 줄\r\n',
+    '\\# 제목 아님\n\\- 목록 아님\n\\> 인용 아님\n\\*별\\* 그대로 C:\\\\Users',
+    '| 열 |\n|---|\n| a \\| b |',
+    '- [ ] 할 일\n- [x] 끝',
+    '***\n___\n* * *',
+    '\n\n앞뒤 빈 줄\n\n',
+  ]) await renderedAndAccepted(source)
+})
+
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --
 
 test('formatter concatenates back to the exact input for Korean and emoji text', async () => {

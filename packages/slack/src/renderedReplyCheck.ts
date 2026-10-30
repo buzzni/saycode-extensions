@@ -3,9 +3,10 @@
  *
  * Desktop runs `verifyRenderedReply` on what `render.ts` returns and sends the plain path instead when
  * it refuses. This is the same check, kept line for line with Desktop `src/domain/channelRenderedReply.ts`
- * at abbec7b612 (with `slackPlainEscape` from `channelPlainReply.ts`): the renderer compares each line it
- * writes with `renderedSkeleton`, and the tests hold whole results to `verifyRenderedReply`, both against
- * the shared fixtures Core's own copy passes. Change it only together with Desktop and the fixtures.
+ * at abbec7b612 (with `slackPlainEscape` from `channelPlainReply.ts`): the renderer reads code blocks and
+ * links with the helpers exported here and compares each line it writes with `renderedSkeleton`, and the
+ * tests hold whole results to `verifyRenderedReply`, both against the shared fixtures Core's own copy
+ * passes. Change it only together with Desktop and the fixtures.
  */
 
 export type RenderedSkeletonDialect = 'markdown' | 'slack-mrkdwn'
@@ -54,7 +55,7 @@ export function renderedSkeleton(dialect: RenderedSkeletonDialect, value: string
  * linear: that regex rescans to the line end from every `[`, which a source of repeated `[` turns into
  * seconds of synchronous work inside the reply path.
  */
-function markdownLinksToText(text: string): string {
+export function markdownLinksToText(text: string): string {
   const closeOrNewline = nextIndexOf(text, (char) => char === ']' || char === '\n')
   const parenOrSpace = nextIndexOf(text, (char) => char === ')' || /\s/.test(char))
   let out = ''
@@ -78,7 +79,7 @@ function markdownLinksToText(text: string): string {
 }
 
 /** For every position, the first index at or after it whose character matches (text.length if none). */
-function nextIndexOf(text: string, matches: (char: string) => boolean): Int32Array {
+export function nextIndexOf(text: string, matches: (char: string) => boolean): Int32Array {
   const next = new Int32Array(text.length + 2).fill(text.length)
   for (let index = text.length - 1; index >= 0; index -= 1) next[index] = matches(text[index]!) ? index : next[index + 1]!
   return next
@@ -135,8 +136,8 @@ function hasForbiddenToken(text: string, segment: string): boolean {
   return false
 }
 
-interface LineSpan { start: number; end: number; next: number }
-interface FencedBlock { lines: number[]; content: number[] }
+export interface LineSpan { start: number; end: number; next: number }
+export interface FencedBlock { lines: number[]; content: number[] }
 
 /** Rules 3 and 4 for one chunk: code blocks are fixed from the whole source, then matched in order. */
 function segmentRule(source: string, lines: LineSpan[], blocks: FencedBlock[], chunk: RenderedChunk): 3 | 4 | null {
@@ -184,7 +185,7 @@ function withMarkers(indexes: number[], owners: Map<number, number>, matched: Ma
   return out.join('\n')
 }
 
-function lineSpans(text: string): LineSpan[] {
+export function lineSpans(text: string): LineSpan[] {
   const spans: LineSpan[] = []
   let start = 0
   for (;;) {
@@ -196,7 +197,7 @@ function lineSpans(text: string): LineSpan[] {
 }
 
 /** Fences open and close at a line starting with three backticks; an unclosed one runs to the end. */
-function fencedBlocks(lines: readonly string[]): FencedBlock[] {
+export function fencedBlocks(lines: readonly string[]): FencedBlock[] {
   const blocks: FencedBlock[] = []
   let open: FencedBlock | null = null
   lines.forEach((line, index) => {
@@ -224,6 +225,6 @@ function lineOwners(blocks: FencedBlock[]): Map<number, number> {
 
 export const isFence = (line: string) => line.startsWith('```')
 const decodeEntities = (text: string) => text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
-const hasLoneSurrogate = (text: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
+export const hasLoneSurrogate = (text: string) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)
 const splitsSurrogatePair = (text: string, index: number) => index > 0 && index < text.length
   && /[\uD800-\uDBFF]/.test(text[index - 1]!) && /[\uDC00-\uDFFF]/.test(text[index]!)
