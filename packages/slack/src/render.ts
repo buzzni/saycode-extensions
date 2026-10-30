@@ -59,7 +59,7 @@ export function renderSlackMarkdown(source: string, limits: RenderedReplyLimits)
 }
 
 function renderedChunks(source: string, limits: RenderedReplyLimits, displayBlocks: boolean): ExtensionChannelRenderedChunk[] {
-  const chunks = packRows(sourceRows(source, limits.maxChunkUtf16Units, displayBlocks), limits.maxChunkUtf16Units)
+  const chunks = packRows(sourceRows(source, limits, displayBlocks), limits.maxChunkUtf16Units)
   if (chunks.length > limits.maxChunks) throw new SlackRenderUnsupportedError(`the answer needs ${chunks.length} chunks`)
   for (const { text } of chunks) {
     if (text.length > limits.maxChunkUtf16Units) throw new SlackRenderUnsupportedError('a chunk is over the limit')
@@ -146,7 +146,8 @@ function chunkOf(rows: Row[]): ExtensionChannelRenderedChunk {
 // ---- rows ------------------------------------------------------------------------------------
 
 /** `displayBlocks`: tables and nested fences as code blocks (otherwise as prose lines). */
-function sourceRows(source: string, maxUnits: number, displayBlocks: boolean): Row[] {
+function sourceRows(source: string, limits: RenderedReplyLimits, displayBlocks: boolean): Row[] {
+  const maxUnits = limits.maxChunkUtf16Units
   const spans = lineSpans(source)
   if (spans.length > 1 && spans.at(-1)!.start === source.length) spans.pop()
   const lines = spans.map((span) => source.slice(span.start, span.end))
@@ -163,9 +164,10 @@ function sourceRows(source: string, maxUnits: number, displayBlocks: boolean): R
       index += 1
       continue
     }
-    const block = displayBlocks ? tableRows(lines, spans, index, maxUnits) ?? nestedCodeRows(lines, spans, index, maxUnits, codeOwner) : null
+    const block = displayBlocks ? tableRows(lines, spans, index, limits) ?? nestedCodeRows(lines, spans, index, maxUnits, codeOwner) : null
     if (block) {
-      rows.push(...block.rows)
+      if (block.rows) rows.push(...block.rows)
+      else for (let line = index; line < block.next; line += 1) rows.push(...proseRows(source, spans[line]!, maxUnits))
       index = block.next
       continue
     }
@@ -199,7 +201,8 @@ function codeRows(source: string, span: LineSpan, fence: boolean, group: Group, 
   }
 }
 
-interface BlockRows { rows: Row[]; next: number }
+/** Lines `[index, next)` as one block, or (`rows: null`) as prose lines: the block could not be written. */
+interface BlockRows { rows: Row[] | null; next: number }
 
 const DELIMITER_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/
 
@@ -207,7 +210,7 @@ const DELIMITER_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/
  * A GFM table as an aligned table inside a code block, so its columns line up in Slack. Core compares
  * that block as text (it is not a source code block), which each row is checked against here.
  */
-function tableRows(lines: string[], spans: LineSpan[], index: number, maxUnits: number): BlockRows | null {
+function tableRows(lines: string[], spans: LineSpan[], index: number, limits: RenderedReplyLimits): BlockRows | null {
   const header = lines[index]!
   const delimiter = lines[index + 1]
   if (!header.includes('|') || delimiter === undefined || !DELIMITER_ROW.test(delimiter)) return null
@@ -216,12 +219,17 @@ function tableRows(lines: string[], spans: LineSpan[], index: number, maxUnits: 
   let next = index + 2
   while (next < lines.length && lines[next]!.includes('|') && !isFence(lines[next]!)) next += 1
   const body = [index, ...range(index + 2, next)].map((line) => tableCells(lines[line]!).map((cell) => slackUnescape(inline(cell, 'plain'))))
-  const columns = Math.max(...body.map((cells) => cells.length))
-  const widths = range(0, columns).map((column) => Math.max(0, ...body.map((cells) => displayWidth(cells[column] ?? ''))))
+  const widths: number[] = []
+  for (const cells of body) cells.forEach((cell, column) => { widths[column] = Math.max(widths[column] ?? 0, displayWidth(cell)) })
+  // Every aligned row is at least this long (a code unit shows at most two columns). Past a chunk, or
+  // past the whole reply, the table goes as prose before any row is built.
+  const shortestRow = widths.reduce((length, width) => length + 3 + Math.ceil(width / 2), 1)
+  const room = limits.maxChunkUtf16Units - FENCE_COST
+  if (shortestRow > room || shortestRow * (body.length + 1) > limits.maxChunks * limits.maxChunkUtf16Units) return { rows: null, next }
   const row = (cells: string[]) => `| ${widths.map((width, column) => pad(cells[column] ?? '', width, alignments[column] ?? 'left')).join(' | ')} |`
   const shown = [row(body[0]!), `|${widths.map((width) => '-'.repeat(width + 2)).join('|')}|`, ...body.slice(1).map(row)].map(slackEscape)
   const sourceLines = range(index, next)
-  if (shown.some((text, at) => !sameSkeleton(text, lines[sourceLines[at]!]!) || text.length > maxUnits - FENCE_COST)) return null
+  if (shown.some((text, at) => !sameSkeleton(text, lines[sourceLines[at]!]!) || text.length > room)) return { rows: null, next }
   const group: Group = { kind: 'display' }
   return { rows: sourceLines.map((line, at) => ({ start: spans[line]!.start, end: spans[line]!.next, text: shown[at]!, group })), next }
 }
@@ -327,13 +335,13 @@ function hardCuts(line: string, from: number, to: number): number[] {
 
 /**
  * The Slack form of one line, or null. The full form is tried first; the plain form (links as
- * `label url`, Markdown escapes resolved, nothing else changed) follows, and each is tried again behind
+ * `label url`, Markdown escapes outside addresses resolved, nothing else changed) follows, and each is tried again behind
  * a space, which keeps Core from reading a leading `#`, `-` or `>` the source escaped as a prefix.
  */
 function proseLine(line: string, continuation: boolean): string | null {
   const text = line.replaceAll('\r', '')
   const full = continuation ? inline(text, 'mrkdwn') : blockLine(text)
-  const plain = slackEscape(markdownLinksToText(text).replace(/\\([\\*_~`|#>[\]()-])/g, '$1')).replace(/`{3,}/g, '`')
+  const plain = slackEscape(unescapeOutsideUrls(markdownLinksToText(text))).replace(/`{3,}/g, '`')
   for (const candidate of [full, ` ${full}`, plain, ` ${plain}`]) if (sameSkeleton(candidate, line)) return candidate
   return null
 }
@@ -370,18 +378,27 @@ function unquotedLine(line: string): string {
 
 /** `mrkdwn`: Slack emphasis; `heading`: inside a bold heading; `plain`: no markup at all (table cells, link labels). */
 type InlineMode = 'mrkdwn' | 'heading' | 'plain'
-interface InlinePart { kind: 'link' | 'code' | 'escape'; start: number; end: number; out: (mode: InlineMode) => string }
+interface InlinePart { kind: 'link' | 'code' | 'escape' | 'url'; start: number; end: number; out: (mode: InlineMode) => string }
 
 const MARKDOWN_ESCAPABLE = '\\*_~`|#>[]()-'
 const SLACK_URL = /^(?:https?:\/\/|mailto:)[^|>\s<]+$/
 const URL_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:/i
+/**
+ * Where an address Slack would link starts. An address is shown exactly as written — no escape or
+ * emphasis inside it is resolved — so Slack never links an address the answer does not contain (the
+ * point of rule 6 for link tokens). One whose escapes Core resolves then has no form and goes plain.
+ */
+const ADDRESS_START = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)/y
+const ADDRESS_OR_ESCAPE = /((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`]*)|\\([\\*_~`|#>[\]()-])/g
+
+const unescapeOutsideUrls = (text: string) => text.replace(ADDRESS_OR_ESCAPE, (_match, address?: string, char?: string) => address ?? char!)
 
 function inline(text: string, mode: InlineMode): string {
   const parts = inlineSpans(text)
   let masked = ''
   let unmasked = 0
   for (const part of parts) {
-    masked += text.slice(unmasked, part.start) + ''.repeat(part.end - part.start)
+    masked += text.slice(unmasked, part.start) + '\ue000'.repeat(part.end - part.start)
     unmasked = part.end
   }
   masked += text.slice(unmasked)
@@ -406,8 +423,8 @@ function inline(text: string, mode: InlineMode): string {
 }
 
 /**
- * Links exactly where Core's check finds them (its scan, before anything else), then code spans and
- * backslash escapes between them.
+ * Links exactly where Core's check finds them (its scan, before anything else), then code spans,
+ * addresses and backslash escapes between them.
  */
 function inlineSpans(text: string): InlinePart[] {
   const closeOrNewline = nextIndexOf(text, (char) => char === ']' || char === '\n')
@@ -431,16 +448,23 @@ function inlineSpans(text: string): InlinePart[] {
   const parts: InlinePart[] = []
   let gapStart = 0
   for (const link of links) {
-    parts.push(...codeAndEscapes(text, gapStart, link.start), link)
+    parts.push(...literalParts(text, gapStart, link.start), link)
     gapStart = link.end
   }
-  parts.push(...codeAndEscapes(text, gapStart, text.length))
+  parts.push(...literalParts(text, gapStart, text.length))
   return parts
 }
 
-function codeAndEscapes(text: string, from: number, to: number): InlinePart[] {
+function literalParts(text: string, from: number, to: number): InlinePart[] {
   const parts: InlinePart[] = []
   for (let index = from; index < to;) {
+    const address = addressEnd(text, index, to)
+    if (address > index) {
+      const shown = slackEscape(text.slice(index, address))
+      parts.push({ kind: 'url', start: index, end: address, out: () => shown })
+      index = address
+      continue
+    }
     if (text[index] === '\\' && index + 1 < to && MARKDOWN_ESCAPABLE.includes(text[index + 1]!)) {
       const char = text[index + 1]!
       parts.push({ kind: 'escape', start: index, end: index + 2, out: () => slackEscape(char) })
@@ -459,11 +483,23 @@ function codeAndEscapes(text: string, from: number, to: number): InlinePart[] {
       continue
     }
     // Core's skeleton resolves escapes inside code spans too, so the code span shows them resolved.
-    const content = text.slice(index + run, close).replace(/\\([\\*_~`|#>[\]()-])/g, '$1').replace(/`{3,}/g, '`')
+    const content = unescapeOutsideUrls(text.slice(index + run, close)).replace(/`{3,}/g, '`')
     parts.push({ kind: 'code', start: index, end: close + run, out: (mode) => (mode === 'plain' ? slackEscape(content) : `\`${slackEscape(content)}\``) })
     index = close + run
   }
   return parts
+}
+
+/** The end of an address starting at `index` (trailing punctuation left out, as Slack does), or -1. */
+function addressEnd(text: string, index: number, to: number): number {
+  if (!/[A-Za-z]/.test(text[index] ?? '') || (index > 0 && /[A-Za-z0-9]/.test(text[index - 1]!))) return -1
+  ADDRESS_START.lastIndex = index
+  if (!ADDRESS_START.test(text)) return -1
+  const body = ADDRESS_START.lastIndex
+  let end = body
+  while (end < to && !/[\s<>`]/.test(text[end]!)) end += 1
+  while (end > body && /[*_~.,;:!?'")\]]/.test(text[end - 1]!)) end -= 1
+  return end > body ? end : -1
 }
 
 function backtickRun(text: string, from: number, to: number): number {
@@ -513,7 +549,7 @@ function emphasisDelimiters(masked: string, mode: InlineMode): Map<number, Delim
       const [open, close] = out[mode]
       delimiters.set(offset, { length, out: open })
       delimiters.set(offset + match.length - length, { length, out: close })
-      return ''.repeat(length) + match.slice(length, match.length - length) + ''.repeat(length)
+      return '\ue001'.repeat(length) + match.slice(length, match.length - length) + '\ue001'.repeat(length)
     })
   }
   pair(/\*\*\*(?=[^\s*])(.{1,300}?)(?<=[^\s*])\*\*\*/g, 3, { mrkdwn: ['*_', '_*'], heading: ['_', '_'], plain: ['', ''] })

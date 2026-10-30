@@ -576,7 +576,19 @@ async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
   const rendered = renderSlackMarkdown(source, limits)
   const verdict = verifyRenderedReply(source, { rendered }, limits)
   assert.ok(verdict.ok, `refused by rule ${verdict.rule}: ${JSON.stringify(rendered).slice(0, 400)}`)
+  assertUrlsFromSource(source, rendered)
   return rendered
+}
+
+/** Slack links every address it sees, so each one a chunk shows must be written that way in its range. */
+function assertUrlsFromSource(source, rendered) {
+  for (const { text, sourceStart, sourceEnd } of rendered) {
+    const shown = text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*/g)) {
+      const address = url.replace(/[*_~.,;:!?'")\]]+$/, '')
+      assert.ok(source.slice(sourceStart, sourceEnd).includes(address), `${address} is not in the answer`)
+    }
+  }
 }
 
 function fencesBalanced(text) {
@@ -709,6 +721,17 @@ test('a nested fence showing the same code as a later code block does not take t
   assert.equal(chunk.text.split('\n').filter(line => line === '```').length, 2)
 })
 
+test('an address is shown only as the answer writes it: no escape or emphasis is resolved inside a URL', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  // Resolving `\#` or `\_` would show (and Slack would link) an address the answer does not contain;
+  // keeping the backslash would not compare equal for Core, so these go by the plain path.
+  for (const source of ['[로그](https://example.com/build\\#42)', '자세한 내용 https://x.example/a\\_b 참고']) {
+    assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, source)
+  }
+  const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝')
+  assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝')
+})
+
 test('a table honors its column alignment and keeps cells past the header', async () => {
   const source = '| 항목 | 수량 | 비고 |\n|:--|--:|:-:|\n| 사과 | 3 | 빨강 |\n| 배 | 12 | 노랑 | 추가 |'
   const [chunk] = await renderedAndAccepted(source)
@@ -739,7 +762,11 @@ test('the renderer refuses what only the plain path can send', async () => {
 // Core waits 3 s for a rendering (§6.4); the approved text can be 64 KiB on one line.
 test('rendering stays fast on adversarial 64 KiB answers', async () => {
   const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
-  for (const source of ['['.repeat(65_536), '**a '.repeat(16_000), '*a '.repeat(20_000), '\\*'.repeat(30_000), '[a](https://x) '.repeat(4_000), 'a\n'.repeat(30_000)]) {
+  for (const source of [
+    '['.repeat(65_536), '**a '.repeat(16_000), '*a '.repeat(20_000), '\\*'.repeat(30_000), '[a](https://x) '.repeat(4_000), 'a\n'.repeat(30_000),
+    // A row of thousands of columns; then header/delimiter pairs, each a table that cannot be written as one.
+    '| a |\n|---|\n' + '|a|\n'.repeat(10_000) + '|'.repeat(20_000), '|a|\n|-|\n'.repeat(4_000) + '|'.repeat(30_000),
+  ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
     assert.ok(performance.now() - started < 2_000, `${source.slice(0, 8)}: ${performance.now() - started}ms`)
