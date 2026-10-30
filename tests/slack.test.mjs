@@ -584,7 +584,7 @@ async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
 function assertUrlsFromSource(source, rendered) {
   for (const { text, sourceStart, sourceEnd } of rendered) {
     const shown = text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
-    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
+    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[^\s<>()[\]"'`,;:|@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
       const address = url.replace(/[*_~.,;:!?'")\]]+$/, '')
       assert.ok(source.slice(sourceStart, sourceEnd).includes(address), `${address} is not in the answer`)
     }
@@ -735,11 +735,14 @@ test('an address is shown only as the answer writes it: no escape or emphasis is
     '[파일](ftp://files.example/x)\\_y',
     // An escape just before an address must not take the address's first character with it.
     '\\-https://u.example/a\\#b',
+    // A link written next to an address joins it; an e-mail's local part is any text before `@`.
+    'https://example.com/[x](foo)', '[a](HTTPS://example.com/)[b](foo)', 'first\\#last@example.com',
   ]) {
     assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, source)
   }
   // An emphasis star turned `_` next to an e-mail would join the address (`*y*x@…` → `_y_x@…`).
   await renderedAndAccepted('*y*x@y.example 와 *기울임* ops@y.example')
+  assert.deepEqual((await renderedAndAccepted('~~first~~last@example.com')).map(chunk => chunk.text), ['~~first~~last@example.com'])
   const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
   assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
 })
@@ -780,6 +783,8 @@ test('rendering stays fast on adversarial 64 KiB answers', async () => {
     '| a |\n|---|\n' + '|a|\n'.repeat(10_000) + '|'.repeat(20_000), '|a|\n|-|\n'.repeat(4_000) + '|'.repeat(30_000),
     // Long runs that only look like the start of an address or an e-mail.
     'a'.repeat(65_536), 'a-'.repeat(32_768), 'a@'.repeat(32_768), ':/'.repeat(32_768) + '/', 'www.'.repeat(16_384),
+    // A line that nearly reads as a table delimiter row, or as a thematic break.
+    '| h |\n' + ' '.repeat(32_764) + '-' + ' '.repeat(32_764) + 'x', '- '.repeat(32_000) + 'x', '-\t'.repeat(32_000) + 'x',
   ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }

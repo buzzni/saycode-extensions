@@ -204,7 +204,8 @@ function codeRows(source: string, span: LineSpan, fence: boolean, group: Group, 
 /** Lines `[index, next)` as one block, or (`rows: null`) as prose lines: the block could not be written. */
 interface BlockRows { rows: Row[] | null; next: number }
 
-const DELIMITER_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/
+/** A GFM delimiter row (`|:--|--:|`), read cell by cell: the one-pattern form backtracks for seconds. */
+const isDelimiterRow = (line: string) => tableCells(line).every((cell) => /^:?-+:?$/.test(cell))
 
 /**
  * A GFM table as an aligned table inside a code block, so its columns line up in Slack. Core compares
@@ -213,7 +214,7 @@ const DELIMITER_ROW = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/
 function tableRows(lines: string[], spans: LineSpan[], index: number, limits: RenderedReplyLimits): BlockRows | null {
   const header = lines[index]!
   const delimiter = lines[index + 1]
-  if (!header.includes('|') || delimiter === undefined || !DELIMITER_ROW.test(delimiter)) return null
+  if (!header.includes('|') || delimiter === undefined || !isDelimiterRow(delimiter)) return null
   const alignments = tableCells(delimiter).map((cell) => cell.endsWith(':') ? (cell.startsWith(':') ? 'center' : 'right') : 'left')
   if (tableCells(header).length !== alignments.length) return null
   let next = index + 2
@@ -229,7 +230,7 @@ function tableRows(lines: string[], spans: LineSpan[], index: number, limits: Re
   const row = (cells: string[]) => `| ${widths.map((width, column) => pad(cells[column] ?? '', width, alignments[column] ?? 'left')).join(' | ')} |`
   const shown = [row(body[0]!), `|${widths.map((width) => '-'.repeat(width + 2)).join('|')}|`, ...body.slice(1).map(row)].map(slackEscape)
   const sourceLines = range(index, next)
-  if (shown.some((text, at) => !sameSkeleton(text, lines[sourceLines[at]!]!) || text.length > room)) return { rows: null, next }
+  if (shown.some((text, at) => !showsSource(text, lines[sourceLines[at]!]!) || text.length > room)) return { rows: null, next }
   const group: Group = { kind: 'display' }
   return { rows: sourceLines.map((line, at) => ({ start: spans[line]!.start, end: spans[line]!.next, text: shown[at]!, group })), next }
 }
@@ -258,12 +259,12 @@ function nestedCodeRows(lines: string[], spans: LineSpan[], index: number, maxUn
   if (close >= lines.length || codeOwner.has(close)) return null
   const tag = open[2]!.trim()
   const label = tag === '' ? null : `_${slackEscape(tag)}_`
-  if (label !== null ? !sameSkeleton(label, lines[index]!) : renderedSkeleton('markdown', lines[index]!) !== '') return null
+  if (label !== null ? !showsSource(label, lines[index]!) : renderedSkeleton('markdown', lines[index]!) !== '') return null
   const content = range(index + 1, close)
   const indent = open[1]!.length
   const dedented = content.map((line) => slackEscape(lines[line]!.replace(new RegExp(`^[ \\t]{0,${indent}}`), '').replace(/\r$/, '')))
   const kept = content.map((line) => slackEscape(lines[line]!.replace(/\r$/, '')))
-  const fits = (texts: string[]) => texts.every((text, at) => sameSkeleton(text, lines[content[at]!]!) && text.length <= maxUnits - FENCE_COST)
+  const fits = (texts: string[]) => texts.every((text, at) => showsSource(text, lines[content[at]!]!) && text.length <= maxUnits - FENCE_COST)
   const texts = fits(dedented) ? dedented : fits(kept) ? kept : null
   if (!texts) return null
   const group: Group = { kind: 'display' }
@@ -344,18 +345,31 @@ function proseLine(line: string, continuation: boolean): string | null {
   const text = line.replace(/\r$/, '')
   const full = continuation ? inline(text, 'mrkdwn') : blockLine(text)
   const plain = slackEscape(unescapeOutsideAddresses(markdownLinksToText(text))).replace(/`{3,}/g, '`')
-  for (const candidate of [full, ` ${full}`, plain, ` ${plain}`]) if (sameSkeleton(candidate, line)) return candidate
+  for (const candidate of [full, ` ${full}`, plain, ` ${plain}`]) if (showsSource(candidate, line)) return candidate
   return null
 }
 
-function sameSkeleton(shown: string, source: string): boolean {
-  return !shown.includes(FENCE) && !shown.includes('\n') && renderedSkeleton('slack-mrkdwn', shown) === renderedSkeleton('markdown', source)
+/**
+ * Whether one written line shows its source line: the same characters for Core (its skeleton), and
+ * every address Slack would link written in the source as is. The second holds the address rule as a
+ * whole, beyond the cases `addressRanges` keeps literal: a link written next to an address
+ * (`https://x/[a](b)` → `https://x/a b`) is refused here rather than linked.
+ */
+function showsSource(shown: string, source: string): boolean {
+  if (shown.includes(FENCE) || shown.includes('\n')) return false
+  if (renderedSkeleton('slack-mrkdwn', shown) !== renderedSkeleton('markdown', source)) return false
+  const visible = slackUnescape(shown)
+  return addressRanges(visible).every(([start, end]) => source.includes(visible.slice(start, end)))
 }
 
-const THEMATIC_BREAK = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
+/** `---`, `***`, `___` with spaces between, in a linear check (a backtracking pattern takes seconds). */
+function isThematicBreak(line: string): boolean {
+  if (!/^ {0,3}[-*_]/.test(line) || /[^ \t*_-]/.test(line)) return false
+  return /^(?:-{3,}|\*{3,}|_{3,})$/.test(line.replace(/[ \t]/g, ''))
+}
 
 function blockLine(line: string): string {
-  if (THEMATIC_BREAK.test(line)) return '---'
+  if (isThematicBreak(line)) return '---'
   const quote = /^(?:>\s?)+/.exec(line)
   if (!quote) return unquotedLine(line)
   const rest = line.slice(quote[0].length)
@@ -392,12 +406,12 @@ const URL_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:/i
  * no form Core accepts, and the answer goes plain.
  */
 const ADDRESS_ANCHOR = /:\/\/|mailto:|www\.|@/gi
-const ADDRESS_STOP = /[\s<>`]/
+const ADDRESS_STOP = /[\s<>`|]/
 const ADDRESS_TRAILING = /[*_~.,;:!?'")\]]/
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/
-// A backslash too, so an escape inside the local part (`first\_last@…`) stays inside the address, and
-// `*`, which emphasis would turn into `_` and join to it (`*y*x@…`).
-const MAIL_LOCAL_CHAR = /[A-Za-z0-9._%+*\\-]/
+// Any text before `@` up to a space or bracket, so neither an escape (`first\#last@…`) nor emphasis
+// (`~~a~~b@…`, `*y*x@…`) next to it is resolved into the address.
+const MAIL_LOCAL_CHAR = /[^\s<>()[\]"'`,;:|@]/
 
 /**
  * `[start, end)` of every address in `text`, in one pass: each anchor is followed to the end of its run
