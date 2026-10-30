@@ -584,7 +584,7 @@ async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
 function assertUrlsFromSource(source, rendered) {
   for (const { text, sourceStart, sourceEnd } of rendered) {
     const shown = text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
-    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[^\s<>()[\]"'`,;:|@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
+    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[^\s<>()[\],;:@"]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
       const address = url.replace(/[*_~.,;:!?'")\]]+$/, '')
       assert.ok(source.slice(sourceStart, sourceEnd).includes(address), `${address} is not in the answer`)
     }
@@ -736,7 +736,7 @@ test('an address is shown only as the answer writes it: no escape or emphasis is
     // An escape just before an address must not take the address's first character with it.
     '\\-https://u.example/a\\#b',
     // A link written next to an address joins it; an e-mail's local part is any text before `@`.
-    'https://example.com/[x](foo)', '[a](HTTPS://example.com/)[b](foo)', 'first\\#last@example.com',
+    'https://example.com/[x](foo)', '[a](HTTPS://example.com/)[b](foo)', 'first\\#last@example.com', "first\\_o'connor@example.com",
   ]) {
     assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, source)
   }
@@ -787,6 +787,9 @@ test('rendering stays fast on adversarial 64 KiB answers', async () => {
     '| h |\n' + ' '.repeat(32_764) + '-' + ' '.repeat(32_764) + 'x', '- '.repeat(32_000) + 'x', '-\t'.repeat(32_000) + 'x',
     // A link label of one long word, checked for reading as an address.
     '[' + 'a'.repeat(60_000) + '](https://x.example)',
+    // Long whitespace before a CR or U+2028 inside a list item, heading or nested fence line.
+    '- ' + ' '.repeat(65_531) + 'x\rY', '- ' + ' '.repeat(65_529) + 'x Y', '1.' + ' '.repeat(65_530) + 'x Y',
+    '#' + ' '.repeat(65_530) + 'x Y', ' '.repeat(65_530) + '```x Y',
   ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }

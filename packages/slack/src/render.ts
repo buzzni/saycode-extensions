@@ -242,7 +242,8 @@ function tableCells(line: string): string[] {
   return text.split(/(?<!\\)\|/).map((cell) => cell.trim())
 }
 
-const NESTED_FENCE = /^([ \t]+)`{3,}(.*)$/
+// `[^]*`, not `.*$`: a CR or U+2028 in the line would fail `.*$` and backtrack over the whole prefix.
+const NESTED_FENCE = /^([ \t]+)`{3,}([^]*)/
 
 /**
  * A fence indented under a list item. Core does not read it as code (its fences start a line), so it
@@ -378,15 +379,15 @@ function blockLine(line: string): string {
 }
 
 function unquotedLine(line: string): string {
-  const heading = /^#{1,6}\s+(.*)$/.exec(line)
+  const heading = /^#{1,6}\s+([^]*)/.exec(line)
   if (heading) {
     const content = heading[1]!.trim()
     return content === '' ? '' : `*${inline(content, 'heading')}*`
   }
-  const bullet = /^[-*+]\s+(.*)$/.exec(line)
+  const bullet = /^[-*+]\s+([^]*)/.exec(line)
   if (bullet) return `• ${inline(bullet[1]!, 'mrkdwn')}`
   // Numbered and nested items keep their marker: Core reads a marker after indentation as text.
-  const item = /^(\s*(?:[-*+•◦▪]|\d{1,9}[.)])\s+)(.*)$/.exec(line)
+  const item = /^(\s*(?:[-*+•◦▪]|\d{1,9}[.)])\s+)([^]*)/.exec(line)
   if (item) return item[1]! + inline(item[2]!, 'mrkdwn')
   return inline(line, 'mrkdwn')
 }
@@ -412,9 +413,9 @@ const ADDRESS_ANCHOR = /:\/\/|mailto:|www\.|@/gi
 const ADDRESS_STOP = /[\s<>`|]/
 const ADDRESS_TRAILING = /[*_~.,;:!?'")\]]/
 const SCHEME_CHAR = /[A-Za-z0-9+.-]/
-// Any text before `@` up to a space or bracket, so neither an escape (`first\#last@…`) nor emphasis
-// (`~~a~~b@…`, `*y*x@…`) next to it is resolved into the address.
-const MAIL_LOCAL_CHAR = /[^\s<>()[\]"'`,;:|@]/
+// Every character an unquoted local part may hold (RFC 5322 atext, `'` included) and `\`, so neither an
+// escape (`first\#last@…`) nor emphasis (`~~a~~b@…`, `*y*x@…`) next to it is resolved into the address.
+const MAIL_LOCAL_CHAR = /[^\s<>()[\],;:@"]/
 
 /**
  * `[start, end)` of every address in `text`, in one pass: each anchor is followed to the end of its run
