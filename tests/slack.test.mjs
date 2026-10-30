@@ -809,27 +809,32 @@ test('a long line is never cut into a piece that shows nothing', async () => {
   assert.ok(chunks.length >= 2 && chunks.every(chunk => /\S/.test(chunk.text)))
 })
 
+/** Whether some chunk shows `address` as a whole word (between spaces or quotes), not cut or extended. */
+function showsWhole(chunks, address) {
+  return chunks.some(chunk => chunk.text.split(/[\s"]/).includes(address))
+}
+
 test('a long line without spaces is cut before an address, never inside one', async () => {
   // A cut at `/sec` would show (and Slack would link) a shorter address that the answer only contains
   // as part of a longer one.
   const source = '{"data":"' + 'a'.repeat(2959) + '","url":"https://example.com/secure"}'
   const chunks = await renderedAndAccepted(source)
   assert.ok(chunks.length >= 2)
-  assert.ok(chunks.some(chunk => chunk.text.includes('https://example.com/secure')))
+  assert.ok(showsWhole(chunks, 'https://example.com/secure'))
   // An address longer than a chunk cannot be shown whole: the plain path sends it.
   const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
   assert.throws(() => renderSlackMarkdown('https://example.com/' + 'a'.repeat(4000), RENDER_LIMITS), SlackRenderUnsupportedError)
   assert.throws(() => renderSlackMarkdown('[문서](https://example.com/' + 'a'.repeat(4000) + ')', RENDER_LIMITS), SlackRenderUnsupportedError)
   // Inside a long code span too: a middle chunk of it shows no backticks, and Slack links what it sees.
   const code = '`' + 'a '.repeat(2990) + 'https://example.com.evil/secure ' + 'b'.repeat(100) + '`'
-  assert.ok((await renderedAndAccepted(code)).some(chunk => chunk.text.includes('https://example.com.evil/secure')))
+  assert.ok(showsWhole(await renderedAndAccepted(code), 'https://example.com.evil/secure'))
   assert.throws(() => renderSlackMarkdown('`x https://example.com/' + 'a'.repeat(4000) + '`', RENDER_LIMITS), SlackRenderUnsupportedError)
   // A code block line over a chunk is cut before an address as well.
   const block = '```\n' + 'a'.repeat(2970) + ' https://example.com/secure\n```'
-  assert.ok((await renderedAndAccepted(block)).some(chunk => chunk.text.includes('https://example.com/secure')))
+  assert.ok(showsWhole(await renderedAndAccepted(block), 'https://example.com/secure'))
   // An address in minified JSON ends at its closing quote, so the rest of the line can still be cut.
   const json = '{"url":"https://example.com/a","data":"' + 'a'.repeat(5000) + '"}'
-  assert.ok((await renderedAndAccepted(json)).some(chunk => chunk.text.includes('https://example.com/a&quot;') || chunk.text.includes('https://example.com/a"')))
+  assert.ok(showsWhole(await renderedAndAccepted(json), 'https://example.com/a'))
 })
 
 test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
