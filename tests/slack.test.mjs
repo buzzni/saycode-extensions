@@ -794,8 +794,8 @@ test('rendering stays fast on adversarial 64 KiB answers', async () => {
     // A link label of one long word, checked for reading as an address.
     '[' + 'a'.repeat(60_000) + '](https://x.example)',
     // Long whitespace before a CR or U+2028 inside a list item, heading or nested fence line.
-    '- ' + ' '.repeat(65_531) + 'x\rY', '- ' + ' '.repeat(65_529) + 'x Y', '1.' + ' '.repeat(65_530) + 'x Y',
-    '#' + ' '.repeat(65_530) + 'x Y', ' '.repeat(65_530) + '```x Y',
+    '- ' + ' '.repeat(65_531) + 'x\rY', '- ' + ' '.repeat(65_529) + 'x\u2028Y', '1.' + ' '.repeat(65_530) + 'x\u2028Y',
+    '#' + ' '.repeat(65_530) + 'x\u2028Y', ' '.repeat(65_530) + '```x\u2028Y',
   ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
