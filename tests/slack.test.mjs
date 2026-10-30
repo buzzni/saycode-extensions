@@ -511,6 +511,48 @@ test('an idle connection dispatches a new message within 3s, however long it has
   await runtime.stop()
 })
 
+// ---- Core's rendered-reply check, ported (contracts §6.3) ---------------------------------------
+// The renderer is held to the check Core runs on its result. This port must give Core's verdict on
+// every shared case, or a passing renderer test would say nothing about what Core accepts.
+
+test('the ported skeleton gives every shared skeleton vector', async () => {
+  const { renderedSkeleton } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const { id, dialect, input, expected } of (await contractFixture('skeleton.json')).vectors) {
+    assert.equal(renderedSkeleton(dialect, input), expected, id)
+  }
+})
+
+test('the ported verifier gives Core\'s verdict on every shared rendered-reply case', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const testCase of (await contractFixture('rendered-reply.json')).cases) {
+    const verdict = verifyRenderedReply(testCase.source, testCase.result, testCase.limits)
+    if (testCase.expected.verdict === 'accept') {
+      assert.deepEqual(verdict, { ok: true, chunks: testCase.result.rendered.map(chunk => chunk.text) }, testCase.id)
+    } else {
+      assert.equal(verdict.ok, false, testCase.id)
+      assert.ok(testCase.expected.failedRules.includes(verdict.rule), `${testCase.id}: rule ${verdict.rule}`)
+    }
+  }
+})
+
+test('the ported verifier refuses a source holding NUL, as Core does', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  assert.deepEqual(
+    verifyRenderedReply('a\u0000b', { rendered: [{ text: 'ab', sourceStart: 0, sourceEnd: 3 }] }, { maxChunkUtf16Units: 3000, maxChunks: 64 }),
+    { ok: false, rule: 3 },
+  )
+})
+
+test('the ported verifier stays linear on adversarial link text', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const source of ['['.repeat(65_536), '![a]('.repeat(10_000), '[a]'.repeat(20_000)]) {
+    const started = performance.now()
+    const verdict = verifyRenderedReply(source, { rendered: [{ text: 'x', sourceStart: 0, sourceEnd: source.length }] }, { maxChunkUtf16Units: 3000, maxChunks: 64 })
+    assert.equal(verdict.ok, false)
+    assert.ok(performance.now() - started < 1_000)
+  }
+})
+
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --
 
 test('formatter concatenates back to the exact input for Korean and emoji text', async () => {
