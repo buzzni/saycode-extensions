@@ -300,9 +300,10 @@ function proseRows(source: string, span: LineSpan, maxUnits: number): Row[] {
       rows.push({ start: span.start + from, end: span.next, text: rest, group: null, breakBefore: continuation })
       return rows
     }
+    // A piece that shows nothing (`# ` of a long heading) would be a blank Slack message.
     const shown = (to: number) => {
       const text = proseLine(line.slice(from, to), continuation)
-      return text !== null && text.length <= maxUnits ? text : null
+      return text !== null && text.length <= maxUnits && /\S/.test(text) ? text : null
     }
     const cut = lastFitting(between.filter((at) => at > from && at <= from + reach), shown) ?? lastFitting(hardCuts(line, from, from + reach), shown)
     if (cut === null) throw new SlackRenderUnsupportedError('a line cannot be cut to fit a chunk')
@@ -398,7 +399,9 @@ interface InlinePart { kind: 'link' | 'code' | 'escape' | 'url'; start: number; 
 
 const MARKDOWN_ESCAPABLE = '\\*_~`|#>[]()-'
 const SLACK_URL = /^(?:https?:\/\/|mailto:)[^|>\s<]+$/
-const URL_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:/i
+// Wider than Core's reading of an address-like label (no scheme letters needed) and linear: a label of
+// one long word made Core's pattern take seconds here.
+const URL_LIKE = /:\/\/|mailto:/i
 /**
  * Text Slack would link — `scheme://…`, `mailto:`, `www.` in any case, and e-mail addresses — is shown
  * exactly as written: no escape or emphasis inside it is resolved, so Slack never links an address the

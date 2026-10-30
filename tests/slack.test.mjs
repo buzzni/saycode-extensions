@@ -785,11 +785,19 @@ test('rendering stays fast on adversarial 64 KiB answers', async () => {
     'a'.repeat(65_536), 'a-'.repeat(32_768), 'a@'.repeat(32_768), ':/'.repeat(32_768) + '/', 'www.'.repeat(16_384),
     // A line that nearly reads as a table delimiter row, or as a thematic break.
     '| h |\n' + ' '.repeat(32_764) + '-' + ' '.repeat(32_764) + 'x', '- '.repeat(32_000) + 'x', '-\t'.repeat(32_000) + 'x',
+    // A link label of one long word, checked for reading as an address.
+    '[' + 'a'.repeat(60_000) + '](https://x.example)',
   ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
     assert.ok(performance.now() - started < 2_000, `${source.slice(0, 8)}: ${performance.now() - started}ms`)
   }
+})
+
+test('a long line is never cut into a piece that shows nothing', async () => {
+  // `# ` alone renders blank; Slack refuses a blank message.
+  const chunks = await renderedAndAccepted('# ' + '가'.repeat(5_000))
+  assert.ok(chunks.length >= 2 && chunks.every(chunk => /\S/.test(chunk.text)))
 })
 
 test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
