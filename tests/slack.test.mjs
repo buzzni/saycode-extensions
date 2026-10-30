@@ -757,6 +757,31 @@ test('CRLF prose and lines Markdown escapes still render to a result Core accept
   ]) await renderedAndAccepted(source)
 })
 
+// T34: contracts §6.3 would be too strict if most answers fell back to plain text; under 95% the
+// contract needs adjusting (Desktop specs/slack-bot-improvements plan, risks).
+test('at least 95 of 100 fake answers render to a result Core accepts, and every miss is a refusal, not a bad result', async (t) => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  const { fakeAnswers } = await import(pathToFileURL(join(packageRoot, 'test/renderSamples.mjs')).href)
+  const answers = fakeAnswers()
+  assert.equal(answers.length, 100)
+  assert.ok(answers.filter(answer => answer.length > 3000).length >= 10)
+  const missed = []
+  let accepted = 0
+  for (const [index, answer] of answers.entries()) {
+    try {
+      const verdict = verifyRenderedReply(answer, { rendered: renderSlackMarkdown(answer, RENDER_LIMITS) }, RENDER_LIMITS)
+      assert.ok(verdict.ok, `answer ${index} rendered but Core refuses it (rule ${verdict.rule})`)
+      accepted += 1
+    } catch (error) {
+      if (!(error instanceof SlackRenderUnsupportedError)) throw error
+      missed.push(`${index}: ${error.message}`)
+    }
+  }
+  t.diagnostic(`rendered and accepted: ${accepted}/100; sent as plain text: ${missed.join('; ') || 'none'}`)
+  assert.ok(accepted >= 95, `${accepted}/100`)
+})
+
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --
 
 test('formatter concatenates back to the exact input for Korean and emoji text', async () => {
