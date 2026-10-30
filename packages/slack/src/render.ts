@@ -448,6 +448,12 @@ function addressRanges(text: string): Array<[number, number]> {
     const back = match[0] === '://' ? SCHEME_CHAR : match[0] === '@' ? MAIL_LOCAL_CHAR : null
     let start = anchor
     while (back && start > covered && anchor - start < 64 && back.test(text[start - 1]!)) start -= 1
+    // A quoted local part (`"a**b**"@…`) is the address up to its opening quote.
+    if (match[0] === '@' && start === anchor && text[anchor - 1] === '"') {
+      let open = anchor - 2
+      while (open >= covered && anchor - open <= 66 && text[open] !== '"') open -= 1
+      if (open >= covered && text[open] === '"') start = open
+    }
     // A scheme starts with a letter (`\-https://…` is `\-` and then the address).
     while (match[0] === '://' && start < anchor && !/[A-Za-z]/.test(text[start]!)) start += 1
     const body = anchor + match[0].length

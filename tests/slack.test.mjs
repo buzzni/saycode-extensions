@@ -743,6 +743,10 @@ test('an address is shown only as the answer writes it: no escape or emphasis is
   // An emphasis star turned `_` next to an e-mail would join the address (`*y*x@…` → `_y_x@…`).
   await renderedAndAccepted('*y*x@y.example 와 *기울임* ops@y.example')
   assert.deepEqual((await renderedAndAccepted('~~first~~last@example.com')).map(chunk => chunk.text), ['~~first~~last@example.com'])
+  // A quoted local part (RFC 5322) is part of the address: `"a**b**"` must not become `"ab"`.
+  for (const source of ['메일 "a**b**"@example.com 로', '| Mail |\n|---|\n| "a**b**"@example.com |']) {
+    assert.ok((await renderedAndAccepted(source)).some(chunk => chunk.text.includes('"a**b**"@example.com')), source)
+  }
   const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
   assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
 })
