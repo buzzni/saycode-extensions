@@ -339,9 +339,11 @@ function hardCuts(line: string, from: number, to: number): number[] {
  * a space, which keeps Core from reading a leading `#`, `-` or `>` the source escaped as a prefix.
  */
 function proseLine(line: string, continuation: boolean): string | null {
-  const text = line.replaceAll('\r', '')
+  // Only a CRLF line end: a CR inside the line stays, and the answer goes plain (rule 2) rather than
+  // joining what it separates (`https://exa\rmple.com` must not become another address).
+  const text = line.replace(/\r$/, '')
   const full = continuation ? inline(text, 'mrkdwn') : blockLine(text)
-  const plain = slackEscape(unescapeOutsideUrls(markdownLinksToText(text))).replace(/`{3,}/g, '`')
+  const plain = slackEscape(unescapeOutsideAddresses(markdownLinksToText(text))).replace(/`{3,}/g, '`')
   for (const candidate of [full, ` ${full}`, plain, ` ${plain}`]) if (sameSkeleton(candidate, line)) return candidate
   return null
 }
@@ -384,14 +386,55 @@ const MARKDOWN_ESCAPABLE = '\\*_~`|#>[]()-'
 const SLACK_URL = /^(?:https?:\/\/|mailto:)[^|>\s<]+$/
 const URL_LIKE = /[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:/i
 /**
- * Where an address Slack would link starts. An address is shown exactly as written — no escape or
- * emphasis inside it is resolved — so Slack never links an address the answer does not contain (the
- * point of rule 6 for link tokens). One whose escapes Core resolves then has no form and goes plain.
+ * Text Slack would link — `scheme://…`, `mailto:`, `www.` in any case, and e-mail addresses — is shown
+ * exactly as written: no escape or emphasis inside it is resolved, so Slack never links an address the
+ * answer does not contain (what rule 6 asks of link tokens). One whose escapes Core resolves then has
+ * no form Core accepts, and the answer goes plain.
  */
-const ADDRESS_START = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)/y
-const ADDRESS_OR_ESCAPE = /((?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`]*)|\\([\\*_~`|#>[\]()-])/g
+const ADDRESS_ANCHOR = /:\/\/|mailto:|www\.|@/gi
+const ADDRESS_STOP = /[\s<>`]/
+const ADDRESS_TRAILING = /[*_~.,;:!?'")\]]/
+const SCHEME_CHAR = /[A-Za-z0-9+.-]/
+// A backslash too, so an escape inside the local part (`first\_last@…`) stays inside the address, and
+// `*`, which emphasis would turn into `_` and join to it (`*y*x@…`).
+const MAIL_LOCAL_CHAR = /[A-Za-z0-9._%+*\\-]/
 
-const unescapeOutsideUrls = (text: string) => text.replace(ADDRESS_OR_ESCAPE, (_match, address?: string, char?: string) => address ?? char!)
+/**
+ * `[start, end)` of every address in `text`, in one pass: each anchor is followed to the end of its run
+ * once, and the search goes on from there. Anything run-shaped around an anchor is kept, which only
+ * ever keeps more text literal.
+ */
+function addressRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = []
+  let covered = 0
+  ADDRESS_ANCHOR.lastIndex = 0
+  for (let match = ADDRESS_ANCHOR.exec(text); match; match = ADDRESS_ANCHOR.exec(text)) {
+    const anchor = match.index
+    const back = match[0] === '://' ? SCHEME_CHAR : match[0] === '@' ? MAIL_LOCAL_CHAR : null
+    let start = anchor
+    while (back && start > covered && anchor - start < 64 && back.test(text[start - 1]!)) start -= 1
+    // A scheme starts with a letter (`\-https://…` is `\-` and then the address).
+    while (match[0] === '://' && start < anchor && !/[A-Za-z]/.test(text[start]!)) start += 1
+    const body = anchor + match[0].length
+    let end = body
+    while (end < text.length && !ADDRESS_STOP.test(text[end]!)) end += 1
+    while (end > body && ADDRESS_TRAILING.test(text[end - 1]!)) end -= 1
+    if (end > start) ranges.push([start, end])
+    covered = Math.max(end, body)
+    ADDRESS_ANCHOR.lastIndex = covered
+  }
+  return ranges
+}
+
+function unescapeOutsideAddresses(text: string): string {
+  let out = ''
+  let index = 0
+  for (const [start, end] of [...addressRanges(text), [text.length, text.length] as [number, number]]) {
+    out += text.slice(index, start).replace(/\\([\\*_~`|#>[\]()-])/g, '$1') + text.slice(start, end)
+    index = end
+  }
+  return out
+}
 
 function inline(text: string, mode: InlineMode): string {
   const parts = inlineSpans(text)
@@ -445,27 +488,34 @@ function inlineSpans(text: string): InlinePart[] {
     }
     index += 1
   }
+  const ranges = addressRanges(text)
+  const addresses = new Map<number, number>(ranges)
   const parts: InlinePart[] = []
   let gapStart = 0
+  let range = 0
   for (const link of links) {
-    parts.push(...literalParts(text, gapStart, link.start), link)
+    parts.push(...literalParts(text, gapStart, link.start, addresses), link)
     gapStart = link.end
+    // An address that runs on past the link stays literal after it (`[a](ftp://x)\_y` would show `ftp://x_y`).
+    while (range < ranges.length && ranges[range]![1] <= gapStart) range += 1
+    if (range < ranges.length && ranges[range]![0] < gapStart) addresses.set(gapStart, ranges[range]![1])
   }
-  parts.push(...literalParts(text, gapStart, text.length))
+  parts.push(...literalParts(text, gapStart, text.length, addresses))
   return parts
 }
 
-function literalParts(text: string, from: number, to: number): InlinePart[] {
+function literalParts(text: string, from: number, to: number, addresses: Map<number, number>): InlinePart[] {
   const parts: InlinePart[] = []
   for (let index = from; index < to;) {
-    const address = addressEnd(text, index, to)
+    const address = Math.min(addresses.get(index) ?? -1, to)
     if (address > index) {
       const shown = slackEscape(text.slice(index, address))
       parts.push({ kind: 'url', start: index, end: address, out: () => shown })
       index = address
       continue
     }
-    if (text[index] === '\\' && index + 1 < to && MARKDOWN_ESCAPABLE.includes(text[index + 1]!)) {
+    // An escape never takes the first character of an address with it.
+    if (text[index] === '\\' && index + 1 < to && MARKDOWN_ESCAPABLE.includes(text[index + 1]!) && !addresses.has(index + 1)) {
       const char = text[index + 1]!
       parts.push({ kind: 'escape', start: index, end: index + 2, out: () => slackEscape(char) })
       index += 2
@@ -483,23 +533,11 @@ function literalParts(text: string, from: number, to: number): InlinePart[] {
       continue
     }
     // Core's skeleton resolves escapes inside code spans too, so the code span shows them resolved.
-    const content = unescapeOutsideUrls(text.slice(index + run, close)).replace(/`{3,}/g, '`')
+    const content = unescapeOutsideAddresses(text.slice(index + run, close)).replace(/`{3,}/g, '`')
     parts.push({ kind: 'code', start: index, end: close + run, out: (mode) => (mode === 'plain' ? slackEscape(content) : `\`${slackEscape(content)}\``) })
     index = close + run
   }
   return parts
-}
-
-/** The end of an address starting at `index` (trailing punctuation left out, as Slack does), or -1. */
-function addressEnd(text: string, index: number, to: number): number {
-  if (!/[A-Za-z]/.test(text[index] ?? '') || (index > 0 && /[A-Za-z0-9]/.test(text[index - 1]!))) return -1
-  ADDRESS_START.lastIndex = index
-  if (!ADDRESS_START.test(text)) return -1
-  const body = ADDRESS_START.lastIndex
-  let end = body
-  while (end < to && !/[\s<>`]/.test(text[end]!)) end += 1
-  while (end > body && /[*_~.,;:!?'")\]]/.test(text[end - 1]!)) end -= 1
-  return end > body ? end : -1
 }
 
 function backtickRun(text: string, from: number, to: number): number {

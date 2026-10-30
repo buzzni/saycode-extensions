@@ -584,7 +584,7 @@ async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
 function assertUrlsFromSource(source, rendered) {
   for (const { text, sourceStart, sourceEnd } of rendered) {
     const shown = text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
-    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*/g)) {
+    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
       const address = url.replace(/[*_~.,;:!?'")\]]+$/, '')
       assert.ok(source.slice(sourceStart, sourceEnd).includes(address), `${address} is not in the answer`)
     }
@@ -725,11 +725,23 @@ test('an address is shown only as the answer writes it: no escape or emphasis is
   const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
   // Resolving `\#` or `\_` would show (and Slack would link) an address the answer does not contain;
   // keeping the backslash would not compare equal for Core, so these go by the plain path.
-  for (const source of ['[로그](https://example.com/build\\#42)', '자세한 내용 https://x.example/a\\_b 참고']) {
+  for (const source of [
+    '[로그](https://example.com/build\\#42)', '자세한 내용 https://x.example/a\\_b 참고',
+    // Any case Slack links, and bare e-mail addresses, which Slack links as mail.
+    'WWW.example.com/a\\#42', '[메일](MAILTO:admin\\_ops@example.com)', 'first\\_last@example.com',
+    // A CR inside an address is not a line end: dropping it would join the address into another.
+    'https://exa\rmple.com/a', 'mailto:first\rlast@example.com',
+    // An address shown as text right before an escape the link's `)` ends: still one address in Slack.
+    '[파일](ftp://files.example/x)\\_y',
+    // An escape just before an address must not take the address's first character with it.
+    '\\-https://u.example/a\\#b',
+  ]) {
     assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, source)
   }
-  const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝')
-  assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝')
+  // An emphasis star turned `_` next to an e-mail would join the address (`*y*x@…` → `_y_x@…`).
+  await renderedAndAccepted('*y*x@y.example 와 *기울임* ops@y.example')
+  const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
+  assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
 })
 
 test('a table honors its column alignment and keeps cells past the header', async () => {
@@ -766,6 +778,8 @@ test('rendering stays fast on adversarial 64 KiB answers', async () => {
     '['.repeat(65_536), '**a '.repeat(16_000), '*a '.repeat(20_000), '\\*'.repeat(30_000), '[a](https://x) '.repeat(4_000), 'a\n'.repeat(30_000),
     // A row of thousands of columns; then header/delimiter pairs, each a table that cannot be written as one.
     '| a |\n|---|\n' + '|a|\n'.repeat(10_000) + '|'.repeat(20_000), '|a|\n|-|\n'.repeat(4_000) + '|'.repeat(30_000),
+    // Long runs that only look like the start of an address or an e-mail.
+    'a'.repeat(65_536), 'a-'.repeat(32_768), 'a@'.repeat(32_768), ':/'.repeat(32_768) + '/', 'www.'.repeat(16_384),
   ]) {
     const started = performance.now()
     try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
