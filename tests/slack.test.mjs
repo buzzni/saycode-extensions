@@ -202,9 +202,8 @@ test('the test host fake history builds the same requests as the Desktop fixture
   }
 })
 
-test('channel API 2 format requests: verbatim reads as v1, rendered is refused until the renderer exists', async () => {
-  // Refusing sends Core down its plain-text path (§6.4) with FORMAT_RENDER_UNAVAILABLE, instead of a
-  // verbatim result Core would have to reject as a malformed rendered reply.
+test('channel API 2 format requests: verbatim reads as v1, rendered returns mrkdwn chunks Core accepts (O01, T33)', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
   const packed = await packedSlack()
   try {
     const host = createTestHost('buzzni.slack')
@@ -214,10 +213,23 @@ test('channel API 2 format requests: verbatim reads as v1, rendered is refused u
       requestId: 'r1', kind: 'final', text: '완료 & <b>', maxChunkUtf16Units: 3000, maxChunks: 64,
     }
     const v1 = await host.formatChannelReply({ ...base, apiVersion: 1 })
+    assert.deepEqual(v1, { chunks: ['완료 & <b>'] })
     assert.deepEqual(await host.formatChannelReply({ ...base, apiVersion: 2, mode: 'verbatim', dialect: 'slack-mrkdwn' }), v1)
+    // R11: a short answer is rendered as well, a status line too.
+    for (const [kind, text] of [['final', '**완료** & <b> `<!here>`'], ['status', '_빌드 중_ (2/3)']]) {
+      const result = await host.formatChannelReply({ ...base, kind, text, apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' })
+      assert.deepEqual(Object.keys(result), ['rendered'])
+      const verdict = verifyRenderedReply(text, result, { maxChunkUtf16Units: 3000, maxChunks: 64 })
+      assert.ok(verdict.ok, `${kind}: rule ${verdict.rule}`)
+    }
+    assert.deepEqual(
+      (await host.formatChannelReply({ ...base, text: '**완료** & <b>', apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' })).rendered,
+      [{ text: '*완료* &amp; &lt;b&gt;', sourceStart: 0, sourceEnd: 12 }],
+    )
+    // What only the plain path can send is refused, so Core falls back to it (§6.4).
     await assert.rejects(
-      host.formatChannelReply({ ...base, apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' }),
-      /rendered replies are not available/,
+      host.formatChannelReply({ ...base, text: '벨\u0007', apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' }),
+      /control character/,
     )
     await host.deactivate()
   } finally {

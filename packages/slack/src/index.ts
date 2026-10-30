@@ -6,7 +6,7 @@ import type {
 } from '@buzzni/saycode-extension-sdk'
 
 import { formatSlackApproval } from './approval.js'
-import { formatSlackReply } from './reply.js'
+import { formatSlackReply, renderSlackReply } from './reply.js'
 import { normalizeSlackMessages } from './normalize.js'
 import { createSlackIntakeRuntime, type SlackIntakeRuntime } from './intakeLoop.js'
 import { SLACK_RECEIVE_MAX_MS } from './backoff.js'
@@ -52,11 +52,9 @@ export default defineExtension({
     context.channels.registerFormatter(
       SLACK_CHANNEL_ID,
       (input: ExtensionChannelReplyFormatRequest): ExtensionChannelReplyFormatResult => {
-        // Channel API 2 may ask for mrkdwn rendering, which this adapter does not do yet. Refusing
-        // sends Core down its plain-text path; a verbatim result would be a malformed rendered reply.
-        if (input.apiVersion === 2 && input.mode === 'rendered') {
-          throw new Error('Slack rendered replies are not available in this version')
-        }
+        // Channel API 2 asks for mrkdwn at any length for final and status replies (R11); `verbatim`
+        // and channel API 1 keep the exact split below.
+        if (input.apiVersion === 2 && input.mode === 'rendered') return renderSlackReply(input)
         return input.kind === 'approval' ? formatSlackApproval(input) : formatSlackReply(input)
       },
     )

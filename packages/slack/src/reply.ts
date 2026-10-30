@@ -1,4 +1,10 @@
-import type { ExtensionChannelReplyFormatRequest } from '@buzzni/saycode-extension-sdk'
+import type {
+  ExtensionChannelRenderedReplyResult,
+  ExtensionChannelReplyFormatRequest,
+  ExtensionChannelReplyFormatRequestV2,
+} from '@buzzni/saycode-extension-sdk'
+
+import { renderSlackMarkdown } from './render.js'
 
 /**
  * Splits `text` into chunks of at most `maxUnits` UTF-16 code units, never inside a surrogate
@@ -58,4 +64,22 @@ export function formatSlackReply(
     )
   }
   return { chunks: Object.freeze(chunks) }
+}
+
+/**
+ * Channel API 2 `rendered` (Desktop specs/slack-bot-improvements contracts §6): the same approved
+ * final/status text as Slack mrkdwn, each chunk naming the part of the text it shows. Core checks the
+ * chunks against the text and sends the plain path when it refuses them or when this throws — which
+ * it does for a text only the plain path can send (`SlackRenderUnsupportedError`).
+ */
+export function renderSlackReply(
+  input: Pick<ExtensionChannelReplyFormatRequestV2, 'text' | 'maxChunkUtf16Units' | 'maxChunks'>,
+): ExtensionChannelRenderedReplyResult {
+  if (!Number.isInteger(input.maxChunkUtf16Units) || input.maxChunkUtf16Units < 1) {
+    throw new SlackReplyFormatError('maxChunkUtf16Units must be a positive integer')
+  }
+  if (!Number.isInteger(input.maxChunks) || input.maxChunks < 1) {
+    throw new SlackReplyFormatError('maxChunks must be a positive integer')
+  }
+  return { rendered: renderSlackMarkdown(input.text, input) }
 }
