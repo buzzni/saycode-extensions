@@ -440,31 +440,59 @@ const MAIL_LOCAL_CHAR = /[^\s<>()[\],;:@"]/
  * ever keeps more text literal.
  */
 function addressRanges(text: string): Array<[number, number]> {
+  const quoted = quotedLocalParts(text)
   const ranges: Array<[number, number]> = []
   let covered = 0
+  let next = 0
   ADDRESS_ANCHOR.lastIndex = 0
   for (let match = ADDRESS_ANCHOR.exec(text); match; match = ADDRESS_ANCHOR.exec(text)) {
     const anchor = match.index
+    // An anchor inside a quoted local part (`"a c@d"@…`) is part of that local part.
+    while (next < quoted.length && quoted[next]![1] < anchor) next += 1
+    if (next < quoted.length && quoted[next]![0] < anchor && anchor < quoted[next]![1]) {
+      ADDRESS_ANCHOR.lastIndex = anchor + 1
+      continue
+    }
     const back = match[0] === '://' ? SCHEME_CHAR : match[0] === '@' ? MAIL_LOCAL_CHAR : null
     let start = anchor
-    while (back && start > covered && anchor - start < 64 && back.test(text[start - 1]!)) start -= 1
-    // A quoted local part (`"a**b**"@…`) is the address up to its opening quote.
-    if (match[0] === '@' && start === anchor && text[anchor - 1] === '"') {
-      let open = anchor - 2
-      while (open >= covered && anchor - open <= 66 && text[open] !== '"') open -= 1
-      if (open >= covered && text[open] === '"') start = open
-    }
+    if (match[0] === '@' && next < quoted.length && quoted[next]![1] === anchor) start = quoted[next]![0]
+    else while (back && start > covered && anchor - start < 64 && back.test(text[start - 1]!)) start -= 1
     // A scheme starts with a letter (`\-https://…` is `\-` and then the address).
     while (match[0] === '://' && start < anchor && !/[A-Za-z]/.test(text[start]!)) start += 1
     const body = anchor + match[0].length
     let end = body
     while (end < text.length && !ADDRESS_STOP.test(text[end]!)) end += 1
     while (end > body && ADDRESS_TRAILING.test(text[end - 1]!)) end -= 1
-    if (end > start) ranges.push([start, end])
+    const last = ranges.at(-1)
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end)
+    else if (end > start) ranges.push([start, end])
     covered = Math.max(end, body)
     ADDRESS_ANCHOR.lastIndex = covered
   }
   return ranges
+}
+
+/**
+ * `[open quote, @)` of each quoted local part (RFC 5322 quoted-string: `\` escapes any character, at
+ * most 256 written characters), read forwards so an escaped `\"` or an `@` inside it is not taken
+ * for its start or for an address of its own.
+ */
+function quotedLocalParts(text: string): Array<[number, number]> {
+  const parts: Array<[number, number]> = []
+  for (let open = text.indexOf('"'); open !== -1;) {
+    let close = open + 1
+    while (close < text.length && close - open <= 256 && text[close] !== '"') close += text[close] === '\\' ? 2 : 1
+    if (close >= text.length || text[close] !== '"') {
+      open = text.indexOf('"', open + 1)
+    } else if (text[close + 1] === '@') {
+      parts.push([open, close + 1])
+      open = text.indexOf('"', close + 1)
+    } else {
+      // Not a local part: its closing quote may open the next one (`a"b "c"@d`).
+      open = close
+    }
+  }
+  return parts
 }
 
 function unescapeOutsideAddresses(text: string): string {

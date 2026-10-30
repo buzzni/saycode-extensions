@@ -744,8 +744,10 @@ test('an address is shown only as the answer writes it: no escape or emphasis is
   await renderedAndAccepted('*y*x@y.example 와 *기울임* ops@y.example')
   assert.deepEqual((await renderedAndAccepted('~~first~~last@example.com')).map(chunk => chunk.text), ['~~first~~last@example.com'])
   // A quoted local part (RFC 5322) is part of the address: `"a**b**"` must not become `"ab"`.
-  for (const source of ['메일 "a**b**"@example.com 로', '| Mail |\n|---|\n| "a**b**"@example.com |']) {
-    assert.ok((await renderedAndAccepted(source)).some(chunk => chunk.text.includes('"a**b**"@example.com')), source)
+  for (const address of ['"a**b**"@example.com', String.raw`"a**b**\"c"@example.com`, '"a**b** c@d"@example.com', `"a**b**${String.raw`\x`.repeat(32)}"@example.com`]) {
+    for (const source of [`메일 ${address} 로`, `| Mail |\n|---|\n| ${address} |`]) {
+      assert.ok((await renderedAndAccepted(source)).some(chunk => chunk.text.includes(address)), source)
+    }
   }
   const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
   assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
