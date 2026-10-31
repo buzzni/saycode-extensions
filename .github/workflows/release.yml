@@ -51,7 +51,7 @@ jobs:
         run: sha256sum *.saycode-extension > buzzni.telegram-1.3.0.saycode-extension.sha256
       - name: Create Slack checksum
         working-directory: packages/slack
-        run: sha256sum *.saycode-extension > buzzni.slack-1.4.1.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.slack-1.5.0.saycode-extension.sha256
       - name: Create Discord checksum
         working-directory: packages/discord
         run: sha256sum *.saycode-extension > buzzni.discord-1.3.0.saycode-extension.sha256
@@ -85,8 +85,8 @@ jobs:
           packages/artifact-publisher/buzzni.artifact-publisher-1.0.0.saycode-extension.sha256
           packages/telegram/buzzni.telegram-1.3.0.saycode-extension
           packages/telegram/buzzni.telegram-1.3.0.saycode-extension.sha256
-          packages/slack/buzzni.slack-1.4.1.saycode-extension
-          packages/slack/buzzni.slack-1.4.1.saycode-extension.sha256
+          packages/slack/buzzni.slack-1.5.0.saycode-extension
+          packages/slack/buzzni.slack-1.5.0.saycode-extension.sha256
           packages/discord/buzzni.discord-1.3.0.saycode-extension
           packages/discord/buzzni.discord-1.3.0.saycode-extension.sha256
           packages/document-templates/buzzni.document-templates-1.0.0.saycode-extension
