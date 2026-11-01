@@ -47,7 +47,7 @@ export default defineExtension({
         return response.output
       }
       const version = await run('version')
-      if (!version.includes('0.32.0')) throw new Error('DRIVER_VERSION_MISMATCH')
+      if (!version.includes('0.38.0')) throw new Error('DRIVER_VERSION_MISMATCH')
       // Stop always ends the check; other failures are read as the state they leave behind.
       const passCancel = (error: unknown) => { if (error instanceof Error && error.message === 'cancelled') throw error }
       const windows = input.platform === 'win32'
