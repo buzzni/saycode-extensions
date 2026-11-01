@@ -1,6 +1,6 @@
 {
   "id": "buzzni.computer-control",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "apiVersion": 3,
   "engines": {
     "saycode": "^1.3.0"
@@ -15,14 +15,14 @@
   "managedLocalTool": {
     "version": 1,
     "id": "buzzni.computer-control.driver",
-    "toolVersion": "0.32.0",
+    "toolVersion": "0.38.0",
     "platforms": {
       "darwin-x64": {
-        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-darwin-x86_64.tar.gz",
-        "sha256": "0322e9316d81fbe34cbe8efe2eae83a32cf4dd86b9f34639cc0a4b3a6ed74868",
-        "archiveRoot": "cua-driver-rs-0.32.0-darwin-x86_64",
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-0.38.0-darwin-x86_64.tar.gz",
+        "sha256": "68721a916f2d9b20233a14623e0f663caf6130ba9018465a57a178120d96bc4e",
+        "archiveRoot": "cua-driver-rs-0.38.0-darwin-x86_64",
         "executable": "CuaDriver.app/Contents/MacOS/cua-driver",
-        "executableSha256": "656ff1c1aea1ee063d7735bcd8eb4491346971d4fb3199c6d2260b40aae83c66",
+        "executableSha256": "b4d974a9c1c92a700cd7be7ede987aea4a1e6835e37039ce3d628b71bd5f0ca8",
         "existingExecutables": [
           "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
         ],
@@ -30,19 +30,19 @@
         "signingTeamId": "YCK386LBJ7"
       },
       "win32-x64": {
-        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-windows-x86_64.zip",
-        "sha256": "6d70b45c8c901db773010dd720c8bb9d58c59bb301e9891c58ca1d3860e75652",
-        "archiveRoot": "cua-driver-rs-0.32.0-windows-x86_64",
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-0.38.0-windows-x86_64.zip",
+        "sha256": "997f20114ad3db227a854e1e5a886234f76405b155f4af70605d4b7ca4a436a1",
+        "archiveRoot": "cua-driver-rs-0.38.0-windows-x86_64",
         "executable": "cua-driver.exe",
-        "executableSha256": "d2477595e8b5ae850d119b48c8bbe5c16a1f229f3e99e706bd84622c2d7d98ae",
+        "executableSha256": "ffa58d88779ee219304b0c307f4cfa970fe822f830c6ecf9254eda5c29e22bf2",
         "existingExecutables": []
       },
       "darwin-arm64": {
-        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.32.0/cua-driver-rs-0.32.0-darwin-arm64.tar.gz",
-        "sha256": "31f278f38015616a02142ccbb396721897cee4892927db103a31b297f60035a9",
-        "archiveRoot": "cua-driver-rs-0.32.0-darwin-arm64",
+        "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-0.38.0-darwin-arm64.tar.gz",
+        "sha256": "5f71191c082ca07c9dfc13b7c9a6eec60a82818c245a93534cc0eb7911471d72",
+        "archiveRoot": "cua-driver-rs-0.38.0-darwin-arm64",
         "executable": "CuaDriver.app/Contents/MacOS/cua-driver",
-        "executableSha256": "656ff1c1aea1ee063d7735bcd8eb4491346971d4fb3199c6d2260b40aae83c66",
+        "executableSha256": "b4d974a9c1c92a700cd7be7ede987aea4a1e6835e37039ce3d628b71bd5f0ca8",
         "existingExecutables": [
           "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
         ],
@@ -145,7 +145,8 @@
           "pid": "{{pid}}",
           "window_id": "{{windowId}}",
           "include_screenshot": false,
-          "max_elements": 500
+          "max_elements": 500,
+          "tree_format": "both"
         },
         "inputs": {
           "pid": {

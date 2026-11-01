@@ -11,7 +11,9 @@ import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
 test('CUA package declares exact pinned artifacts and cannot request control without managed metadata', async () => {
   const raw = JSON.parse(await readFile(new URL('../packages/computer-control/extension.json', import.meta.url)))
   const parsed = parseExtensionManifest(raw, { supportedApiVersion: 3 })
-  assert.equal(parsed.managedLocalTool.toolVersion, '0.32.0')
+  assert.equal(parsed.managedLocalTool.toolVersion, '0.38.0')
+  // 0.38 returns only the markdown tree by default; the Chrome recipe and agents read `elements` too.
+  assert.equal(parsed.managedLocalTool.operations.snapshot.payload.tree_format, 'both')
   assert.equal(parsed.managedLocalTool.operations.click.payload.session, '{{session}}')
   assert.deepEqual(parsed.managedLocalTool.operations.status.argv, ['status'])
   assert.deepEqual(parsed.managedLocalTool.operations.autostartKick.argv, ['autostart', 'kick'])
@@ -34,7 +36,7 @@ function windowsBroker({ background = { state: 'not-registered', legacyElevated:
       if (input.mode === 'ensure') { if (ensure instanceof Error) throw ensure; return { version: 1, state: ensure } }
     }
     if (action !== 'run') return { version: 1, state: 'cancelled' }
-    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.38.0' }
     if (input.operation === 'status') {
       if (status) return status(calls)
       const up = calls.some(call => runningAfter.some(step => call.step === step || call.step === 'background:' + step))
@@ -57,6 +59,16 @@ test('Windows doctor registers the standard-privilege background task without an
     assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'background:ensure', 'status', 'doctor'])
     assert.equal(broker.calls.find(call => call.step === 'background:ensure').permission, 'localTools.control')
     assert.equal(broker.calls.some(call => /autostart(Enable)?$/.test(call.step ?? '') && call.step !== 'autostartKick'), false)
+  } finally { await provider.cleanup() }
+})
+
+test('doctor refuses a 0.32.0 Driver left over from an older install', async () => {
+  const broker = windowsBroker()
+  const handler = broker.handler
+  const provider = await loadProvider(async (permission, action, input) => action === 'run' && input?.operation === 'version'
+    ? { state: 'succeeded', output: 'cua-driver 0.32.0' } : handler(permission, action, input))
+  try {
+    await assert.rejects(windowsDoctor(provider), /DRIVER_VERSION_MISMATCH/)
   } finally { await provider.cleanup() }
 })
 
@@ -403,7 +415,7 @@ test('OS permission check starts the CuaDriver daemon and requests grants when i
   const provider = await loadProvider(async (permission, action, input) => {
     if (action !== 'run') return { version: 1, state: 'installed' }
     operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') { granted = true; return runResult('Accessibility and Screen Recording are granted.') }
     if (input.operation === 'permissionStatus') return runResult(granted
       ? { accessibility: true, screen_recording: true, source: { attribution: 'driver-daemon' } }
@@ -419,7 +431,7 @@ test('OS permission check does not prompt again when the daemon already has both
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
     operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     return runResult({ accessibility: true, screen_recording: true })
   })
   try {
@@ -429,7 +441,7 @@ test('OS permission check does not prompt again when the daemon already has both
 })
 test('OS permission check reports pending grants when macOS approval is still outstanding', async () => {
   const provider = await loadProvider(async (permission, action, input) => {
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') throw new Error('TOOL_EXECUTION_FAILED')
     return runResult({ accessibility: false, screen_recording: true })
   })
@@ -447,7 +459,7 @@ test('OS permission check falls back to doctor when permission status is not JSO
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
     operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'permissionStatus') return runResult('permissions options (macOS):\n  cua-driver permissions status ...')
     if (input.operation === 'doctor') return runResult({ ok: true })
     if (input.operation === 'permissions') return runResult({ accessibility: true, screen_recording: true })
@@ -462,7 +474,7 @@ test('Stop during the macOS grant ends the OS permission check instead of carryi
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
     operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') return { version: 1, state: 'cancelled', remoteMayContinue: false }
     return runResult({ daemon_running: false, status: 'unknown' })
   })
