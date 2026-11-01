@@ -39,8 +39,10 @@ export default defineExtension({
     for (const action of ['inspect', 'install']) context.commands.register('buzzni.computer-control.' + action, args => tool(action, request(args)))
     context.commands.register('buzzni.computer-control.doctor', async args => {
       const input = request(args)
+      // `platform` only selects the flow here; Desktop's broker refuses any key it does not know.
+      const target = { version: 1, machineId: input.machineId! }
       const run = async (operation: string) => {
-        const response = await tool('run', { ...input, operation, parameters: {} })
+        const response = await tool('run', { ...target, operation, parameters: {} })
         if (response.state !== 'succeeded' || typeof response.output !== 'string') throw new Error('DRIVER_CHECK_FAILED')
         return response.output
       }
@@ -53,26 +55,35 @@ export default defineExtension({
         // Desktop's broker rejects when the driver exits non-zero: `status` exits 1 while the daemon is stopped.
         const running = async () => {
           try {
-            const status = result(await context.invokeCapability('localTools.inspect', 'run', { ...input, operation: 'status', parameters: {} }))
+            const status = result(await context.invokeCapability('localTools.inspect', 'run', { ...target, operation: 'status', parameters: {} }))
             return status.state === 'succeeded' && typeof status.output === 'string' && daemonIsRunning(status.output)
           } catch (error) { passCancel(error); return false }
         }
-        if (!await running()) {
-          // `autostart enable` registers an elevated logon task and asks for administrator approval (UAC).
-          // It reports on stderr, so judge it by `autostart status` rather than by its own result.
-          await tool('run', { ...input, operation: 'autostartEnable', parameters: {} }, true).catch(passCancel)
-          const registered = await tool('run', { ...input, operation: 'autostartStatus', parameters: {} }).catch(error => { passCancel(error); return null })
-          if (typeof registered?.output !== 'string' || !/^registered\b/.test(registered.output.trim().toLowerCase())) throw new Error('DRIVER_AUTOSTART_REQUIRED')
-          await tool('run', { ...input, operation: 'autostartKick', parameters: {} }, true).catch(passCancel)
-          let started = false
-          for (let attempt = 0; attempt < 6 && !started; attempt++) {
-            if (attempt) await new Promise(resolve => setTimeout(resolve, 1000))
-            started = await running()
-          }
-          if (!started) throw new Error('LOCAL_DAEMON_REQUIRED')
+        // Desktop owns a per-user standard-privilege logon task for `serve` (specs/windows-computer-control-no-uac).
+        const background = await tool('background', { ...target, mode: 'status' })
+        let legacyKept = false, legacyRemoved = false
+        if (Number(background.legacyElevated) > 0) {
+          // 0.2.1 registered an elevated task that launches a user-writable binary; removing it takes one approval.
+          const removed = await tool('background', { ...target, mode: 'removeLegacy' }, true).catch(error => { passCancel(error); return null })
+          legacyRemoved = removed?.state === 'removed'
+          legacyKept = !legacyRemoved
+          // The elevated daemon would keep the pipe; a standard-privilege process may not be able to stop it.
+          if (legacyRemoved) await tool('run', { ...target, operation: 'stop', parameters: {} }, true).catch(passCancel)
         }
+        if (legacyKept) {
+          if (!await running()) await tool('run', { ...target, operation: 'autostartKick', parameters: {} }, true).catch(passCancel)
+        } else if (legacyRemoved || background.state !== 'registered' || background.executableMatches !== true || !await running()) {
+          const ensured = await tool('background', { ...target, mode: 'ensure' }, true).catch(error => { passCancel(error); return null })
+          if (ensured?.state !== 'registered') throw new Error('DRIVER_AUTOSTART_REQUIRED')
+        }
+        let started = await running()
+        for (let attempt = 0; attempt < 6 && !started; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          started = await running()
+        }
+        if (!started) throw new Error('LOCAL_DAEMON_REQUIRED')
         const doctor = JSON.parse(await run('doctor'))
-        return { version: 1, state: doctor.ok === true ? 'ready' : 'daemon-required' }
+        return { version: 1, state: doctor.ok === true ? 'ready' : 'daemon-required', ...(legacyKept ? { legacyElevated: true } : {}) }
       }
       // macOS: grants belong to the CuaDriver daemon's own identity, which nothing else starts on a fresh
       // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
