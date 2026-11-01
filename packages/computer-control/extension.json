@@ -1,9 +1,9 @@
 {
   "id": "buzzni.computer-control",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": 3,
   "engines": {
-    "saycode": "^1.1.0"
+    "saycode": "^1.3.0"
   },
   "entrypoint": "index.js",
   "permissions": [
@@ -83,14 +83,6 @@
         ],
         "inputs": {}
       },
-      "autostartEnable": {
-        "permission": "control",
-        "argv": [
-          "autostart",
-          "enable"
-        ],
-        "inputs": {}
-      },
       "autostartStatus": {
         "permission": "inspect",
         "argv": [
@@ -104,6 +96,13 @@
         "argv": [
           "autostart",
           "kick"
+        ],
+        "inputs": {}
+      },
+      "stop": {
+        "permission": "control",
+        "argv": [
+          "stop"
         ],
         "inputs": {}
       },
@@ -240,6 +239,12 @@
         },
         "inputs": {}
       }
+    },
+    "background": {
+      "argv": [
+        "serve"
+      ],
+      "stopOperation": "stop"
     }
   },
   "activationEvents": [
