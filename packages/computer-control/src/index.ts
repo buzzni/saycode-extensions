@@ -89,10 +89,14 @@ export default defineExtension({
       // logins with a per-user LaunchAgent; a Desktop without it answers unsupported-platform, and then only
       // the `permissions grant` below starts the daemon (through LaunchServices) for this session.
       const background = await tool('background', { ...target, mode: 'status' }).catch(error => { passCancel(error); return null })
-      if (background && (background.state !== 'registered' || background.executableMatches !== true)) {
+      if (background) {
+        // A daemon left by an earlier `grant` owns the socket, and launchd's `serve` would exit 1 and be retried
+        // every 10s; stop it before registering. A current agent is only started again if it stopped (kickstart).
+        const current = background.state === 'registered' && background.executableMatches === true
+        if (!current) await tool('run', { ...target, operation: 'stop', parameters: {} }, true).catch(passCancel)
         await tool('background', { ...target, mode: 'ensure' }, true).catch(passCancel)
       }
-      const granted =(status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
+      const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
       // Stop always ends the check; any other failure (no `permissions` command, non-JSON, unreachable) is just no reading.
       const reading = async (): Promise<Record<string, unknown> | null> => {
         try {
