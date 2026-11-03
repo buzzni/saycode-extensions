@@ -409,12 +409,18 @@ test('managed tool metadata requires API 3 and rejects malformed URLs, values an
 })
 
 const runResult = output => ({ version: 1, state: 'succeeded', output: typeof output === 'string' ? output : JSON.stringify(output) })
+// Desktop's answer to the macOS background (LaunchAgent) requests; `registered` is an agent for the current Driver.
+const macBackground = (input, { registered = false, ensure = 'registered' } = {}) => input.mode === 'status'
+  ? { version: 1, ...(registered ? { state: 'registered', executableMatches: true } : { state: 'not-registered' }), legacyElevated: 0 }
+  : { version: 1, state: ensure }
+const step = (action, input) => action === 'background' ? 'background:' + input.mode : input.operation
 test('OS permission check starts the CuaDriver daemon and requests grants when it is not running', async () => {
   const operations = []
   let granted = false
   const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input)
     if (action !== 'run') return { version: 1, state: 'installed' }
-    operations.push(input.operation)
     if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') { granted = true; return runResult('Accessibility and Screen Recording are granted.') }
     if (input.operation === 'permissionStatus') return runResult(granted
@@ -424,23 +430,73 @@ test('OS permission check starts the CuaDriver daemon and requests grants when i
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant', 'permissionStatus'])
+    assert.deepEqual(operations, ['version', 'background:status', 'background:ensure', 'permissionStatus', 'grant', 'permissionStatus'])
   } finally { await provider.cleanup() }
 })
-test('OS permission check does not prompt again when the daemon already has both grants', async () => {
-  const operations = []
+test('OS permission check registers the LaunchAgent with control permission and leaves a current one alone', async () => {
+  const calls = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
+    calls.push({ permission, step: step(action, input) })
+    if (action === 'background') return macBackground(input, { registered: true })
     if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     return runResult({ accessibility: true, screen_recording: true })
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus'])
+    assert.deepEqual(calls.map(call => call.step), ['version', 'background:status', 'permissionStatus'])
+    assert.equal(calls.find(call => call.step === 'background:status').permission, 'localTools.inspect')
+  } finally { await provider.cleanup() }
+  const ensured = []
+  const second = await loadProvider(async (permission, action, input) => {
+    ensured.push({ permission, step: step(action, input) })
+    if (action === 'background') return macBackground(input)
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    await second.command('doctor')({ version: 1, machineId: 'M1' })
+    assert.equal(ensured.find(call => call.step === 'background:ensure').permission, 'localTools.control')
+  } finally { await second.cleanup() }
+})
+test('OS permission check keeps working on a Desktop without the macOS background task', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(step(action, input))
+    if (action === 'background') return { version: 1, state: 'unsupported-platform', platform: 'darwin-arm64' }
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'background:status', 'permissionStatus'])
+  } finally { await provider.cleanup() }
+})
+test('Stop while registering the LaunchAgent ends the OS permission check', async () => {
+  const provider = await loadProvider(async (permission, action, input) => {
+    if (action === 'background') return input.mode === 'ensure' ? { version: 1, state: 'cancelled', remoteMayContinue: false } : macBackground(input)
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ daemon_running: false, status: 'unknown' })
+  })
+  try {
+    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /cancelled/)
+  } finally { await provider.cleanup() }
+})
+test('OS permission check does not prompt again when the daemon already has both grants', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'background:status', 'permissionStatus'])
   } finally { await provider.cleanup() }
 })
 test('OS permission check reports pending grants when macOS approval is still outstanding', async () => {
   const provider = await loadProvider(async (permission, action, input) => {
+    if (action === 'background') return macBackground(input)
     if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') throw new Error('TOOL_EXECUTION_FAILED')
     return runResult({ accessibility: false, screen_recording: true })
@@ -458,7 +514,8 @@ test('CUA package declares the grant and permission status operations it needs o
 test('OS permission check falls back to doctor when permission status is not JSON (no macOS permissions command)', async () => {
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
     if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'permissionStatus') return runResult('permissions options (macOS):\n  cua-driver permissions status ...')
     if (input.operation === 'doctor') return runResult({ ok: true })
@@ -467,19 +524,20 @@ test('OS permission check falls back to doctor when permission status is not JSO
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'doctor', 'permissions'])
+    assert.deepEqual(operations, ['version', 'background:status', 'permissionStatus', 'doctor', 'permissions'])
   } finally { await provider.cleanup() }
 })
 test('Stop during the macOS grant ends the OS permission check instead of carrying on', async () => {
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
     if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') return { version: 1, state: 'cancelled', remoteMayContinue: false }
     return runResult({ daemon_running: false, status: 'unknown' })
   })
   try {
     await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /cancelled/)
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant'])
+    assert.deepEqual(operations, ['version', 'background:status', 'permissionStatus', 'grant'])
   } finally { await provider.cleanup() }
 })

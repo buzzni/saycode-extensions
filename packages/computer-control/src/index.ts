@@ -85,9 +85,14 @@ export default defineExtension({
         const doctor = JSON.parse(await run('doctor'))
         return { version: 1, state: doctor.ok === true ? 'ready' : 'daemon-required', ...(legacyKept ? { legacyElevated: true } : {}) }
       }
-      // macOS: grants belong to the CuaDriver daemon's own identity, which nothing else starts on a fresh
-      // machine. `permissions grant` launches it through LaunchServices and asks macOS for what is missing.
-      const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
+      // macOS: grants belong to the CuaDriver daemon's own identity. Desktop keeps that daemon running across
+      // logins with a per-user LaunchAgent; a Desktop without it answers unsupported-platform, and then only
+      // the `permissions grant` below starts the daemon (through LaunchServices) for this session.
+      const background = await tool('background', { ...target, mode: 'status' }).catch(error => { passCancel(error); return null })
+      if (background && (background.state !== 'registered' || background.executableMatches !== true)) {
+        await tool('background', { ...target, mode: 'ensure' }, true).catch(passCancel)
+      }
+      const granted =(status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
       // Stop always ends the check; any other failure (no `permissions` command, non-JSON, unreachable) is just no reading.
       const reading = async (): Promise<Record<string, unknown> | null> => {
         try {
