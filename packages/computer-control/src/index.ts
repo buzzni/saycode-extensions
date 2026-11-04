@@ -94,7 +94,9 @@ export default defineExtension({
         // every 10s; stop it before registering. A current agent is only started again if it stopped (kickstart).
         const current = background.state === 'registered' && background.executableMatches === true
         if (!current) await tool('run', { ...target, operation: 'stop', parameters: {} }, true).catch(passCancel)
-        await tool('background', { ...target, mode: 'ensure' }, true).catch(passCancel)
+        // This host knows the LaunchAgent (status answered), so a failed registration is not "ready".
+        const ensured = await tool('background', { ...target, mode: 'ensure' }, true).catch(error => { passCancel(error); return null })
+        if (ensured?.state !== 'registered') throw new Error('DRIVER_AUTOSTART_REQUIRED')
       }
       const granted = (status: Record<string, unknown>) => status.accessibility === true && status.screen_recording === true
       // Stop always ends the check; any other failure (no `permissions` command, non-JSON, unreachable) is just no reading.

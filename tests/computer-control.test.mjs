@@ -490,8 +490,25 @@ test('OS permission check stops a daemon left by an earlier grant before registe
     } finally { await provider.cleanup() }
   }
 })
-test('OS permission check still asks for grants when the host refuses the LaunchAgent', async () => {
-  for (const refusal of [{ ensure: new Error('LOGON_TASK_NOT_REGISTERED') }, { status: new Error('INVALID_REQUEST') }]) {
+test('OS permission check reports a LaunchAgent that could not be registered instead of ready', async () => {
+  for (const ensure of [new Error('LOGON_TASK_NOT_REGISTERED'), { version: 1, state: 'not-registered' }]) {
+    const provider = await loadProvider(async (permission, action, input) => {
+      if (action === 'background') {
+        if (input.mode === 'status') return macBackground(input)
+        if (ensure instanceof Error) throw ensure
+        return ensure
+      }
+      if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+      if (input.operation === 'stop') return runResult('stopped')
+      return runResult({ accessibility: true, screen_recording: true })
+    })
+    try {
+      await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /DRIVER_AUTOSTART_REQUIRED/)
+    } finally { await provider.cleanup() }
+  }
+})
+test('OS permission check still asks for grants when an older host does not know the LaunchAgent', async () => {
+  for (const refusal of [{ status: new Error('INVALID_REQUEST') }]) {
     const operations = []
     const provider = await loadProvider(async (permission, action, input) => {
       operations.push(step(action, input))
