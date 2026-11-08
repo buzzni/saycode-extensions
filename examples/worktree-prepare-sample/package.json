@@ -1,0 +1,9 @@
+{
+  "name": "@buzzni/saycode-extension-worktree-prepare-sample",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@buzzni/saycode-extension-sdk": "^0.10.0"
+  }
+}

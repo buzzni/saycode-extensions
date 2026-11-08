@@ -49,6 +49,12 @@ enter a Saycode token, encryption secret, password, or cookie into an extension 
 | `notifications.show` | Display a Desktop notification |
 | `storage.read` | Read the extension's private storage |
 | `storage.write` | Write the extension's private storage |
+| `sessions.launchEnvironment` | Add the env names and MCP servers listed in the approval to conversation sessions it starts or resumes |
+| `worktrees.prepare` | Copy the listed Git-ignored files from the original checkout into each new worktree |
+
+The approval for `sessions.launchEnvironment` shows every env name (secret ones marked) and each MCP server's fixed
+command or URL; `worktrees.prepare` shows the paths it copies. Enter secret values in Saycode, never in an extension
+panel. A failing hook never stops a session or a worktree: Saycode leaves that extension's additions out and says why.
 
 Declaring a permission is not enough: Desktop also checks the user's current approval on every protected call. Revoked,
 unknown, or undeclared permissions fail closed.

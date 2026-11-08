@@ -1,0 +1,18 @@
+{
+  "id": "buzzni.worktree-prepare-sample",
+  "version": "1.0.0",
+  "apiVersion": 4,
+  "engines": { "saycode": "^1.4.0" },
+  "entrypoint": "index.js",
+  "permissions": ["worktrees.prepare"],
+  "activationEvents": [],
+  "contributes": {
+    "worktreeHooks": [
+      {
+        "id": "buzzni.worktree-prepare-sample.env-local",
+        "event": "worktree.create.after",
+        "copyIgnored": [".env.local"]
+      }
+    ]
+  }
+}
