@@ -333,14 +333,21 @@ Session hook rules (the parser mirrors Desktop and rejects anything else, includ
 
 - At most 4 hooks per contribution point. Hook ids start with the extension id and are unique among all contributions.
   `scope` is `all` (default) or `company` (only projects that belong to a company).
-- `env`: at most 32 names matching `^[A-Z][A-Z0-9_]{0,63}$`. Reserved names are refused: `PATH`, `HOME`, `USER`,
-  `LOGNAME`, `SHELL`, `PWD`, `TMPDIR`, `TERM`, `PORT`, `NODE_OPTIONS`, `NODE_PATH`, `SSH_AUTH_SOCK`, and anything
-  starting with `HAPPY_`, `SAYCODE_`, `APLUS_`, `LD_`, `DYLD_`, `GIT_`, `ANTHROPIC_`, `CLAUDE_`, `OPENAI_` or `CODEX_`.
+- `env`: at most 32 names matching `^[A-Z][A-Z0-9_]{0,63}$`. Names the agent, Saycode, a shell, an interpreter or
+  a loader reads are refused: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `PWD`, `TMPDIR`, `TERM`, `PORT`,
+  `SSH_AUTH_SOCK`, `IFS`, `PS4`, `PROMPT_COMMAND`, `ENV`, `BASH_ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS`, `COMSPEC`,
+  `PATHEXT`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PERL5LIB`, `PERL5OPT`, `PERLLIB`, `RUBYOPT`, `RUBYLIB`,
+  `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, `GCONV_PATH`, and anything starting with `HAPPY_`,
+  `SAYCODE_`, `APLUS_`, `LD_`, `DYLD_`, `GIT_`, `ANTHROPIC_`, `CLAUDE_`, `OPENAI_`, `CODEX_`, `NODE_`, `NPM_CONFIG_`
+  or `BASH_FUNC_`.
 - `mcpServers`: at most 8, names matching `^[a-z][a-z0-9_-]{0,31}$`, not starting with `happy`, `saycode` or `aplus`,
   and not `cua-driver` (the daemon adds `happy` and `cua-driver` itself).
   A `stdio` server has a bare `command` (no path) that is not a shell or indirection (`sh`, `bash`, `env`, `xargs`,
-  `ssh`, `sudo`, `osascript`, …), at most 32 fixed `args` of up to 512 characters, and `envNames` from the same hook.
-  An interpreter such as `node` or `python` may not run inline code (`-e`, `-c`, `-p`, `--eval`, …). An `http` server
+  `ssh`, `sudo`, `wsl`, `cscript`, `osascript`, …; `bash.exe`, `cmd.exe` and similar Windows suffixes count as the bare
+  name), at most 32 fixed `args` of up to 512 characters, and `envNames` from the same hook. An interpreter such as
+  `node`, `python3.11` or `py` may not run inline code or loaders (`-e`, `-ex()`, `-c`, `-p`, `--eval`, `--import`,
+  `--require`, `--loader`, …), and a package runner (`npx`, `pnpm`, `uvx`, …) may not take a shell line (`-c`, `--call`,
+  `--shell`, `exec`). An `http` server
   has an `https:` URL without credentials, and each `headerEnvNames` entry must name a **secret** env of the same hook.
 - A hook injects at least one env name or server. Env and server names are unique across one extension's hooks.
 - `dynamic: true` requires the activation event `onSessionOpenBefore:<hookId>` and a handler registered during
@@ -366,14 +373,21 @@ Any other result drops the extension's whole injection for that session.
 Trust model:
 
 - Secret env values are entered by the person in Saycode and kept in its secret store. They never reach the extension
-  host, and a handler can never return one. Without a value, that env name and every server that needs it are left out.
+  host, and a handler can never return one. A value stored as secret stays secret: if a later version redeclares the
+  same name as a plain env, Saycode does not send the stored value as plain text.
 - MCP commands, arguments and URLs are fixed in the manifest and shown to the person when they approve the permission.
   A handler only fills declared values and picks declared servers; it cannot add or change a launch line. Approval is
-  tied to the extension version and its hook declarations, so an update that changes them asks again.
-- A hook never blocks a session or a worktree. A timeout, crash, invalid result, missing secret or name conflict drops
-  that extension's injection (never part of it) and the session still starts; a failed copy leaves the worktree in place.
-  When two extensions declare the same name, both are dropped; a name the person set on the project wins over an
-  extension.
+  tied to the extension version and its hook declarations, so an update that changes them asks again. Disabling the
+  extension also ends the approval; after enabling it again the person approves the hooks again (entered values stay).
+- A hook never blocks a session or a worktree; the session still starts and a failed copy leaves the worktree in place.
+  Two kinds of failure are handled differently:
+  - **A missing value** (no secret entered, or no value for a plain env) leaves out only that env name and the MCP
+    servers that need it through `envNames` or `headerEnvNames`. Everything else the extension declared still applies.
+  - **A timeout (5 seconds per extension), host crash, invalid handler result or name conflict** drops that extension's
+    whole injection for the session — never part of it. When two extensions declare the same env or server name, both
+    are dropped; a name the person set on the project wins and the extension's injection is dropped.
+- A `scope: "company"` hook applies only to projects that belong to a company. For any other project its dynamic
+  handler is not called at all.
 - Values are recomputed at every session open and are not stored in project settings or session metadata.
 
 Worktree hooks in v1 support only `copyIgnored`: 1 to 32 safe relative paths (no absolute path, `..`, or `.git`

@@ -54,7 +54,9 @@ enter a Saycode token, encryption secret, password, or cookie into an extension 
 
 The approval for `sessions.launchEnvironment` shows every env name (secret ones marked) and each MCP server's fixed
 command or URL; `worktrees.prepare` shows the paths it copies. Enter secret values in Saycode, never in an extension
-panel. A failing hook never stops a session or a worktree: Saycode leaves that extension's additions out and says why.
+panel. A failing hook never stops a session or a worktree. A missing value leaves out only that env name and the
+servers that need it; a timeout, crash, invalid result or name conflict leaves out all of that extension's additions,
+and Saycode says why. Disabling an extension ends its hook approval, so enabling it again asks for approval again.
 
 Declaring a permission is not enough: Desktop also checks the user's current approval on every protected call. Revoked,
 unknown, or undeclared permissions fail closed.
