@@ -47,15 +47,28 @@ const SERVER_NAME = /^[a-z][a-z0-9_-]{0,31}$/
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/
 const COMMAND = /^[a-z][a-z0-9._-]{0,63}$/
 /** Names the agent, Core or the process loader read; an extension may not steer them. */
-const RESERVED_ENV = new Set(['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'TMPDIR', 'TERM', 'PORT', 'NODE_OPTIONS', 'NODE_PATH', 'SSH_AUTH_SOCK'])
-const RESERVED_ENV_PREFIXES = ['HAPPY_', 'SAYCODE_', 'APLUS_', 'LD_', 'DYLD_', 'GIT_', 'ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'CODEX_']
+// Also every name a shell, interpreter or loader reads to run extra code or find executables (BASH_ENV, PYTHONSTARTUP…).
+const RESERVED_ENV = new Set([
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'TMPDIR', 'TERM', 'PORT', 'SSH_AUTH_SOCK', 'IFS', 'PS4', 'PROMPT_COMMAND',
+  'ENV', 'BASH_ENV', 'ZDOTDIR', 'SHELLOPTS', 'BASHOPTS', 'COMSPEC', 'PATHEXT', 'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP',
+  'PERL5LIB', 'PERL5OPT', 'PERLLIB', 'RUBYOPT', 'RUBYLIB', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'GCONV_PATH',
+])
+const RESERVED_ENV_PREFIXES = ['HAPPY_', 'SAYCODE_', 'APLUS_', 'LD_', 'DYLD_', 'GIT_', 'ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'CODEX_', 'NODE_', 'NPM_CONFIG_', 'BASH_FUNC_']
 /** Core-owned MCP servers: the daemon injects `happy` and `cua-driver` itself (happy #1185); Saycode connectors use the prefixes. */
 const RESERVED_SERVER_PREFIXES = ['happy', 'saycode', 'aplus']
 const RESERVED_SERVER_NAMES = new Set(['cua-driver'])
 /** Shells and indirections: a fixed launch line through one of these is an arbitrary command. */
-const UNSUPPORTED_COMMANDS = /^(sh|bash|zsh|fish|dash|ksh|csh|tcsh|cmd|powershell|pwsh|env|xargs|ssh|tmux|screen|osascript|sudo|su|nohup|awk|gawk|eval|exec)$/
-const INTERPRETERS = /^(node|nodejs|deno|bun|python|python2|python3|ruby|perl|php)$/
-const INLINE_CODE_FLAGS = new Set(['-e', '-E', '-c', '-p', '-r', '--eval', '--print'])
+const UNSUPPORTED_COMMANDS = /^(sh|bash|zsh|fish|dash|ksh|csh|tcsh|cmd|powershell|pwsh|wsl|env|xargs|ssh|tmux|screen|osascript|sudo|su|doas|nohup|awk|gawk|eval|exec|start|cscript|wscript|mshta|rundll32)$/
+const INTERPRETERS = /^(node|nodejs|deno|bun|python[0-9.]*|py|ruby|perl|php)$/
+/** Package runners take `-c "<shell>"` (npx, pnpm dlx) — that is a shell line, not a published package. */
+const RUNNERS = /^(npx|pnpx|bunx|uvx|pipx|yarn|pnpm|npm|deno)$/
+const INLINE_CODE_FLAGS = /^(-[eEcpr]|--(eval|print|import|require|loader|experimental-loader|call|shell|command))(=|$)|^-[eEcp]./
+const RUNNER_SHELL_FLAGS = /^(-c|--call|--shell|--shell-auto-fallback|exec)(=|$)/
+
+/** `bash.exe`, `Python3.11.EXE` and the like are the same program as their bare name. */
+function programName(command: string): string {
+  return command.toLowerCase().replace(/\.(exe|cmd|bat|com|ps1)$/, '')
+}
 
 function fail(path: string, detail: string): never {
   throw new Error(`${path}: ${detail}`)
@@ -136,7 +149,9 @@ function parseArgs(command: string, value: unknown, path: string): string[] {
     if (typeof arg !== 'string' || arg.length > 512 || arg.includes('\u0000')) fail(`${path}[${index}]`, 'expected a string up to 512 characters')
     return arg
   })
-  if (INTERPRETERS.test(command) && args.some((arg) => INLINE_CODE_FLAGS.has(arg) || arg.startsWith('--eval='))) {
+  const program = programName(command)
+  if ((INTERPRETERS.test(program) && args.some((arg) => INLINE_CODE_FLAGS.test(arg)))
+    || (RUNNERS.test(program) && args.some((arg) => RUNNER_SHELL_FLAGS.test(arg)))) {
     fail(path, 'inline code is not allowed; run a published package or file')
   }
   return args
@@ -158,7 +173,7 @@ function parseServer(entry: Record<string, unknown>, path: string, env: Extensio
   if (entry.transport === 'stdio') {
     assertOnlyKeys(entry, new Set(['name', 'transport', 'command', 'args', 'envNames']), path)
     const command = string(entry.command, `${path}.command`)
-    if (!COMMAND.test(command) || UNSUPPORTED_COMMANDS.test(command)) fail(`${path}.command`, 'unsupported command')
+    if (!COMMAND.test(command) || UNSUPPORTED_COMMANDS.test(programName(command))) fail(`${path}.command`, 'unsupported command')
     const args = entry.args === undefined ? undefined : parseArgs(command, entry.args, `${path}.args`)
     const envNames = entry.envNames === undefined ? undefined : array(entry.envNames, `${path}.envNames`).map((item, index) => {
       const itemName = string(item, `${path}.envNames[${index}]`)

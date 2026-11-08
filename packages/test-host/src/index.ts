@@ -55,16 +55,84 @@ export interface ExtensionTestHostOptions {
 }
 
 const MAX_SESSION_HOOK_VALUE = 8192
+const SESSION_KINDS = new Set(['chat', 'child', 'automation', 'channel'])
+const SHORT_TEXT = /^[^\u0000-\u001f]{1,200}$/
+
+function plainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key))
+}
+
+function shortText(value: unknown): value is string {
+  return typeof value === 'string' && SHORT_TEXT.test(value)
+}
+
+/**
+ * Mirrors Desktop src/domain/extensionLaunchInjection.ts `parseSessionOpenBeforeInput`: Core never sends anything else,
+ * so a test that passes something else would exercise a handler with input it can never receive. Returns a fresh copy.
+ */
+function parseSessionOpenBeforeInput(value: unknown): SessionOpenBeforeInput {
+  const invalid = (): never => { throw new Error('invalid session.openBefore input') }
+  if (!plainObject(value) || !onlyKeys(value, ['reason', 'sessionKind', 'agent', 'project'])) return invalid()
+  if ((value.reason !== 'create' && value.reason !== 'resume') || !SESSION_KINDS.has(String(value.sessionKind)) || !shortText(value.agent)) invalid()
+  const project = value.project
+  if (!plainObject(project) || !onlyKeys(project, ['id', 'companyId', 'repository']) || !shortText(project.id)
+    || (project.companyId !== undefined && !shortText(project.companyId))) return invalid()
+  const repository = project.repository
+  if (repository !== undefined && (!plainObject(repository) || !onlyKeys(repository, ['name', 'remoteHost']) || !shortText(repository.name)
+    || (repository.remoteHost !== undefined && !shortText(repository.remoteHost)))) invalid()
+  const typed = project as SessionOpenBeforeInput['project']
+  return {
+    reason: value.reason as SessionOpenBeforeInput['reason'],
+    sessionKind: value.sessionKind as SessionOpenBeforeInput['sessionKind'],
+    agent: value.agent as string,
+    project: {
+      id: typed.id,
+      ...(typed.companyId ? { companyId: typed.companyId } : {}),
+      ...(typed.repository ? { repository: { name: typed.repository.name, ...(typed.repository.remoteHost ? { remoteHost: typed.repository.remoteHost } : {}) } } : {}),
+    },
+  }
+}
+
+/** Mirrors Desktop's host wire check: a result must be JSON (no undefined, function, non-finite number, cycle or class instance). */
+function assertJsonValue(value: unknown, path: string, ancestors = new Set<object>()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${path} must be a finite number`)
+    return
+  }
+  if (typeof value !== 'object') throw new Error(`${path} contains ${typeof value}`)
+  if (ancestors.has(value)) throw new Error(`${path} contains a cycle`)
+  ancestors.add(value)
+  try {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => assertJsonValue(item, `${path}[${index}]`, ancestors))
+      return
+    }
+    if (!plainObject(value)) throw new Error(`${path} must be a plain object`)
+    for (const [key, item] of Object.entries(value)) assertJsonValue(item, `${path}.${key}`, ancestors)
+  } finally {
+    ancestors.delete(value)
+  }
+}
 
 /** Mirrors Desktop src/domain/extensionLaunchInjection.ts `readDynamicResult`: anything it would void throws here. */
 function checkSessionOpenBeforeResult(manifest: ExtensionManifest, hookId: string, value: unknown): SessionOpenBeforeResult {
   const hook = manifest.contributes.sessionHooks?.find((candidate) => candidate.id === hookId)
   const invalid = (detail: string): never => { throw new Error(`session hook ${hookId} result would be dropped: ${detail}`) }
   if (!hook) return invalid('hook is not declared')
+  // Desktop refuses a result that does not survive the JSON host wire before it reads any field.
+  try { assertJsonValue(value, 'result') } catch (error) { return invalid((error as Error).message) }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('expected an object')
   const result = value as Record<string, unknown>
-  const unknown = Object.keys(result).find((key) => key !== 'env' && key !== 'mcpServers')
-  if (unknown) invalid(`unknown key ${unknown}`)
+  // Count the unknown keys rather than testing `find`'s result: an empty-string key is falsy but still unknown.
+  const unknown = Object.keys(result).filter((key) => key !== 'env' && key !== 'mcpServers')
+  if (unknown.length > 0) invalid(`unknown key ${JSON.stringify(unknown[0])}`)
   const plain = new Set((hook.env ?? []).filter((item) => !item.secret).map((item) => item.name))
   const env: Record<string, string> = {}
   if (result.env !== undefined) {
@@ -201,7 +269,8 @@ export function createTestHost(
       if (!active || !options.manifest) throw new Error('test host is not active')
       const handler = sessionOpenHandlers.get(hookId)
       if (!handler) throw new Error('session hook handler is not registered')
-      return checkSessionOpenBeforeResult(options.manifest, hookId, await handler(Object.freeze({ ...input })))
+      const parsed = parseSessionOpenBeforeInput(input)
+      return checkSessionOpenBeforeResult(options.manifest, hookId, await handler(Object.freeze(parsed)))
     },
     async deactivate() {
       const extension = active

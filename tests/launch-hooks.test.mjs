@@ -80,6 +80,15 @@ const rejectedSessionHooks = [
   ['a shell command', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'bash' }] }, /command.*unsupported/],
   ['a command path', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: '/usr/bin/node' }] }, /command.*unsupported/],
   ['an inline eval', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'node', args: ['-e', 'x()'] }] }, /args.*inline code/],
+  ['an attached inline eval', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'node', args: ['-ex()'] }] }, /inline code/],
+  ['a data: loader', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'node', args: ['--import=data:text/javascript,x'] }] }, /inline code/],
+  ['a versioned interpreter eval', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'python3.11', args: ['-c', 'x'] }] }, /inline code/],
+  ['a runner shell line', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'npx', args: ['-c', 'curl x | sh'] }] }, /inline code/],
+  ['a Windows shell', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'cmd.exe' }] }, /command.*unsupported/],
+  ['an .exe shell', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'bash.exe' }] }, /command.*unsupported/],
+  ['a shell startup env', { ...sessionHook, env: [{ name: 'BASH_ENV' }], mcpServers: [] }, /reserved/],
+  ['an interpreter path env', { ...sessionHook, env: [{ name: 'PYTHONPATH' }], mcpServers: [] }, /reserved/],
+  ['a Windows executable lookup env', { ...sessionHook, env: [{ name: 'PATHEXT' }], mcpServers: [] }, /reserved/],
   ['an undeclared env for a server', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], envNames: ['OTHER'] }] }, /envNames.*declared/],
   ['a plain http url', { ...sessionHook, mcpServers: [{ name: 'acme-remote', transport: 'http', url: 'http://mcp.acme.test' }] }, /url.*https/],
   ['credentials in the url', { ...sessionHook, mcpServers: [{ name: 'acme-remote', transport: 'http', url: 'https://u:p@mcp.acme.test' }] }, /url/],
@@ -263,6 +272,38 @@ test('test host rejects a handler result Desktop would drop', async () => {
   await assert.rejects(run({ env: { ACME_API_URL: 'x'.repeat(8193) } }), /must be a string/)
   await assert.rejects(run({ env: { ACME_API_URL: 'a\u0000b' } }), /without NUL/)
   await assert.rejects(run({ mcpServers: ['other'] }), /declared server names/)
-  await assert.rejects(run({ command: 'bash' }), /unknown key command/)
+  await assert.rejects(run({ command: 'bash' }), /unknown key "command"/)
+  await assert.rejects(run({ '': true }), /unknown key ""/)
   await assert.rejects(run(null), /expected an object/)
+  // Not JSON: Desktop's host wire refuses these before reading any field.
+  await assert.rejects(run({ env: undefined }), /result\.env contains undefined/)
+  await assert.rejects(run({ mcpServers: undefined }), /result\.mcpServers contains undefined/)
+  await assert.rejects(run({ env: { ACME_API_URL: () => 'x' } }), /contains function/)
+  await assert.rejects(run(new (class Result {})()), /plain object/)
+})
+
+test('test host refuses input Core would never send and hands the handler a copy', async () => {
+  let received
+  const host = createTestHost(ext, { manifest: hostManifest })
+  await host.activate(defineExtension({ activate(context) { context.sessionHooks.onOpenBefore('acme.tools.docs', (input) => { received = input; return {} }) } }))
+  const input = { reason: 'resume', sessionKind: 'channel', agent: 'claude', project: { id: 'p1', companyId: 'c1', repository: { name: 'repo', remoteHost: 'github.com' } } }
+  assert.deepEqual(await host.openSessionBefore('acme.tools.docs', input), {})
+  assert.deepEqual(received, input)
+  assert.notEqual(received.project, input.project)
+  assert.ok(Object.isFrozen(received))
+  const rejected = [
+    { ...input, extra: true },
+    { ...input, reason: 'open' },
+    { ...input, sessionKind: 'terminal' },
+    { ...input, agent: '' },
+    { ...input, agent: 'x'.repeat(201) },
+    { ...input, agent: 'a\nb' },
+    { ...input, project: { id: 'p1', path: '/Users/me/repo' } },
+    { ...input, project: { id: 'p1', companyId: '' } },
+    { ...input, project: { id: 'p1', repository: { name: 'repo', url: 'https://github.com/x/y' } } },
+    { ...input, project: { id: 'p1', repository: { name: 'repo', remoteHost: 'a\u0001b' } } },
+  ]
+  for (const value of rejected) {
+    await assert.rejects(host.openSessionBefore('acme.tools.docs', value), /invalid session\.openBefore input/, JSON.stringify(value))
+  }
 })
