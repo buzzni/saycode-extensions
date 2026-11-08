@@ -76,6 +76,7 @@ const rejectedSessionHooks = [
   ['secret other than true', { ...sessionHook, env: [{ name: 'ACME_A', secret: false }], mcpServers: [] }, /secret/],
   ['an upper-case server name', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], name: 'Acme' }] }, /mcpServers\[0\]\.name/],
   ['a reserved server name', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], name: 'happy' }] }, /mcpServers\[0\]\.name.*reserved/],
+  ['the daemon\'s computer-control server name', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], name: 'cua-driver' }] }, /mcpServers\[0\]\.name.*reserved name cua-driver/],
   ['a shell command', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'bash' }] }, /command.*unsupported/],
   ['a command path', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: '/usr/bin/node' }] }, /command.*unsupported/],
   ['an inline eval', { ...sessionHook, mcpServers: [{ ...sessionHook.mcpServers[0], command: 'node', args: ['-e', 'x()'] }] }, /args.*inline code/],

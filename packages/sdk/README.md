@@ -336,7 +336,8 @@ Session hook rules (the parser mirrors Desktop and rejects anything else, includ
 - `env`: at most 32 names matching `^[A-Z][A-Z0-9_]{0,63}$`. Reserved names are refused: `PATH`, `HOME`, `USER`,
   `LOGNAME`, `SHELL`, `PWD`, `TMPDIR`, `TERM`, `PORT`, `NODE_OPTIONS`, `NODE_PATH`, `SSH_AUTH_SOCK`, and anything
   starting with `HAPPY_`, `SAYCODE_`, `APLUS_`, `LD_`, `DYLD_`, `GIT_`, `ANTHROPIC_`, `CLAUDE_`, `OPENAI_` or `CODEX_`.
-- `mcpServers`: at most 8, names matching `^[a-z][a-z0-9_-]{0,31}$` and not starting with `happy`, `saycode` or `aplus`.
+- `mcpServers`: at most 8, names matching `^[a-z][a-z0-9_-]{0,31}$`, not starting with `happy`, `saycode` or `aplus`,
+  and not `cua-driver` (the daemon adds `happy` and `cua-driver` itself).
   A `stdio` server has a bare `command` (no path) that is not a shell or indirection (`sh`, `bash`, `env`, `xargs`,
   `ssh`, `sudo`, `osascript`, …), at most 32 fixed `args` of up to 512 characters, and `envNames` from the same hook.
   An interpreter such as `node` or `python` may not run inline code (`-e`, `-c`, `-p`, `--eval`, …). An `http` server

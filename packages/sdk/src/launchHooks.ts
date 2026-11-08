@@ -49,8 +49,9 @@ const COMMAND = /^[a-z][a-z0-9._-]{0,63}$/
 /** Names the agent, Core or the process loader read; an extension may not steer them. */
 const RESERVED_ENV = new Set(['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'TMPDIR', 'TERM', 'PORT', 'NODE_OPTIONS', 'NODE_PATH', 'SSH_AUTH_SOCK'])
 const RESERVED_ENV_PREFIXES = ['HAPPY_', 'SAYCODE_', 'APLUS_', 'LD_', 'DYLD_', 'GIT_', 'ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'CODEX_']
-/** Core-owned MCP servers (the daemon's own `happy` server and Saycode connectors). */
+/** Core-owned MCP servers: the daemon injects `happy` and `cua-driver` itself (happy #1185); Saycode connectors use the prefixes. */
 const RESERVED_SERVER_PREFIXES = ['happy', 'saycode', 'aplus']
+const RESERVED_SERVER_NAMES = new Set(['cua-driver'])
 /** Shells and indirections: a fixed launch line through one of these is an arbitrary command. */
 const UNSUPPORTED_COMMANDS = /^(sh|bash|zsh|fish|dash|ksh|csh|tcsh|cmd|powershell|pwsh|env|xargs|ssh|tmux|screen|osascript|sudo|su|nohup|awk|gawk|eval|exec)$/
 const INTERPRETERS = /^(node|nodejs|deno|bun|python|python2|python3|ruby|perl|php)$/
@@ -108,7 +109,7 @@ export function isReservedLaunchEnvName(name: string): boolean {
 }
 
 export function isReservedLaunchMcpServerName(name: string): boolean {
-  return RESERVED_SERVER_PREFIXES.some((prefix) => name.startsWith(prefix))
+  return RESERVED_SERVER_NAMES.has(name) || RESERVED_SERVER_PREFIXES.some((prefix) => name.startsWith(prefix))
 }
 
 function bounded<T>(items: T[], max: number, path: string, min = 0): T[] {
