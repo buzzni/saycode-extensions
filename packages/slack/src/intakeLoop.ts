@@ -9,6 +9,7 @@ export interface SlackInboundEnvelope {
   connectionRevision: number
   semanticMessageId: string
   text: string
+  attachmentCount?: number
   /** R11: Core's own sender record; `sender.bot` is Slack's echo of a bot-authored message. */
   sender: { bot: boolean }
   /**
@@ -88,9 +89,7 @@ function defaultMintClientRequestId(): string {
  *   belt-and-suspenders, not the only guard. A missing `sender` or a non-boolean `bot` fails
  *   closed — treated as bot-authored — rather than trusting a malformed envelope as human.
  * - **`message_changed` (Slack's edit-of-an-earlier-message event) cannot be detected here.**
- *   Core's Slack inbound mapping does not pass through `payload.event.subtype`, so an edited
- *   message arrives indistinguishable from a new one and is dispatched as a fresh prompt — a Core
- *   gap, not something this adapter can work around from the fields it is given.
+ *   Core filters edits before intake; this adapter cannot derive edit identity from the envelope.
  */
 export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackIntakeRuntime {
   const maxEvents = Math.min(Math.max(deps.maxEvents ?? 20, 1), 50)
@@ -164,7 +163,10 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
       rememberDispatched(key)
       return true
     }
-    const command = parseSlackCommand(event.text)
+    // Core assembles attachment paths; an empty text proposal is not a valid prompt DTO.
+    const command = event.text === '' && (event.attachmentCount ?? 0) > 0
+      ? { operation: 'prompt' as const }
+      : parseSlackCommand(event.text)
     await deps.invokeCapability(
       'sessions.control',
       'sessions.control',

@@ -80,7 +80,7 @@ test('Slack manifest declares exactly the channel it uses and nothing wider', as
 test('the release workflow publishes the Slack artifact under the manifest version', async () => {
   // The archive is named from extension.json; a stale name in release.yml fails the tag build.
   const { version } = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
-  assert.equal(version, '1.5.0')
+  assert.equal(version, '1.6.0')
   const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
   const names = [...workflow.matchAll(/buzzni\.slack-([0-9.]+)\.saycode-extension/g)].map(match => match[1])
   assert.equal(names.length, 3)
@@ -1059,6 +1059,32 @@ test('activation lifecycle drives receive -> dispatch -> ack for each command', 
   assert.equal(ackCalls.length, 1)
   assert.equal(ackCalls[0].args.cursor, '6')
   assert.ok(calls.indexOf(ackCalls[0]) > calls.lastIndexOf(controlCalls.at(-1)))
+})
+
+test('packed adapter forwards attachment-only input without a text proposal (T47)', async (t) => {
+  const packed = await packedSlack()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  const dispatched = []
+  let received = false
+  const host = createTestHost('buzzni.slack', {
+    invokeCapability: async (permission, action, args) => {
+      if (permission === 'channels.receive') {
+        if (received) return { events: [], cursor: '1' }
+        received = true
+        return { events: [envelope({ text: '', attachmentCount: 1 })], cursor: '1' }
+      }
+      if (permission === 'sessions.control') dispatched.push(args)
+      return { cursor: '1' }
+    },
+  })
+  await host.activate(packed.extension)
+  await host.deliverChannelLifecycle({ channelId: 'buzzni.slack.bot', connectionId: 'conn-1', connectionRevision: 1, provider: 'slack', state: 'start' })
+  const deadline = Date.now() + 3000
+  while (!dispatched.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+  await host.deliverChannelLifecycle({ channelId: 'buzzni.slack.bot', connectionId: 'conn-1', connectionRevision: 1, provider: 'slack', state: 'stop' })
+  assert.equal(dispatched.length, 1)
+  assert.equal(dispatched[0].operation, 'prompt')
+  assert.equal(Object.hasOwn(dispatched[0], 'text'), false)
 })
 
 test('a message Slack marks bot-authored is dropped, not dispatched, but still acked (R11)', async () => {
