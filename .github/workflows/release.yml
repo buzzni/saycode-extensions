@@ -37,7 +37,7 @@ jobs:
       - run: npm run package:spatial-content
       - name: Create Spatial Content checksum
         working-directory: packages/spatial-content
-        run: sha256sum buzzni.spatial-content-0.1.1.saycode-extension > buzzni.spatial-content-0.1.1.saycode-extension.sha256
+        run: sha256sum *.saycode-extension > buzzni.spatial-content-0.1.1.saycode-extension.sha256
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
