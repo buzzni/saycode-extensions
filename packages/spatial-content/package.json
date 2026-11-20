@@ -1,0 +1,15 @@
+{
+  "name": "@buzzni/saycode-extension-spatial-content",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "validate": "npm run build && node ../sdk/dist/cli.js validate .",
+    "pack": "npm run build && node ../sdk/dist/cli.js pack .",
+    "typecheck": "tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext src/index.ts"
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.9.0"
+  }
+}

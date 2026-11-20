@@ -1,0 +1,20 @@
+{
+  "id": "buzzni.spatial-content",
+  "version": "0.1.0",
+  "apiVersion": 3,
+  "engines": { "saycode": "^1.2.0" },
+  "entrypoint": "index.js",
+  "permissions": [],
+  "activationEvents": ["onCommand:buzzni.spatial-content.open"],
+  "contributes": {
+    "commands": [
+      { "id": "buzzni.spatial-content.open", "title": "공간컨텐츠", "panelId": "buzzni.spatial-content.studio" }
+    ],
+    "panels": [
+      { "id": "buzzni.spatial-content.studio", "title": "공간컨텐츠", "entrypoint": "dist/panel.html", "surfaceSize": "wide" }
+    ],
+    "projectTools": [
+      { "id": "buzzni.spatial-content.tool", "title": "공간컨텐츠", "command": "buzzni.spatial-content.open" }
+    ]
+  }
+}
