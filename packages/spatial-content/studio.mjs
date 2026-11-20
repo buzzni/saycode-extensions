@@ -24,6 +24,11 @@ const saveButton = byId('export')
 const buildButton = byId('build')
 const buildStatus = byId('build-status')
 const undoSample = byId('undo-sample')
+const imageHint = byId('image-hint')
+const previewImage = document.createElement('img')
+previewImage.alt = ''
+previewImage.hidden = true
+imageHint.before(previewImage)
 const sampleMenu = document.querySelector('.samples')
 const changeTokens = new Map()
 const pending = new Set()
@@ -52,7 +57,6 @@ function renderDraft() {
   experience.replaceChildren()
   draftPreview.hidden = false
   saveButton.hidden = true
-  const previewImage = byId('environment-preview')
   previewImage.hidden = !environment
   if (environment) {
     previewImage.src = environment.image
@@ -60,7 +64,7 @@ function renderDraft() {
   } else {
     previewImage.removeAttribute('src')
   }
-  byId('image-hint').hidden = Boolean(environment)
+  imageHint.hidden = Boolean(environment)
   byId('environment-name').textContent = environment?.name ?? '체험할 공간 사진을 올려 주세요.'
   const characterFileName = byId('character-file-name')
   characterFileName.textContent = characterImage?.name ?? ''
