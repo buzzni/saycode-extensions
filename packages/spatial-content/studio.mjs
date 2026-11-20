@@ -57,14 +57,16 @@ function renderDraft() {
   experience.replaceChildren()
   draftPreview.hidden = false
   saveButton.hidden = true
-  previewImage.hidden = !environment
-  if (environment) {
-    previewImage.src = environment.image
+  const image = environment?.image ?? ''
+  if (/^data:image\/(?:png|jpeg|webp);base64,/.test(image) && !/["&<>]/.test(image)) {
+    previewImage.src = image
     previewImage.alt = environment.name
+    previewImage.hidden = false
   } else {
     previewImage.removeAttribute('src')
+    previewImage.hidden = true
   }
-  imageHint.hidden = Boolean(environment)
+  imageHint.hidden = !previewImage.hidden
   byId('environment-name').textContent = environment?.name ?? '체험할 공간 사진을 올려 주세요.'
   const characterFileName = byId('character-file-name')
   characterFileName.textContent = characterImage?.name ?? ''
