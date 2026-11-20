@@ -1,4 +1,4 @@
-import { buildScene, exportExperience, IMAGE_LIMIT, imageMime, mountViewer, STORY_LIMIT, storyFileText } from './scene.mjs'
+import { buildScene, exportExperience, IMAGE_LIMIT, imageMime, mountViewer, STORY_LIMIT, storyFileText, storyStepLines } from './scene.mjs'
 
 const samples = {
   security: {
@@ -23,11 +23,23 @@ const draftPreview = byId('draft-preview')
 const saveButton = byId('export')
 const buildButton = byId('build')
 const buildStatus = byId('build-status')
+const undoSample = byId('undo-sample')
+const sampleMenu = document.querySelector('.samples')
 const changeTokens = new Map()
 const pending = new Set()
 let environment = null
 let characterImage = null
 let scene = null
+let authored = false
+let beforeSample = null
+
+function hasAuthoredInput() {
+  return authored && Boolean(title.value.trim() || story.value.trim() || characterName.value.trim() || environment || characterImage)
+}
+
+window.addEventListener('saycode:panel-before-close', event => {
+  if (hasAuthoredInput() || beforeSample || pending.size) event.preventDefault()
+})
 
 function setError(key, message = '') {
   const error = byId(key + '-error')
@@ -53,9 +65,12 @@ function renderDraft() {
   const characterFileName = byId('character-file-name')
   characterFileName.textContent = characterImage?.name ?? ''
   characterFileName.hidden = !characterImage
-  const ready = [environment, characterName.value.trim() || characterImage, story.value.trim()].filter(Boolean).length
+  let storyReady = false
+  try { storyReady = storyStepLines(story.value).length > 0 } catch { /* A story that cannot be built is not ready. */ }
+  const ready = [environment, characterName.value.trim() || characterImage, storyReady].filter(Boolean).length
   buildStatus.textContent = ready + ' / 3 파트 준비됨'
   buildStatus.classList.remove('error')
+  undoSample.hidden = !beforeSample
 }
 
 async function readImage(file) {
@@ -86,6 +101,13 @@ function updateBusy() {
   buildButton.textContent = pending.size ? '파일 읽는 중…' : '콘텐츠 만들기'
 }
 
+function resetFileReads() {
+  changeTokens.clear()
+  pending.clear()
+  updateBusy()
+  for (const key of ['environment', 'character', 'story']) setError(key)
+}
+
 async function applyFile(key, file) {
   const token = Symbol(key)
   changeTokens.set(key, token)
@@ -101,6 +123,7 @@ async function applyFile(key, file) {
       characterImage = updated
       if (!characterName.value.trim()) characterName.value = file.name.replace(/\.[^.]*$/, '').slice(0, 100)
     }
+    authored = true
     renderDraft()
   } catch (error) {
     if (changeTokens.get(key) === token) setError(key, error.message || '파일을 읽지 못했어요.')
@@ -131,45 +154,71 @@ for (const input of [title, characterName, story]) input.addEventListener('input
     setError('story')
     updateBusy()
   }
+  authored = true
   renderDraft()
 })
 
-for (const button of document.querySelectorAll('[data-sample]')) button.addEventListener('click', () => {
+sampleMenu.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229 || !sampleMenu.open) return
+  event.preventDefault()
+  sampleMenu.open = false
+  sampleMenu.querySelector('summary').focus()
+})
+
+for (const button of sampleMenu.querySelectorAll('[data-sample]')) button.addEventListener('click', () => {
   const sample = samples[button.dataset.sample]
-  changeTokens.clear()
-  pending.clear()
-  updateBusy()
-  for (const key of ['environment', 'character', 'story']) setError(key)
+  if (hasAuthoredInput()) beforeSample = { title: title.value, story: story.value, character: characterName.value, environment, characterImage, scene }
+  resetFileReads()
+  authored = false
   title.value = sample.title
   environment = { name: sample.environment, image: sample.image }
   characterImage = null
   characterName.value = sample.character
   story.value = sample.story
-  document.querySelector('.samples').open = false
+  sampleMenu.open = false
   renderDraft()
   title.focus()
 })
 
-// The Desktop sandbox blocks form submission, so use a local button action.
-buildButton.addEventListener('click', () => {
-  if (pending.size) return
-  try {
-    scene = buildScene({
-      title: title.value, environment,
-      character: { name: characterName.value.trim() || characterImage?.name, image: characterImage?.image },
-      story: story.value,
-    })
-  } catch (error) {
-    buildStatus.textContent = error.message
-    buildStatus.classList.add('error')
-    return
-  }
+undoSample.addEventListener('click', () => {
+  if (!beforeSample) return
+  const previous = beforeSample
+  beforeSample = null
+  resetFileReads()
+  title.value = previous.title
+  story.value = previous.story
+  characterName.value = previous.character
+  environment = previous.environment
+  characterImage = previous.characterImage
+  authored = true
+  renderDraft()
+  if (previous.scene) showExperience(previous.scene)
+  else title.focus()
+})
+
+function showExperience(result) {
+  scene = result
   buildStatus.textContent = '체험을 만들었어요.'
   buildStatus.classList.remove('error')
   draftPreview.hidden = true
   experience.replaceChildren()
   mountViewer(experience, scene).focus()
   saveButton.hidden = Boolean(window.saycodePanel)
+}
+
+// The Desktop sandbox blocks form submission, so use a local button action.
+buildButton.addEventListener('click', () => {
+  if (pending.size) return
+  try {
+    showExperience(buildScene({
+      title: title.value, environment,
+      character: { name: characterName.value.trim() || characterImage?.name, image: characterImage?.image },
+      story: story.value,
+    }))
+  } catch (error) {
+    buildStatus.textContent = error.message
+    buildStatus.classList.add('error')
+  }
 })
 
 for (const input of [title, characterName]) input.addEventListener('keydown', (event) => {

@@ -22,6 +22,7 @@ export function storyFileText(bytes) {
   }
   if (!text.trim() || text.includes('\0')) throw new Error('스토리 파일에 읽을 수 있는 텍스트가 없어요.')
   if (text.length > STORY_LENGTH) throw new Error('스토리 파일을 4,800자 이하로 줄여 주세요.')
+  storyStepLines(text)
   return text
 }
 
@@ -31,6 +32,16 @@ function imageSource(value, message) {
   return { name: value.name.trim().slice(0, 100), image: value.image }
 }
 
+export function storyStepLines(story) {
+  const lines = story.split(/\r\n?|\n/).map((line) =>
+    line.trim().replace(/^(?:#{1,6}|[-*+]|\d+[.)])(?:\s+|$)/, '').trim()).filter(Boolean)
+  if (!lines.length) throw new Error('스토리를 입력하거나 파일로 올려 주세요.')
+  if (lines.length > MAX_STEPS || lines.some((line) => line.length > 400)) {
+    throw new Error('스토리는 12단계까지 만들 수 있어요. 한 줄은 400자 이하로 적어 주세요.')
+  }
+  return lines
+}
+
 export function buildScene({ title, environment, character, story }) {
   if (!title.trim()) throw new Error('콘텐츠 제목을 입력해 주세요.')
   const space = imageSource(environment, '환경 이미지를 올려 주세요.')
@@ -38,12 +49,7 @@ export function buildScene({ title, environment, character, story }) {
     ? imageSource(character, '인물 이미지를 다시 올려 주세요.')
     : { name: character?.name?.trim().slice(0, 100) || '', image: null }
   if (!person.name) throw new Error('인물 이미지를 올리거나 인물 이름을 입력해 주세요.')
-  const lines = story.split(/\r\n?|\n/).map((line) =>
-    line.trim().replace(/^(?:#{1,6}|[-*+]|\d+[.)])\s+/, '').trim()).filter(Boolean)
-  if (!lines.length) throw new Error('스토리를 입력하거나 파일로 올려 주세요.')
-  if (lines.length > MAX_STEPS || lines.some((line) => line.length > 400)) {
-    throw new Error('스토리는 12단계까지 만들 수 있어요. 한 줄은 400자 이하로 적어 주세요.')
-  }
+  const lines = storyStepLines(story)
   const steps = lines.map((text, index) => ({
     id: 'step-' + (index + 1),
     text,

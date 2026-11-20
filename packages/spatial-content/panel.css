@@ -56,6 +56,7 @@ input[type=text]:focus-visible, textarea:focus-visible { outline: 2px solid var(
 textarea { resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .samples { position: relative; min-width: max-content; }
+.sample-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .sample-menu { position: absolute; z-index: 1; inset-inline-end: 0; inset-block-start: calc(100% + 4px); display: grid; min-width: 160px; padding: 4px; background: var(--background); border: 1px solid var(--border); border-radius: 12px; }
 .sample-menu button { text-align: start; min-height: 32px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; }
 .preview-image { display: grid; place-items: center; aspect-ratio: 16/9; background: var(--surface); overflow: hidden; border-radius: 8px; }
@@ -63,6 +64,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .preview-image p { text-align: center; padding: 12px; }
 #draft-preview > p { margin-top: 8px; }
 #build-status { text-align: center; font-size: 13px; }
+#story-limit { font-size: 12px; }
 .error { color: var(--danger); font-size: 13px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 560px) {

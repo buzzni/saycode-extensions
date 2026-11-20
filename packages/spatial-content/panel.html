@@ -4,14 +4,17 @@
       <h1>공간컨텐츠 만들기</h1>
       <p>공간 이미지와 인물, 스토리를 넣어 체험을 만드세요.</p>
     </div>
-    <details class="samples">
-      <summary>예시 불러오기</summary>
-      <div class="sample-menu">
-        <button type="button" data-sample="security">사업장 출입 보안</button>
-        <button type="button" data-sample="tour">오피스 투어</button>
-        <button type="button" data-sample="showroom">스피커 쇼룸</button>
-      </div>
-    </details>
+    <div class="sample-actions">
+      <details class="samples">
+        <summary>예시 불러오기</summary>
+        <div class="sample-menu">
+          <button type="button" data-sample="security">사업장 출입 보안</button>
+          <button type="button" data-sample="tour">오피스 투어</button>
+          <button type="button" data-sample="showroom">스피커 쇼룸</button>
+        </div>
+      </details>
+      <button class="secondary" id="undo-sample" type="button" hidden>예시 불러오기 취소</button>
+    </div>
   </header>
 
   <div class="studio-grid">
@@ -46,7 +49,8 @@
           <button class="secondary" type="button" data-pick="story" aria-label="스토리 파일 올리기">TXT·MD 올리기</button>
         </div>
         <label class="sr-only" for="story">스토리 직접 입력</label>
-        <textarea id="story" rows="3" maxlength="4800" placeholder="체험할 순서대로 한 줄씩 적어 주세요."></textarea>
+        <textarea id="story" rows="3" maxlength="4800" placeholder="체험할 순서대로 한 줄씩 적어 주세요." aria-describedby="story-limit story-error"></textarea>
+        <p id="story-limit">한 줄에 한 단계 · 최대 12단계</p>
         <input id="story-file" type="file" accept=".txt,.md,text/plain,text/markdown" aria-label="스토리 파일" hidden>
         <p id="story-error" class="error" role="status" hidden></p>
       </section>

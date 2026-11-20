@@ -44,6 +44,14 @@ test('recognizes raster signatures and strictly decodes text uploads', () => {
   assert.throws(() => storyFileText(new Uint8Array([255, 0])))
 })
 
+test('checks story limits before an uploaded file can replace the current story', () => {
+  const encode = (text) => new TextEncoder().encode(text)
+  assert.throws(() => storyFileText(encode(Array(13).fill('단계').join('\n'))), /12단계/)
+  assert.throws(() => storyFileText(encode('글'.repeat(401))), /400자/)
+  assert.throws(() => storyFileText(encode('- \n#   ')))
+  assert.equal(storyFileText(encode('안내\n두 번째 단계')), '안내\n두 번째 단계')
+})
+
 test('serializes the same experience to standalone HTML and escapes authored text', () => {
   const scene = buildScene({ ...input, title: '</script><script>alert(1)</script>' })
   const html = exportExperience(scene)
