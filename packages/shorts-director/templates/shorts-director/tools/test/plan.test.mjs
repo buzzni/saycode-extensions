@@ -85,6 +85,28 @@ test('take length must fit the backend limits (LTX: up to 5 seconds per generati
   assert.ok(!validatePlan(plan, { take: { min: 1, max: 10 } }).issues.some((issue) => issue.code === 'take.seconds'))
 })
 
+test('a take can start from an earlier take only, and from a real photo only under materials/', () => {
+  const plan = goodPlan()
+  plan.moments[1].from = { take: 'm1' }
+  assert.ok(!codes(plan).includes('take.from'))
+  plan.moments[1].from = { take: 'm3' }
+  assert.ok(codes(plan).includes('take.from'), 'a later take cannot be the starting frame')
+  plan.moments[1].from = { file: 'stills/x.png' }
+  assert.ok(codes(plan).includes('take.from'))
+  plan.moments[1].from = { file: 'materials/me.jpg' }
+  assert.ok(!codes(plan).includes('take.from'))
+})
+
+test('a hard cut inside a chained take loses the face, so it is warned', () => {
+  const plan = goodPlan()
+  plan.moments[1].from = { take: 'm1' }
+  plan.moments[1].shots[1].transition = 'cut'
+  const issue = validatePlan(plan).issues.find((item) => item.code === 'take.cut_after_anchor')
+  assert.equal(issue?.level, 'warning')
+  plan.moments[1].shots[1].transition = 'move'
+  assert.ok(!codes(plan).includes('take.cut_after_anchor'))
+})
+
 test('camera moves over stills are only for real photos from materials/', () => {
   const plan = goodPlan()
   plan.moments[3].file = 'stills/generated.png'

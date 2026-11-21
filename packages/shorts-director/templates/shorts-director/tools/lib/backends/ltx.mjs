@@ -1,4 +1,4 @@
-// LTX-2.5 로컬 영상 서버. 글만 받아(이미지 입력 없음) 한 번에 최대 121프레임(24fps 약 5초)을 만들고,
+// LTX-2.5 로컬 영상 서버. 글(+ 고정할 프레임 이미지)을 받아 한 번에 최대 121프레임(24fps 약 5초)을 만들고,
 // 장면 소리도 함께 넣는다. 제출(POST /jobs) → 조회(GET /jobs/{id}) → 받기(GET /jobs/{id}/video).
 import { writeFile } from 'node:fs/promises'
 
@@ -12,7 +12,7 @@ export function framesFor(seconds, fps) {
   return Math.min(MAX_FRAMES, Math.max(MIN_FRAMES, frames))
 }
 
-export function buildLtxRequest(take, video) {
+export function buildLtxRequest(take, video, { firstFrame } = {}) {
   if (take.prompt.length > MAX_PROMPT_CHARS) throw new Error(`LTX prompt is ${take.prompt.length} characters — the server accepts at most ${MAX_PROMPT_CHARS}`)
   return {
     prompt: take.prompt,
@@ -21,6 +21,7 @@ export function buildLtxRequest(take, video) {
     num_frames: framesFor(take.seconds, video.fps),
     fps: video.fps,
     seed: take.seed,
+    ...(firstFrame ? { images: [{ frame: 'first', data: firstFrame }] } : {}),
   }
 }
 
@@ -43,11 +44,11 @@ export function ltxVideoBackend({ baseUrl, video, fetchImpl = fetch }) {
 
   return {
     name: 'ltx',
-    async submit(take) {
+    async submit(take, { firstFrame } = {}) {
       const response = await call('/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildLtxRequest(take, video)),
+        body: JSON.stringify(buildLtxRequest(take, video, { firstFrame })),
       })
       const job = await response.json()
       return { remoteId: job.id }

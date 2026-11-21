@@ -39,6 +39,12 @@ export async function tightenSpeech(input, output) {
   await ffmpeg(['-i', input, '-af', `${edge},areverse,${edge},areverse,${pauses}`, output])
 }
 
+// 영상에서 한 프레임을 PNG 로 뽑는다. at 이 'end' 면 마지막 프레임.
+export async function extractFrame(video, out, at = 'end') {
+  const seek = at === 'end' ? ['-sseof', '-0.05'] : ['-ss', String(at)]
+  await ffmpeg([...seek, '-i', video, '-frames:v', '1', '-update', '1', out])
+}
+
 // 장면이 바뀐 시각들. 테이크 안의 컷이 프롬프트대로 나왔는지 확인할 때 쓴다.
 export async function detectCuts(file, threshold = 0.3) {
   const { stderr } = await run('ffmpeg', ['-hide_banner', '-i', file, '-filter:v', `select='gt(scene,${threshold})',showinfo`, '-f', 'null', '-'])

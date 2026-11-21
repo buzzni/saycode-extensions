@@ -43,6 +43,19 @@ test('an LTX take is one flowing paragraph: scene, the recurring look, shots joi
   ].join(' '))
 })
 
+test('a chained take starts from the previous take and changes shots with camera moves, not cuts', () => {
+  const moment = {
+    id: 'm2', kind: 'take', seconds: 5, from: { take: 'm1' }, video_prompt: 'Rainy street.',
+    shots: [{ seconds: 2.5, framing: 'medium shot', action: 'she runs' }, { seconds: 2.5, framing: 'close-up', action: 'she stops' }],
+  }
+  const take = buildTake(moment, plan, config)
+  assert.deepEqual(take.firstFrame, { take: 'm1', at: 'end' })
+  assert.match(take.prompt, /^Continuous shot, no cuts\. Rainy street\./)
+  assert.match(take.prompt, /The camera moves to close-up: she stops\./)
+  assert.doesNotMatch(take.prompt, /Hard cut/)
+  assert.deepEqual(buildTake({ ...moment, from: { file: 'materials/me.jpg' } }, plan, config).firstFrame, { file: 'materials/me.jpg' })
+})
+
 test('the seed is stable per moment so a re-run reproduces the same take, and can be pinned', () => {
   const moment = { id: 'm2', kind: 'take', seconds: 3, video_prompt: 'p', shots: [{ seconds: 3, framing: 'wide', action: 'a' }] }
   assert.equal(buildTake(moment, plan, config).seed, buildTake(moment, plan, config).seed)

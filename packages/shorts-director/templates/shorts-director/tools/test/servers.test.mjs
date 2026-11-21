@@ -23,6 +23,12 @@ test('LTX request carries the take prompt, size, frame count and seed', () => {
   assert.throws(() => buildLtxRequest({ prompt: 'x'.repeat(4001), seconds: 3, seed: 1 }, video), /4000/)
 })
 
+test('a first frame is sent as an image condition on frame "first"', () => {
+  const body = buildLtxRequest({ prompt: 'p', seconds: 5, seed: 1 }, video, { firstFrame: 'QUJD' })
+  assert.deepEqual(body.images, [{ frame: 'first', data: 'QUJD' }])
+  assert.equal(buildLtxRequest({ prompt: 'p', seconds: 5, seed: 1 }, video).images, undefined)
+})
+
 function fakeServer(routes) {
   const calls = []
   const fetchImpl = async (url, init = {}) => {

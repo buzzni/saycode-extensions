@@ -42,6 +42,7 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   }
 
   const subjects = new Map((plan.subjects ?? []).map((subject) => [subject.id, subject]))
+  const earlierTakes = new Set()
   let cuts = 0
   for (const moment of moments) {
     const shots = moment.shots ?? []
@@ -58,7 +59,11 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     for (const id of moment.subjects ?? []) {
       if (!subjects.has(id)) error('subject.unknown', `등록되지 않은 대상 ${id}.`, moment.id)
     }
-    if (moment.kind === 'take') checkTake(moment, take, error, warn)
+    if (moment.kind === 'take') {
+      checkTake(moment, take, error, warn)
+      checkFrom(moment, earlierTakes, error, warn)
+      earlierTakes.add(moment.id)
+    }
     if (moment.kind === 'photo' && !String(moment.file ?? '').startsWith('materials/')) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
@@ -101,6 +106,21 @@ function checkTake(moment, limits, error, warn) {
   }
   if (NUMBERS_IN_PROMPT.test(prompt)) {
     warn('prompt.numbers', '가격·수치는 영상 모델이 틀리게 그린다 — 자막 오버레이로 옮긴다.', moment.id)
+  }
+}
+
+// LTX 의 이미지 입력은 그 프레임을 고정할 뿐 얼굴을 다른 장면으로 옮겨 주지 않는다(실측 2026-11-21).
+// 앞 테이크의 마지막 프레임에서 이어 찍으면 같은 인물이 유지되지만, 테이크 안에서 하드 컷을 하면 새 얼굴이 나온다.
+function checkFrom(moment, earlierTakes, error, warn) {
+  const from = moment.from
+  if (!from) return
+  if (from.take && !earlierTakes.has(from.take)) {
+    error('take.from', `${from.take} 는 이 장면보다 앞의 테이크여야 한다.`, moment.id)
+  } else if (!from.take && !String(from.file ?? '').startsWith('materials/')) {
+    error('take.from', '시작 사진은 materials/ 의 실제 사진이어야 한다.', moment.id)
+  }
+  if ((moment.shots ?? []).some((shot, index) => index > 0 && shot.transition === 'cut')) {
+    warn('take.cut_after_anchor', '이어 찍는 테이크 안에서 하드 컷을 하면 얼굴이 바뀐다 — 카메라 이동(transition: move)으로 바꾼다.', moment.id)
   }
 }
 

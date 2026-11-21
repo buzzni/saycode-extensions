@@ -24,7 +24,7 @@ function plan() {
     moments: [
       { id: 'm1', kind: 'take', place: 'subway exit', seconds: 4, subjects: ['hero'], shots: shots(2, 2), video_prompt: 'she runs into the rain', caption: { text: '우산 없이 나왔다', role: 'hook' } },
       { id: 'm2', kind: 'photo', file: 'materials/photo.png', seconds: 3, shots: shots(1, 3) },
-      { id: 'm3', kind: 'take', place: 'bus stop', seconds: 3, subjects: ['hero'], shots: shots(1, 3), video_prompt: 'the bus arrives' },
+      { id: 'm3', kind: 'take', place: 'bus stop', seconds: 3, subjects: ['hero'], from: { take: 'm1' }, shots: shots(1, 3), video_prompt: 'she walks on to the bus stop' },
       { id: 'm4', kind: 'card', seconds: 2, shots: shots(1, 2), caption: { text: '오늘 밤 비 90%', role: 'info' } },
     ],
     narration: [{ text: '우산 없이 나와 본 적 있죠?' }, { text: '오늘이 그날이에요.' }],
@@ -70,9 +70,11 @@ test('the full pipeline renders a draft and a final short with fake backends', {
 
     const submit = await run(root, 'takes', 'submit')
     assert.match(submit.stdout, /fake/)
+    assert.match(submit.stdout, /m3 대기 — m1/, 'a chained take waits for the take it starts from')
     const wait = await run(root, 'takes', 'wait')
     assert.match(wait.stdout, /기다릴 테이크가 없다/)
     for (const id of ['m1', 'm3']) assert.ok(await exists(join(root, `takes/${id}.mp4`)), id)
+    assert.ok(await exists(join(root, 'stills/m3-first.png')), 'the first frame of m3 is the last frame of m1')
     const resubmit = await run(root, 'takes', 'submit')
     assert.match(resubmit.stdout, /재사용/)
 

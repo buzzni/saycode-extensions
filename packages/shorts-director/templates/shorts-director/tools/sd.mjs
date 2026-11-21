@@ -11,7 +11,7 @@ import { qwenSpeech } from './lib/backends/qwen-tts.mjs'
 import { layoutNarration } from './lib/captions.mjs'
 import { loadConfig, loadEnv } from './lib/config.mjs'
 import { JobStore } from './lib/jobs.mjs'
-import { detectCuts, probe, run, tightenSpeech } from './lib/media.mjs'
+import { detectCuts, extractFrame, probe, run, tightenSpeech } from './lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from './lib/plan.mjs'
 import { contactSheet, renderVideo } from './lib/render.mjs'
 import { buildTake } from './lib/takes.mjs'
@@ -139,12 +139,24 @@ async function takes() {
   throw new Error(`unknown takes command: ${sub}`)
 }
 
-async function submitTakes(plan, config, store) {
+async function submitTakes(plan, config, store, { onlyNew = false } = {}) {
   const backend = await videoBackend(config)
   await mkdir(join(root, 'takes'), { recursive: true })
+  const jobs = await store.list()
   for (const moment of plan.moments.filter((item) => item.kind === 'take')) {
+    // 기다리는 중의 자동 제출은 한 번도 내지 않은 테이크만 — 실패한 테이크를 계속 다시 내지 않는다.
+    if (onlyNew && jobs.some((job) => job.momentId === moment.id)) continue
     const take = buildTake(moment, plan, config)
     const target = join(root, 'takes', `${moment.id}.mp4`)
+    // 이어 찍는 테이크는 시작 테이크가 받아진 뒤에만 낸다. 시작 프레임이 바뀌면 다른 요청이 되도록 그 해시를 넣는다.
+    if (take.firstFrame?.take) {
+      const source = jobs.findLast((job) => job.momentId === take.firstFrame.take && job.state === 'downloaded')
+      if (!source) {
+        if (!onlyNew) console.log(`… ${moment.id} 대기 — ${take.firstFrame.take} 가 끝나면 그 마지막 프레임에서 시작한다`)
+        continue
+      }
+      take.firstFrame.sourceSha256 = source.sha256
+    }
     const reusable = await store.findReusable(take)
     if (reusable) {
       if (!await exists(target)) await copyFile(join(root, reusable.file), target)
@@ -159,7 +171,7 @@ async function submitTakes(plan, config, store) {
     const job = await store.create(take, backend.name)
     await store.transition(job.id, 'submitting')
     try {
-      const submitted = await backend.submit(take)
+      const submitted = await backend.submit(take, { firstFrame: await firstFrameData(moment.id, take.firstFrame) })
       await store.transition(job.id, 'submitted', { remoteId: submitted.remoteId })
       console.log(`→ ${moment.id} 제출 (${backend.name}, ${submitted.remoteId})`)
     } catch (error) {
@@ -172,6 +184,15 @@ async function submitTakes(plan, config, store) {
       }
     }
   }
+}
+
+async function firstFrameData(momentId, firstFrame) {
+  if (!firstFrame) return undefined
+  if (firstFrame.file) return (await readFile(join(root, firstFrame.file))).toString('base64')
+  await mkdir(join(root, 'stills'), { recursive: true })
+  const still = join(root, 'stills', `${momentId}-first.png`)
+  await extractFrame(join(root, 'takes', `${firstFrame.take}.mp4`), still, firstFrame.at)
+  return (await readFile(still)).toString('base64')
 }
 
 async function pollTakes(config, store) {
@@ -205,16 +226,27 @@ async function waitTakes(config, store) {
   const minutes = Number(rest[rest.indexOf('--minutes') + 1]) || 30
   const deadline = Date.now() + minutes * 60_000
   const interval = config.fake ? 100 : 10_000
+  const plan = await loadPlan()
   while (Date.now() < deadline) {
-    const remaining = await pollTakes(config, store)
+    await pollTakes(config, store)
+    // 앞 테이크가 끝나 이제 낼 수 있게 된 이어 찍기 테이크를 낸다.
+    if (await hasWaitingTakes(plan, store)) await submitTakes(plan, config, store, { onlyNew: true })
     const open = (await store.list()).filter((job) => ['submitted', 'generating', 'unknown'].includes(job.state))
-    if (remaining === 0 || open.length === 0) {
+    if (open.length === 0 && !await hasWaitingTakes(plan, store)) {
       console.log('✓ 기다릴 테이크가 없다')
       return
     }
     await new Promise((resolve) => setTimeout(resolve, interval))
   }
   throw Object.assign(new Error(`${minutes}분 안에 끝나지 않았다 — 생성은 서버에서 계속된다. takes wait 를 다시 한다`), { exitCode: 2 })
+}
+
+// 아직 한 번도 내지 않았고, 시작 테이크가 실패로 끝나지 않은 테이크가 남았는가.
+async function hasWaitingTakes(plan, store) {
+  const jobs = await store.list()
+  const settled = (id) => jobs.some((job) => job.momentId === id)
+  const dead = (id) => jobs.some((job) => job.momentId === id) && !jobs.some((job) => job.momentId === id && job.state !== 'failed' && job.state !== 'blocked')
+  return plan.moments.some((moment) => moment.kind === 'take' && !settled(moment.id) && !(moment.from?.take && dead(moment.from.take)))
 }
 
 async function sheet() {

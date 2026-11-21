@@ -43,9 +43,17 @@
 
 | kind | 무엇 | 필수 |
 |---|---|---|
-| `take` | LTX 생성 1회. 같은 순간·같은 장소의 컷 2~3개를 `Hard cut to` 로 잇는다 | `place`, `seconds`(1~5), `shots`(합 = seconds), `video_prompt`. 선택: `sound`, `dialogue`, `seed` |
+| `take` | LTX 생성 1회. 컷 2~3개 | `place`, `seconds`(1~5), `shots`(합 = seconds), `video_prompt`. 선택: `sound`, `dialogue`, `seed`, `from` |
 | `photo` | 사용자의 실물 사진 + 카메라 무브 | `file` 은 `materials/` 아래 |
 | `card` | 글자 카드(단색 배경). 첫 장면으로 쓰지 않는다 | `caption` |
+
+## 이어 찍기 (`from`)
+
+- `"from": { "take": "m1" }` — m1 의 마지막 프레임에서 시작한다(`"at": 2.5` 로 다른 시각도 가능). 같은 인물을 잇는 유일하게
+  확실한 방법이다. 앞 테이크보다 뒤에만 쓸 수 있다.
+- `"from": { "file": "materials/me.jpg" }` — 사용자의 실물 사진에서 시작한다.
+- `from` 이 있으면 샷은 기본으로 카메라 이동(`"transition": "move"`)으로 바뀐다. `"transition": "cut"` 을 쓰면 경고가 난다
+  (하드 컷 뒤에는 새 얼굴이 나온다).
 
 ## 글자
 
