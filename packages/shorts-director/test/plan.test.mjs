@@ -143,6 +143,21 @@ test('asking the video model for no subtitles makes it draw fake lettering, so t
   assert.ok(codes(plan).includes('prompt.text_words'))
 })
 
+test('a signage-heavy place without a blurred background is warned, because LTX draws garbled Korean on signs', () => {
+  const plan = goodPlan()
+  plan.moments[0].video_prompt = 'Handheld phone video, bright convenience store entrance on a rainy night, realistic.'
+  const issue = validatePlan(plan).issues.find((item) => item.code === 'prompt.signage')
+  assert.equal(issue?.level, 'warning')
+  assert.equal(issue?.where, 'm1')
+
+  plan.moments[0].video_prompt = 'Handheld phone video, very shallow depth of field, bright convenience store entrance on a rainy night.'
+  assert.ok(!codes(plan).includes('prompt.signage'), 'a blurred background is enough')
+  plan.moments[0].video_prompt = 'Close-up under a glass awning on a rainy night, plain dark glass behind her.'
+  assert.ok(!codes(plan).includes('prompt.signage'), 'a place without signage is fine')
+  plan.moments[0].video_prompt = 'Handheld phone video at a Seoul subway exit, rainy night.'
+  assert.ok(codes(plan).includes('prompt.signage'))
+})
+
 test('prices and numbers inside a video prompt are warned to move to overlays', () => {
   const plan = goodPlan()
   plan.moments[0].video_prompt = 'a sign that says 9,900원'

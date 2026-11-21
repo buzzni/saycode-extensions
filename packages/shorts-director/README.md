@@ -37,6 +37,8 @@ npx -y @buzzni/shorts-director status     # status.md
 
 - Plan rules: 3–4 hook candidates, a cut every ~3 seconds, no title-card opening, takes of 1–5 seconds, no
   subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Warning for signage-heavy places (convenience stores, stations, shops, billboards…) without a blurred background:
+  LTX draws garbled Korean on in-scene signs, and a very shallow depth of field removes it.
 - Takes are recorded before they are submitted and reused when the same request was already downloaded, so a lost
   connection never generates the same take twice.
 - `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.

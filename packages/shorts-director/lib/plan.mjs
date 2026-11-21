@@ -11,6 +11,9 @@ const NARRATION_CHARS_PER_SECOND = 6
 const TARGET_TOLERANCE = 0.2
 // 영상 모델에 자막을 넣지 말라고 쓰면 오히려 가짜 글자를 그린다(LTX 실측 2026-11-21). 그런 단어 자체를 쓰지 않는다.
 const TEXT_WORDS = /subtitle|caption|자막|on-screen text|\bno text\b/i
+// 간판·포스터가 많은 장소. LTX 는 장면 속 글자를 그리면 한글이 깨진다(실측 2026-11-21) — 배경을 흐리게 찍으면 사라진다.
+const SIGNAGE_PLACES = /convenience store|storefront|store front|\bshop\b|\bstation\b|\bsubway\b|\bmarket\b|\bmall\b|billboard|\bsigns?\b|signage|\bmenu\b|restaurant|\bcaf[eé]\b|downtown|\bneon\b|street stalls|편의점|간판|역 |상점|가게/i
+const BLURRED_BACKGROUND = /shallow depth of field|\bbokeh\b|out of focus|blurred background|background (is )?(a )?soft(ly)? blur|defocused/i
 const NUMBERS_IN_PROMPT = /(\d[\d,.]*\s*(원|만원|달러|%|퍼센트))|([₩$€]\s*\d)/
 // 장면 id 는 파일 이름(takes/<id>.mp4, jobs/…)이 된다. 경로 문자를 막는다.
 const MOMENT_ID = /^[A-Za-z0-9_-]{1,40}$/
@@ -112,6 +115,9 @@ function checkTake(moment, limits, error, warn) {
   const prompt = [moment.video_prompt, moment.sound, ...(moment.shots ?? []).map((shot) => `${shot.framing} ${shot.action}`)].join(' ')
   if (TEXT_WORDS.test(prompt)) {
     error('prompt.text_words', '영상 프롬프트에 자막·캡션·글자 이야기를 쓰지 않는다 — "넣지 말라"고 써도 가짜 글자를 그린다. 글자는 화면 문구로 얹는다.', moment.id)
+  }
+  if (SIGNAGE_PLACES.test(prompt) && !BLURRED_BACKGROUND.test(prompt)) {
+    warn('prompt.signage', '간판·포스터가 많은 장소다 — 장면 속 한글이 깨져 그려진다. "very shallow depth of field" 로 배경을 흐리게 하거나, 글자 없는 배경으로 가깝게 찍는다. 꼭 보여야 할 글자는 화면 문구로 얹는다.', moment.id)
   }
   if (NUMBERS_IN_PROMPT.test(prompt)) {
     warn('prompt.numbers', '가격·수치는 영상 모델이 틀리게 그린다 — 자막 오버레이로 옮긴다.', moment.id)
