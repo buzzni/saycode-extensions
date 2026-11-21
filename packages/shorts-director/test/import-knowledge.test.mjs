@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
-const script = new URL('../import-viskit-knowledge.py', import.meta.url).pathname
+const script = new URL('../lib/import-viskit-knowledge.py', import.meta.url).pathname
 const FS = 'apps/viskit/backend/pipeline/workflow/freeform_short'
 const hasPython = await exec('python3', ['--version']).then(() => true, () => false)
 

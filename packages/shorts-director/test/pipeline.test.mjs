@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
-const cli = new URL('../sd.mjs', import.meta.url).pathname
+const cli = new URL('../bin/shorts-director.mjs', import.meta.url).pathname
 const canRender = await Promise.all([exec('ffmpeg', ['-version']), exec('osascript', ['-e', '1'])]).then(() => true, () => false)
 
 function plan() {

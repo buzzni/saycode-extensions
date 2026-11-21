@@ -26,7 +26,7 @@ test('shorts-director declares one namespaced project template that ships the sk
   assert.match(studio.localizations.ko.firstPrompt, /SKILL\.md/)
 
   const files = await filesBelow(template)
-  for (const required of ['.claude/skills/shorts-director/SKILL.md', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'config/settings.json', 'tools/sd.mjs', 'tools/import-viskit-knowledge.py']) {
+  for (const required of ['.claude/skills/shorts-director/SKILL.md', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'config/settings.json']) {
     assert.ok(files.includes(required), `${required} is shipped`)
   }
 })
