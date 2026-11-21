@@ -1,4 +1,4 @@
-<main class="studio" lang="ko">
+<main class="studio" lang="ko" id="spatial-editor">
   <header class="studio-header">
     <div>
       <h1>공간컨텐츠 만들기</h1>
@@ -6,6 +6,7 @@
     </div>
     <div class="sample-actions">
       <button class="primary" id="quick-start" type="button">예시로 시작</button>
+      <button class="secondary" id="open-spatial-pilot" type="button">3D 로비 검증</button>
       <details class="samples" hidden>
         <summary>예시 불러오기</summary>
         <div class="sample-menu">
@@ -73,6 +74,44 @@
       <div id="experience"></div>
     </section>
   </div>
+</main>
+<main class="studio" lang="ko" id="spatial-pilot" hidden>
+  <header class="studio-header">
+    <div><h1>3D 로비 검증</h1></div>
+    <div class="sample-actions">
+      <button class="secondary" id="close-spatial-pilot" type="button">편집기로 돌아가기</button>
+      <button class="primary" id="pick-spatial-pilot" type="button">3D 로비 불러오기</button>
+      <input type="file" accept=".glb" aria-label="3D 로비 파일" hidden>
+    </div>
+  </header>
+  <div class="pilot-scene" hidden>
+    <div class="pilot-tools" role="group" aria-label="3D 보기 방식">
+      <button type="button" class="secondary" data-pilot-mode="visit" aria-pressed="true">직접 걸어보기</button>
+      <button type="button" class="secondary" data-pilot-mode="place" aria-pressed="false">인물 배치</button>
+    </div>
+    <div class="pilot-viewport"></div>
+    <div class="pilot-tools" data-pilot-controls="visit" role="group" aria-label="이동과 시점">
+      <button class="secondary" aria-label="앞으로 이동" type="button" data-pilot-move="w">↑</button>
+      <button class="secondary" aria-label="뒤로 이동" type="button" data-pilot-move="s">↓</button>
+      <button class="secondary" aria-label="왼쪽으로 이동" type="button" data-pilot-move="a">←</button>
+      <button class="secondary" aria-label="오른쪽으로 이동" type="button" data-pilot-move="d">→</button>
+      <button class="secondary" aria-label="왼쪽 보기" type="button" data-pilot-turn="-1">↶</button>
+      <button class="secondary" aria-label="오른쪽 보기" type="button" data-pilot-turn="1">↷</button>
+      <button class="primary" id="greet-spatial-staff" type="button">직원에게 말 걸기</button>
+    </div>
+    <div class="pilot-tools" data-pilot-controls="place" role="group" aria-label="인물 배치와 동작" hidden>
+      <button class="secondary" type="button" data-pilot-place="desk" aria-pressed="true">접수대 옆</button>
+      <button class="secondary" type="button" data-pilot-place="aisle" aria-pressed="false">통로 쪽</button>
+      <button class="secondary" id="rotate-spatial-staff" type="button">방향 바꾸기</button>
+      <label for="spatial-motion">인물 동작</label>
+      <select id="spatial-motion">
+        <option value="Idle">대기</option>
+        <option value="Walk">걷기</option>
+        <option value="Greet">안내</option>
+      </select>
+    </div>
+  </div>
+  <p id="spatial-pilot-status" role="status">환경과 직원이 담긴 검증용 GLB 파일을 불러오세요.</p>
 </main>
 <!-- studio-styles -->
 <!-- studio-script -->

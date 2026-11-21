@@ -10,12 +10,16 @@ const [template, styles, lobby, showroom] = await Promise.all([
 ])
 const dataUrl = (image) => 'data:image/jpeg;base64,' + image.toString('base64')
 const bundled = await build({
-  entryPoints: [fileURLToPath(new URL('studio.mjs', root))],
+  stdin: {
+    contents: "import './studio.mjs'; import './pilot.mjs';",
+    resolveDir: fileURLToPath(root),
+  },
   bundle: true,
   format: 'iife',
   platform: 'browser',
   target: 'es2022',
   charset: 'utf8',
+  minify: true,
   write: false,
   define: {
     SPATIAL_SAMPLE_LOBBY: JSON.stringify(dataUrl(lobby)),
