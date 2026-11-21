@@ -7,10 +7,10 @@ import { join } from 'node:path'
 export const DEFAULTS = {
   fake: false,
   autopilot: false,
-  // 완성본 규격. 생성 영상(video.width×height)은 여기에 맞춰 늘린다.
+  // 완성본 규격. 생성 영상(video.width×height)은 여기에 맞춰 늘린다. 프레임 수(fps)는 따로 정하지 않으면 생성 영상을 따른다 —
+  // 24fps 영상을 30fps 로 내면 5장마다 1장이 겹쳐 움직임이 걸린다.
   width: 1080,
   height: 1920,
-  fps: 30,
   font: 'AppleSDGothicNeo-Heavy',
   video: { width: 576, height: 1024, fps: 24 },
   voice: { language: 'korean', speaker: 'sohee', start: 0.2, gap: 0.1, syllablesPerSecond: 6.5, maxTempo: 1.25 },
@@ -25,7 +25,9 @@ export async function loadConfig(root) {
   } catch (error) {
     if (error.code !== 'ENOENT') throw new Error(`config/settings.json 을 읽지 못했다: ${error.message}`)
   }
-  return merge(DEFAULTS, user)
+  const config = merge(DEFAULTS, user)
+  if (user.fps === undefined) config.fps = config.video.fps
+  return config
 }
 
 const KEYS = ['LTX_URL', 'QWEN_TTS_URL', 'QWEN_TTS_TOKEN']

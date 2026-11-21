@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { extractFrame, probe, tightenSpeech } from '../lib/media.mjs'
+import { extractFrame, probe, rhythmReport, tightenSpeech } from '../lib/media.mjs'
 import { access } from 'node:fs/promises'
 
 const exec = promisify(execFile)
@@ -40,4 +40,9 @@ test('the last frame is extracted even when the audio runs a little past the vid
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('the rhythm report counts the cuts that really happened and finds the longest unbroken stretch', () => {
+  assert.deepEqual(rhythmReport([3.67, 4.67], 22.5, 10), { cuts: 2, planned: 10, longest: { start: 4.67, end: 22.5, seconds: 17.83 } })
+  assert.deepEqual(rhythmReport([], 6, 2), { cuts: 0, planned: 2, longest: { start: 0, end: 6, seconds: 6 } })
 })

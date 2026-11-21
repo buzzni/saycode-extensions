@@ -147,7 +147,7 @@ async function renderSegment({ root, moment, mode, config, file }) {
   if (moment.kind === 'take' && mode === 'final') {
     const info = await probe(clip)
     const audio = info.hasAudio ? ['-map', '0:a', '-af', 'aresample=48000,apad'] : ['-map', '1:a']
-    await ffmpeg(['-i', clip, ...silence, '-map', '0:v', '-vf', `${fit},tpad=stop_mode=clone:stop_duration=${seconds}`, ...audio, ...encode])
+    await ffmpeg(['-i', clip, ...silence, '-filter_complex', `${takeVideo(moment, fit, seconds)}[v]`, '-map', '[v]', ...audio, ...encode])
     return
   }
   if (moment.kind === 'photo') {
@@ -159,6 +159,26 @@ async function renderSegment({ root, moment, mode, config, file }) {
   const fallback = moment.kind === 'card' ? '0x111111' : '0x2a3442'
   const color = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/.test(String(moment.background ?? '')) ? moment.background : fallback
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
+}
+
+// 이어 찍은 테이크는 인물을 지키려고 컷 없이 한 번에 찍는다. 기획한 컷 경계마다 화면 배율을 1.0↔1.15 로 번갈아
+// 바꿔(펀치인) 인물은 그대로 두고 화면만 바꾼다. 576p 원본을 더 키우므로 1.18배를 넘기지 않는다.
+const PUNCH_IN = 1.15
+
+function takeVideo(moment, fit, seconds) {
+  const shots = moment.from?.take ? moment.shots ?? [] : []
+  const hold = `tpad=stop_mode=clone:stop_duration=${seconds}`
+  if (shots.length < 2) return `[0:v]${fit},${hold}`
+  const parts = []
+  let start = 0
+  shots.forEach((shot, index) => {
+    const end = index === shots.length - 1 ? Number(seconds) + 1 : start + Number(shot.seconds)
+    const zoom = index % 2 === 1 ? `crop=iw/${PUNCH_IN}:ih/${PUNCH_IN},` : ''
+    parts.push(`[p${index}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS,${zoom}${fit}[q${index}]`)
+    start += Number(shot.seconds)
+  })
+  const split = `[0:v]${hold},split=${shots.length}${shots.map((_, index) => `[p${index}]`).join('')}`
+  return `${split};${parts.join(';')};${shots.map((_, index) => `[q${index}]`).join('')}concat=n=${shots.length}:v=1:a=0`
 }
 
 async function renderCaptions(events, directory, config) {

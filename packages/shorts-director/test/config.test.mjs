@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { loadEnv, loadTts } from '../lib/config.mjs'
+import { loadConfig, loadEnv, loadTts } from '../lib/config.mjs'
 
 const exec = promisify(execFile)
 const cli = new URL('../bin/shorts-director.mjs', import.meta.url).pathname
@@ -70,4 +70,11 @@ test('the PC token is never sent to a voice server address that a project .env c
   await assert.rejects(loadTts(project, { home }), /프로젝트 \.env/)
   await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\nQWEN_TTS_TOKEN=project-token\n')
   assert.deepEqual(await loadTts(project, { home }), { url: 'http://elsewhere:8765', token: 'project-token' })
+}))
+
+test('the final frame rate follows the generated video, so no frame is shown twice', () => withDirs(async ({ project }) => {
+  assert.equal((await loadConfig(project)).fps, 24)
+  await mkdir(join(project, 'config'), { recursive: true })
+  await writeFile(join(project, 'config', 'settings.json'), JSON.stringify({ video: { fps: 30 } }))
+  assert.equal((await loadConfig(project)).fps, 30)
 }))

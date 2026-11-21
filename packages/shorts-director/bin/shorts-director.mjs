@@ -12,7 +12,7 @@ import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
 import { layoutNarration, scenesLongerThanSpeech, speechTempo } from '../lib/captions.mjs'
 import { loadConfig, loadEnv, loadTts, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
-import { changeTempo, detectCuts, extractFrame, probe, run, tightenSpeech } from '../lib/media.mjs'
+import { changeTempo, detectCuts, extractFrame, probe, rhythmReport, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
@@ -200,6 +200,11 @@ async function render() {
   const out = join(root, 'out', 'final.mp4')
   const result = await renderVideo({ root, plan, config, mode: 'final', narration: await loadNarration(), out })
   console.log(`✓ 완성본 ${result.seconds}초 → out/final.mp4 (검수 대기) · 효과음 ${result.sounds}개${plan.music ? '' : ' · 배경음 없음(plan.music)'}`)
+  const planned = plan.moments.reduce((sum, moment) => sum + Math.max(1, (moment.shots ?? []).length), 0) - 1
+  const rhythm = rhythmReport(await detectCuts(out), result.seconds, planned)
+  console.log(`  컷 ${rhythm.cuts}개(기획 ${rhythm.planned}개) · 가장 긴 장면 ${rhythm.longest.seconds}초(${rhythm.longest.start}~${rhythm.longest.end}초)`)
+  if (rhythm.longest.seconds > 4) console.log(`! ${rhythm.longest.start}~${rhythm.longest.end}초가 한 화면으로 ${rhythm.longest.seconds}초 이어진다 — 장면을 나누거나 클로즈업·사진·문구 화면을 끼운다.`)
+  if (rhythm.cuts < rhythm.planned * 0.6) console.log('! 기획한 컷보다 실제 컷이 적다 — 이어 찍은 장면이 한 화면처럼 보이는지 확인한다.')
 }
 
 async function takes() {

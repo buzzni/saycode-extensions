@@ -248,6 +248,24 @@ test('when a take fails, the takes chained from it stop too and wait reports it 
   }
 })
 
+test('a chained take changes framing at each planned shot (punch-in), so a continuous shot still cuts', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 120_000 }, async () => {
+  const chained = chainPlan()
+  chained.moments[1].shots = [{ seconds: 1, framing: 'wide', action: 'a' }, { seconds: 1, framing: 'close', action: 'b' }]
+  const root = await fakeProject(chained)
+  try {
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    const { stdout } = await run(root, 'render')
+    // 시험 패턴(색 막대)은 확대해도 장면 점수가 낮아 기준을 낮춰 잰다.
+    const { stderr } = await exec('ffmpeg', ['-hide_banner', '-i', join(root, 'out/final.mp4'), '-filter:v', "select='gt(scene,0.15)',showinfo", '-f', 'null', '-'])
+    const cuts = [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((match) => Number(match[1]))
+    assert.ok(cuts.some((at) => Math.abs(at - 3) < 0.1), `the framing changes at the second shot of m2 (3s): ${cuts}`)
+    assert.match(stdout, /컷 \d+개/, 'render reports the real cut rhythm')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('takes forget closes a stuck job so the take can be submitted again', async () => {
   const root = await fakeProject(chainPlan())
   try {

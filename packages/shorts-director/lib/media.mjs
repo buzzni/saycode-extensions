@@ -64,3 +64,14 @@ export async function detectCuts(file, threshold = 0.3) {
   const { stderr } = await run('ffmpeg', ['-hide_banner', '-i', file, '-filter:v', `select='gt(scene,${threshold})',showinfo`, '-f', 'null', '-'])
   return [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((match) => Math.round(Number(match[1]) * 100) / 100)
 }
+
+// 렌더 결과에서 실제로 화면이 바뀐 시각들로 컷 리듬을 잰다. 이어 찍은 테이크는 기획의 컷이 화면에 나오지 않을 수 있다.
+export function rhythmReport(cuts, total, planned) {
+  const edges = [0, ...cuts, total]
+  let longest = { start: 0, end: total, seconds: total }
+  for (let index = 1; index < edges.length; index += 1) {
+    const seconds = Math.round((edges[index] - edges[index - 1]) * 100) / 100
+    if (index === 1 || seconds > longest.seconds) longest = { start: edges[index - 1], end: edges[index], seconds }
+  }
+  return { cuts: cuts.length, planned, longest }
+}
