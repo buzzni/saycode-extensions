@@ -18,6 +18,17 @@ const NUMBERS_IN_PROMPT = /(\d[\d,.]*\s*(원|만원|달러|%|퍼센트))|([₩$�
 // 장면 id 는 파일 이름(takes/<id>.mp4, jobs/…)이 된다. 경로 문자를 막는다.
 const MOMENT_ID = /^[A-Za-z0-9_-]{1,40}$/
 const COLOR = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/
+// 훅 메커니즘: 손실 회피, 정보 격차, 통념 반박, 구체적 상황·POV, 결과·증거 선공개. 후보는 서로 다른 메커니즘 3개 이상.
+export const HOOK_MECHANISMS = ['loss', 'gap', 'hot_take', 'situation', 'proof']
+// 플랫폼별 업계 권장 길이(초). 플랫폼 공식 기준이 아니라 경고만 한다.
+const PLATFORM_SECONDS = { shorts: [15, 60], reels: [15, 90], tiktok: [15, 35] }
+const ENDINGS = ['peak', 'loop', 'cta']
+const CTAS = ['save', 'share', 'comment', 'follow', 'link']
+// AI 대본 상투어: 인사·예고·나열 접속사. 0~3초에 스와이프를 부른다.
+const SLOP = /안녕하세요|오늘은\s*[^ ]*\s*(에\s*대해|을|를)?\s*(알아보|소개|이야기)|알고\s*계셨나요|첫째|둘째|셋째|또한|따라서|뿐만\s*아니라|결론적으로|!!+/
+// 사실 주장이 되는 숫자(비율·금액·배수·인원). 이야기 속 시각("10분 전")은 대상이 아니다.
+const NUMBER = /\d[\d,.]*\s*(%|퍼센트|원|만\s*원|달러|배|명)/g
+const HOOK_CAPTION_MAX = 16
 const TAIL_ENDING = /구독|좋아요|팔로우|알림\s*설정|subscribe|like and/i
 
 export function planSeconds(plan) {
@@ -34,10 +45,16 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
 
   const options = plan.hook?.options
-  if (!Array.isArray(options) || options.length < 3 || options.length > 4) {
-    error('hook.options', '훅 질문은 실제 첫 문장 후보 3~4개를 보여 줘야 한다.')
-  } else if (!Number.isInteger(plan.hook.chosen) || plan.hook.chosen < 0 || plan.hook.chosen >= options.length) {
-    error('hook.chosen', '훅 후보 중 무엇을 골랐는지 hook.chosen 에 남긴다.')
+  if (!Array.isArray(options) || options.length < 3 || options.length > 4 || !options.every((option) => option?.line && option?.question)) {
+    error('hook.options', '훅 후보는 3~4개이고, 각각 { line(첫 문장), mechanism, question(시청자 머릿속에 남는 단 하나의 질문) } 이다.')
+  } else {
+    const mechanisms = options.map((option) => option.mechanism)
+    if (mechanisms.some((mechanism) => !HOOK_MECHANISMS.includes(mechanism)) || new Set(mechanisms).size < 3) {
+      error('hook.mechanism', `훅 후보는 서로 다른 메커니즘 3개 이상으로 만든다(${HOOK_MECHANISMS.join(', ')}).`)
+    }
+    if (!Number.isInteger(plan.hook.chosen) || plan.hook.chosen < 0 || plan.hook.chosen >= options.length) {
+      error('hook.chosen', '훅 후보 중 무엇을 골랐는지 hook.chosen 에 남긴다.')
+    }
   }
 
   const moments = plan.moments ?? []
@@ -90,6 +107,8 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     error('length.target', `전체 ${total}초가 목표 ${target}초에서 ${Math.round(TARGET_TOLERANCE * 100)}% 넘게 벗어났다.`)
   }
 
+  checkStructure(plan, moments, total, error, warn)
+
   const narrationChars = (plan.narration ?? []).reduce((sum, line) => sum + String(line.text ?? '').replace(/\s/g, '').length, 0)
   const narrationBudget = Math.round(total * NARRATION_CHARS_PER_SECOND)
   if (narrationChars > narrationBudget * 1.1) {
@@ -103,6 +122,60 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   }
 
   return { ok: !issues.some((issue) => issue.level === 'error'), issues }
+}
+
+// 0~3초 3중 훅, 8~12초 중반 리훅, 결말(정점·루프·단일 CTA), 플랫폼 길이, 상투어, 출처 없는 숫자, 자막 길이.
+function checkStructure(plan, moments, total, error, warn) {
+  const first = moments[0]
+  const firstSpoken = (plan.narration ?? []).some((line) => line.moment === first.id || (line.moment === undefined && plan.narration[0] === line))
+    || (first.dialogue ?? []).length > 0
+  if (first.caption?.role !== 'hook' || !firstSpoken) {
+    warn('hook.layers', '0~3초의 화면·말·자막이 같은 훅을 가리켜야 한다 — 첫 장면에 hook 자막과 첫 내레이션(또는 대사)을 둔다.', first.id)
+  }
+
+  if (total >= 15) {
+    let cursor = 0
+    const rehookAt = []
+    for (const moment of moments) {
+      if (moment.beat === 'rehook') rehookAt.push(cursor)
+      cursor += Number(moment.seconds)
+    }
+    if (!rehookAt.some((start) => start >= total * 0.2 && start <= total * 0.5)) {
+      warn('pace.rehook', `중반 리훅(반전·예외·시각 전환)을 ${Math.round(total * 0.25)}~${Math.round(total * 0.45)}초 무렵 장면에 둔다(beat: "rehook").`)
+    }
+  }
+
+  const ending = plan.ending
+  if (ending !== undefined) {
+    if (!ENDINGS.includes(ending.type)) error('ending.type', `ending.type 은 ${ENDINGS.join(' / ')} 중 하나다.`)
+    else if (ending.type === 'cta' && !CTAS.includes(ending.cta)) {
+      warn('ending.cta', `CTA 는 딱 하나만(${CTAS.join(' / ')}) — 여러 행동을 한꺼번에 요구하지 않는다.`)
+    }
+  }
+
+  if (plan.platform !== undefined) {
+    const range = PLATFORM_SECONDS[plan.platform]
+    if (!range) error('platform', `platform 은 ${Object.keys(PLATFORM_SECONDS).join(' / ')} 중 하나다.`)
+    else if (total < range[0] || total > range[1]) {
+      warn('length.platform', `${plan.platform} 은 보통 ${range[0]}~${range[1]}초가 잘 된다(업계 권장) — 지금 ${total}초.`)
+    }
+  }
+
+  const texts = [...(plan.narration ?? []).map((line) => line.text), ...moments.flatMap((moment) => [moment.caption?.text, ...(moment.subtitles ?? []).map((line) => line.text)])].filter(Boolean)
+  if (texts.some((text) => SLOP.test(text))) {
+    warn('script.slop', '인사·예고("안녕하세요", "오늘은 ~에 대해")·나열 접속사("첫째", "또한", "따라서")·느낌표 남발을 뺀다.')
+  }
+  const sourced = (plan.facts ?? []).map((fact) => String(fact.text ?? '')).join(' ')
+  const unsourced = texts.flatMap((text) => text.match(NUMBER) ?? []).filter((number) => !sourced.includes(number.replace(/\s+/g, '').replace(/퍼센트/, '%')) && !sourced.includes(number))
+  if (unsourced.length) {
+    warn('claim.unsourced', `출처 없는 숫자: ${[...new Set(unsourced)].join(', ')} — 확인한 값은 plan.facts 에 { text, source } 로 적고, 아니면 뺀다.`)
+  }
+
+  for (const moment of moments) {
+    if (moment.caption?.role === 'hook' && String(moment.caption.text).replace(/\s/g, '').length > HOOK_CAPTION_MAX) {
+      warn('caption.length', `훅 자막은 2초 안에 읽혀야 한다 — ${HOOK_CAPTION_MAX}자 이하로 줄인다.`, moment.id)
+    }
+  }
 }
 
 function checkTake(moment, limits, error, warn) {

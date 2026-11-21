@@ -19,7 +19,7 @@ function plan() {
     language: 'ko',
     aspect: '9:16',
     target_seconds: 12,
-    hook: { options: ['A', 'B', 'C'], chosen: 0 },
+    hook: { options: [{ line: 'A', mechanism: 'loss', question: 'a?' }, { line: 'B', mechanism: 'gap', question: 'b?' }, { line: 'C', mechanism: 'situation', question: 'c?' }], chosen: 0 },
     subjects: [{ id: 'hero', kind: 'person', look: 'a woman in a beige trench coat' }],
     moments: [
       { id: 'm1', kind: 'take', place: 'subway exit', seconds: 4, subjects: ['hero'], shots: shots(2, 2), video_prompt: 'she runs into the rain', caption: { text: '우산 없이 나왔다', role: 'hook' } },
@@ -136,7 +136,7 @@ function chainPlan() {
   const shot = (seconds) => [{ seconds, framing: 'wide', action: 'a' }]
   return {
     title: 'chain',
-    hook: { options: ['A', 'B', 'C'], chosen: 0 },
+    hook: { options: [{ line: 'A', mechanism: 'loss', question: 'a?' }, { line: 'B', mechanism: 'gap', question: 'b?' }, { line: 'C', mechanism: 'situation', question: 'c?' }], chosen: 0 },
     moments: [
       { id: 'm1', kind: 'take', place: 'p', seconds: 2, shots: shot(2), video_prompt: 'one' },
       { id: 'm2', kind: 'take', place: 'p', seconds: 2, from: { take: 'm1' }, shots: shot(2), video_prompt: 'two' },

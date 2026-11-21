@@ -35,8 +35,14 @@ npx -y @buzzni/shorts-director status     # status.md
 
 ## What it enforces
 
-- Plan rules: 3–4 hook candidates, a cut every ~3 seconds, no title-card opening, takes of 1–5 seconds, no
-  subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Plan rules: 3–4 hook candidates from at least three different mechanisms (loss, gap, hot_take, situation,
+  proof), each with the single question it plants; a cut every ~3 seconds; no title-card opening; takes of 1–5
+  seconds; no subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
+  `beat: "rehook"` scene lands 20–50% of the way in; the ending is a peak, a loop or exactly one CTA; the length
+  suits the `platform` (shorts / reels / tiktok).
+- Script warnings: AI-script filler (greetings, "today we'll…", list connectives) and numbers (%, prices,
+  multiples, head counts) that have no `facts` entry with a source.
 - Warning for signage-heavy places (convenience stores, stations, shops, billboards…) without a blurred background:
   LTX draws garbled Korean on in-scene signs, and a very shallow depth of field removes it.
 - Takes are recorded before they are submitted and reused when the same request was already downloaded, so a lost
