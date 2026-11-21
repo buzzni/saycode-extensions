@@ -87,9 +87,50 @@ export const LOOKS = {
 
 const ROLE_KEY = { dialogue: 'narration' }
 
-export function designFor(look, role) {
+// 묶음의 역할 디자인 위에 문구 하나의 덮어쓰기(caption.look)를 얹는다. 정하지 않은 필드는 묶음을 따른다.
+export function designFor(look, role, override = {}) {
   const chosen = LOOKS[look] ?? LOOKS.clean
-  return chosen[ROLE_KEY[role] ?? role]
+  return { ...chosen[ROLE_KEY[role] ?? role], ...override }
+}
+
+const HEX = /^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/
+const COLOR_FIELDS = ['ink', 'fill', 'outline', 'emphasis', 'emphasisFill']
+
+// 문구 하나의 덮어쓰기에서 렌더가 쓸 수 없는 값. 글꼴은 받을 수 있는 OFL 목록의 PostScript 이름만.
+export function designProblems(override, fontNames) {
+  const problems = []
+  if (override.font !== undefined && !fontNames.includes(override.font)) problems.push(`font 는 ${fontNames.join(', ')} 중 하나`)
+  for (const key of COLOR_FIELDS) if (override[key] !== undefined && !HEX.test(String(override[key]))) problems.push(`${key} 는 #RRGGBB 또는 #RRGGBBAA`)
+  if (override.shape !== undefined && !['square', 'rounded', 'pill'].includes(override.shape)) problems.push('shape 는 square·rounded·pill')
+  if (override.entrance !== undefined && !['pop', 'fade', 'none'].includes(override.entrance)) problems.push('entrance 는 pop·fade·none')
+  if (override.size !== undefined && !(override.size >= 0.6 && override.size <= 1.6)) problems.push('size 는 0.6~1.6 배')
+  if (override.outlineWidth !== undefined && !(override.outlineWidth >= 0 && override.outlineWidth <= 30)) problems.push('outlineWidth 는 0~30')
+  return problems
+}
+
+// 읽히는가: 불투명한 판 위 글자는 4.5:1, 판 없는 글자는 외곽선(3:1)·그림자가 있어야 그림 위에서 읽힌다.
+export function readability(design) {
+  if (design.fill && alpha(design.fill) >= 0.6) {
+    const ratio = contrast(design.ink, design.fill)
+    return ratio >= 4.5 ? undefined : `글자와 판의 대비가 ${ratio.toFixed(1)}:1 — 4.5:1 이상이어야 읽힌다`
+  }
+  if (!design.fill && !design.outline && !design.shadow) return '판·외곽선·그림자가 없으면 그림 위에서 글자가 묻힌다'
+  if (design.outline && contrast(design.ink, design.outline) < 3) return '외곽선이 글자색과 너무 비슷하다 — 훨씬 밝거나 어둡게'
+  return undefined
+}
+
+function alpha(hex) {
+  return hex.length === 9 ? parseInt(hex.slice(7), 16) / 255 : 1
+}
+
+function contrast(left, right) {
+  const luminance = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map((channel) => (channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  const [high, low] = [luminance(left), luminance(right)].sort((a, b) => b - a)
+  return (high + 0.05) / (low + 0.05)
 }
 
 // 이 묶음이 쓰는 글꼴 이름들(받아 둘 것).

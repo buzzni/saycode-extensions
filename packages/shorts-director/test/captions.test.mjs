@@ -132,3 +132,16 @@ test('asides (inner voice, status, commentary) appear at their moment for their 
   const centreFromTop = 1 - (box.y + box.h / 2) / size.height
   assert.ok(centreFromTop > 0.35 && centreFromTop < 0.45, `aside centre about 40% down (${centreFromTop})`)
 })
+
+test('a caption can be placed by hand: vertical centre as a share of the height from the top, and left, centre or right', () => {
+  const size = { width: 1080, height: 1920 }
+  const [event] = captionEvents({ moments: [
+    { id: 'm1', seconds: 3, caption: { text: '창가 = 바람길', role: 'info', position: { y: 0.18, x: 'left' }, look: { fill: '#111111' } } },
+  ] })
+  assert.deepEqual(event.position, { y: 0.18, x: 'left' })
+  assert.deepEqual(event.look, { fill: '#111111' })
+  const box = captionBox(event, size)
+  const centreFromTop = 1 - (box.y + box.h / 2) / size.height
+  assert.ok(Math.abs(centreFromTop - 0.18) < 0.01, `centre at 18% (${centreFromTop})`)
+  assert.equal(box.align, 'left')
+})

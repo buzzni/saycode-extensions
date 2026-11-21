@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { FONTS, MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
 import { designFor, lookFonts } from './looks.mjs'
+import { textProblems } from './textcheck.mjs'
 import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
@@ -14,6 +15,7 @@ import { materialPath } from './takeState.mjs'
 
 // pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
 const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
+const VISION = fileURLToPath(new URL('./vision.jxa.js', import.meta.url))
 
 export async function renderVideo({ root, plan, config, mode, narration = [], out }) {
   const { width, height, fps } = config
@@ -72,7 +74,8 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     out,
   ])
-  return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits }
+  const placement = mode === 'final' ? await checkPlacement({ root, base, work, captions, config }) : []
+  return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits, placement }
 }
 
 export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240 } = {}) {
@@ -241,7 +244,7 @@ async function renderCaptions(events, directory, config, look) {
   if (events.length === 0) return []
   const items = events.map((event, index) => {
     const box = captionBox(event, config)
-    const design = box.style === 'plain' ? undefined : designFor(look, event.role)
+    const design = box.style === 'plain' ? undefined : designFor(look, event.role, event.look)
     const frames = ENTRANCES[design?.entrance ?? 'none'].map(([scale, alpha]) => ({ scale, alpha }))
     return {
       ...box,
@@ -252,17 +255,66 @@ async function renderCaptions(events, directory, config, look) {
       out: join(directory, `cap-${String(index).padStart(2, '0')}`),
     }
   })
+  const extraFonts = events.map((event) => event.look?.font).filter(Boolean)
   const spec = join(directory, 'spec.json')
-  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, fontFiles: await fontFiles(look, config), items }))
-  await run('osascript', ['-l', 'JavaScript', JXA, spec])
-  return events.map((event, index) => ({ pattern: `${items[index].out}-%02d.png`, start: event.start, end: event.end }))
+  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, fontFiles: await fontFiles(look, config, extraFonts), items }))
+  const { stdout } = await run('osascript', ['-l', 'JavaScript', JXA, spec])
+  const drawn = JSON.parse(stdout)
+  return events.map((event, index) => ({
+    pattern: `${items[index].out}-%02d.png`,
+    start: event.start,
+    end: event.end,
+    text: event.text,
+    role: event.role,
+    bounds: drawn[index],
+  }))
+}
+
+// 화면 문구(자막 띠 제외)가 그 순간의 글자 없는 화면에서 얼굴·주인공 사물을 가리거나 가장자리를 넘는지 잰다.
+// 결과는 out/text-check.json 과 render 출력으로 남기고, 에이전트가 caption.position·look 으로 옮겨 다시 render 한다.
+const SUBTITLE_ROLES = new Set(['narration', 'dialogue'])
+
+async function checkPlacement({ root, base, work, captions, config }) {
+  const placed = captions.filter((caption) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
+  if (placed.length === 0) return []
+  // 문구가 떠 있는 동안 화면이 움직이므로 등장 직후와 사라지기 직전 두 장면을 보고, 더 많이 가린 쪽을 남긴다.
+  const stills = []
+  for (const [index, caption] of placed.entries()) {
+    const moments = [Math.min(caption.start + 0.4, (caption.start + caption.end) / 2), Math.max(caption.start, caption.end - 0.3)]
+    for (const [order, at] of moments.entries()) {
+      const still = join(work, `check-${String(index).padStart(2, '0')}-${order}.png`)
+      await ffmpeg(['-ss', String(at), '-i', base, '-frames:v', '1', still])
+      stills.push(still)
+    }
+  }
+  const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
+  const scenes = JSON.parse(stdout)
+  const found = placed.map((_, index) => ({
+    faces: [...scenes[index * 2].faces, ...scenes[index * 2 + 1].faces],
+    subjects: [...scenes[index * 2].subjects, ...scenes[index * 2 + 1].subjects],
+  }))
+  const fromTop = (rect, width = 1, height = 1) => ({ x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height })
+  const report = placed.map((caption, index) => ({
+    text: caption.text,
+    role: caption.role,
+    start: caption.start,
+    box: fromTop(caption.bounds, config.width, config.height),
+    problems: textProblems({
+      box: fromTop(caption.bounds, config.width, config.height),
+      faces: found[index].faces.map((face) => fromTop(face)),
+      subjects: found[index].subjects.map((subject) => fromTop(subject)),
+    }),
+  }))
+  await mkdir(join(root, 'out'), { recursive: true })
+  await writeFile(join(root, 'out', 'text-check.json'), `${JSON.stringify(report, null, 2)}\n`)
+  return report.filter((entry) => entry.problems.length)
 }
 
 // 묶음의 글꼴(SIL OFL)을 이 PC 에 받아 둔다. 받지 못하면 시스템 글꼴로 그린다(가짜 모드는 받지 않고 있는 것만 쓴다).
-async function fontFiles(look, config) {
+async function fontFiles(look, config, extra = []) {
   const directory = join(userConfigDir(), 'fonts')
   const files = []
-  for (const name of lookFonts(look)) {
+  for (const name of new Set([...lookFonts(look), ...extra])) {
     const font = FONTS.find((candidate) => candidate.name === name)
     const file = join(directory, font.file)
     if (await access(file).then(() => true, () => false)) {

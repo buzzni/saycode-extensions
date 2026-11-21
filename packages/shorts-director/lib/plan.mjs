@@ -4,8 +4,8 @@
 import { posix } from 'node:path'
 
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
-import { MUSIC } from './assets.mjs'
-import { LOOKS } from './looks.mjs'
+import { FONTS, MUSIC } from './assets.mjs'
+import { LOOKS, designFor, designProblems, readability } from './looks.mjs'
 import { SFX_KINDS } from './sfx.mjs'
 
 const MAX_SHOT_SECONDS = 4
@@ -59,6 +59,11 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   }
 
   for (const moment of plan.moments ?? []) {
+    const placed = [
+      ...(moment.caption ? [{ ...moment.caption, role: moment.caption.role ?? 'title' }] : []),
+      ...(moment.asides ?? []).map((aside) => ({ ...aside, role: 'aside' })),
+    ]
+    for (const text of placed) checkPlacedText(plan, moment, text, error, warn)
     if (moment.caption?.emphasis && !String(moment.caption.text ?? '').includes(moment.caption.emphasis)) {
       warn('caption.emphasis', '강조어(caption.emphasis)는 그 문구 안에 있는 낱말이어야 색이 바뀐다.', moment.id)
     }
@@ -233,6 +238,27 @@ function checkFrom(moment, earlierTakes, error, warn) {
   }
   if ((moment.shots ?? []).some((shot, index) => index > 0 && shot.transition === 'cut')) {
     warn('take.cut_after_anchor', '이어 찍는 테이크 안에서 하드 컷을 하면 얼굴이 바뀐다 — 카메라 이동(transition: move)으로 바꾼다.', moment.id)
+  }
+}
+
+// 문구 하나의 덮어쓰기(look)와 자리(position). 자막 띠·플랫폼 UI 가 있는 70% 아래로는 두지 않는다.
+const POSITION_RANGE = [0.08, 0.7]
+
+function checkPlacedText(plan, moment, text, error, warn) {
+  if (text.look !== undefined) {
+    const problems = designProblems(text.look, FONTS.map((font) => font.name))
+    if (problems.length) error('caption.look', `"${text.text}" 의 look: ${problems.join(' · ')}`, moment.id)
+    else {
+      const unreadable = readability(designFor(plan.look, text.role, text.look))
+      if (unreadable) warn('caption.contrast', `"${text.text}": ${unreadable}`, moment.id)
+    }
+  }
+  if (text.position !== undefined) {
+    const { y, x } = text.position
+    const [low, high] = POSITION_RANGE
+    if ((y !== undefined && !(Number(y) >= low && Number(y) <= high)) || (x !== undefined && !['left', 'center', 'right'].includes(x))) {
+      error('caption.position', `"${text.text}" 의 position: y 는 화면 위에서부터 ${low}~${high}(문구 중심), x 는 left·center·right.`, moment.id)
+    }
   }
 }
 

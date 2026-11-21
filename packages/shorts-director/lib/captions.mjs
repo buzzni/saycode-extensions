@@ -95,8 +95,10 @@ export function captionBox(event, { width, height }) {
   const lines = String(event.text).split('\n').flatMap((part) => wrapLine(part, role.maxChars, role.maxLines ?? 3)).slice(0, role.maxLines ?? 3)
   const fontSize = Math.round(height * role.size)
   const h = Math.ceil(lines.length * fontSize * LINE_HEIGHT)
-  const anchor = role.anchor === 'upper' && event.card ? 'center' : role.anchor
-  const y = anchor === 'top'
+  const anchor = event.position?.y !== undefined ? 'custom' : role.anchor === 'upper' && event.card ? 'center' : role.anchor
+  const y = anchor === 'custom'
+    ? Math.round(height * (1 - Number(event.position.y)) - h / 2)
+    : anchor === 'top'
     ? Math.round(height * (1 - TOP_MARGIN)) - h
     : anchor === 'subtitle'
       ? Math.round(height * SUBTITLE_BOTTOM)
@@ -113,6 +115,7 @@ export function captionBox(event, { width, height }) {
     h,
     style: role.style,
     anchor,
+    align: event.position?.x ?? 'center',
     ...(event.emphasis ? { emphasis: event.emphasis } : {}),
     ...(event.label ? { label: event.label } : {}),
   }
@@ -125,7 +128,7 @@ export function captionEvents(plan, narration = []) {
     const start = cursor
     const end = round(cursor + Number(moment.seconds))
     if (moment.caption?.text) {
-      const { text, role = 'title', emphasis, label } = moment.caption
+      const { text, role = 'title', emphasis, label, look, position } = moment.caption
       events.push({
         text,
         role,
@@ -134,11 +137,20 @@ export function captionEvents(plan, narration = []) {
         ...(emphasis ? { emphasis } : {}),
         ...(label ? { label } : {}),
         ...(moment.kind === 'card' ? { card: true } : {}),
+        ...(look ? { look } : {}),
+        ...(position ? { position } : {}),
       })
     }
     for (const aside of moment.asides ?? []) {
       const asideStart = round(start + Number(aside.at ?? 0))
-      events.push({ text: aside.text, role: 'aside', start: asideStart, end: round(asideStart + Number(aside.seconds ?? ASIDE_SECONDS)) })
+      events.push({
+        text: aside.text,
+        role: 'aside',
+        start: asideStart,
+        end: round(asideStart + Number(aside.seconds ?? ASIDE_SECONDS)),
+        ...(aside.look ? { look: aside.look } : {}),
+        ...(aside.position ? { position: aside.position } : {}),
+      })
     }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))

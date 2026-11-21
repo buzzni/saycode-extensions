@@ -57,3 +57,10 @@ test('a caption takes its design from the look, and an unknown look falls back t
   assert.deepEqual(designFor('dialogue-free', 'narration'), designFor('clean', 'narration'))
   assert.deepEqual(designFor('vlog', 'dialogue'), designFor('vlog', 'narration'), 'dialogue subtitles look like narration subtitles')
 })
+
+test('one caption can override parts of its look; the rest still comes from the look', () => {
+  const design = designFor('vlog', 'info', { fill: '#111111', ink: '#FFFFFF', size: 1.2 })
+  assert.equal(design.fill, '#111111')
+  assert.equal(design.size, 1.2)
+  assert.equal(design.font, LOOKS.vlog.info.font, 'unspecified fields keep the look')
+})

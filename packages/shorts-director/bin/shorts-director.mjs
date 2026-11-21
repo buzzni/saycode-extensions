@@ -233,6 +233,12 @@ async function render() {
   console.log(`  컷 ${rhythm.cuts}개(기획 ${rhythm.planned}개) · 가장 긴 장면 ${rhythm.longest.seconds}초(${rhythm.longest.start}~${rhythm.longest.end}초)`)
   if (rhythm.longest.seconds > 4) console.log(`! ${rhythm.longest.start}~${rhythm.longest.end}초가 한 화면으로 ${rhythm.longest.seconds}초 이어진다 — 장면을 나누거나 클로즈업·사진·문구 화면을 끼운다.`)
   if (rhythm.cuts < rhythm.planned * 0.6) console.log('! 기획한 컷보다 실제 컷이 적다 — 이어 찍은 장면이 한 화면처럼 보이는지 확인한다.')
+  const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
+  for (const entry of result.placement) {
+    const issues = entry.problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
+    console.log(`! ${entry.start}초 "${entry.text}" — ${issues.join(', ')}. caption.position(y·x)이나 look 으로 옮기고 render 를 다시 한다(out/text-check.json).`)
+  }
+  if (result.placement.length === 0) console.log('  화면 문구: 얼굴·주인공 가림 없음')
 }
 
 async function takes() {

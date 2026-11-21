@@ -87,6 +87,10 @@ test('the full pipeline renders a draft and a final short with fake backends', {
     assert.deepEqual([video.width, video.height], [270, 480])
     assert.ok(final.streams.some((stream) => stream.codec_type === 'audio'))
 
+    assert.match((await run(root, 'render')).stdout, /화면 문구: 얼굴·주인공 가림 없음|가림|가장자리/, 'render reports where the on-screen text sits')
+    const placement = JSON.parse(await readFile(join(root, 'out/text-check.json'), 'utf8'))
+    assert.ok(placement.length >= 1 && placement.every((entry) => entry.box.w > 0 && entry.box.h > 0), 'every on-screen caption has its drawn box measured')
+
     await run(root, 'sheet')
     assert.ok(await exists(join(root, 'out/contact.png')))
 

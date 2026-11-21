@@ -119,6 +119,22 @@ test('the look is one of the genre looks', () => {
   assert.ok(!codes(plan).includes('look'))
 })
 
+test('a caption own look and position are checked: known fonts, colours, readable contrast, above the subtitles', () => {
+  const plan = goodPlan()
+  plan.moments[0].caption.look = { font: 'Comic Sans MS' }
+  assert.ok(codes(plan).includes('caption.look'))
+  plan.moments[0].caption.look = { ink: 'red' }
+  assert.ok(codes(plan).includes('caption.look'))
+  plan.moments[0].caption.look = { ink: '#FFFFFF', fill: '#FFFF66' }
+  assert.ok(codes(plan).includes('caption.contrast'), 'white on pale yellow cannot be read')
+  plan.moments[0].caption.look = { ink: '#111111', fill: '#FFFF66', font: 'Jua-Regular' }
+  assert.ok(!codes(plan).some((code) => code.startsWith('caption.')))
+  plan.moments[0].caption.position = { y: 0.85 }
+  assert.ok(codes(plan).includes('caption.position'), 'the subtitle band and the platform UI are below 70%')
+  plan.moments[0].caption.position = { y: 0.4, x: 'middle' }
+  assert.ok(codes(plan).includes('caption.position'))
+})
+
 test('an emphasised word must be in its caption', () => {
   const plan = goodPlan()
   plan.moments[0].caption.emphasis = '없는말'

@@ -13,8 +13,8 @@ function run(argv) {
   const spec = JSON.parse(raw)
   // 글꼴 파일은 이 프로세스에서만 쓰게 등록한다(설치하지 않는다). 1 = kCTFontManagerScopeProcess
   for (const file of spec.fontFiles ?? []) $.CTFontManagerRegisterFontsForURL($.NSURL.fileURLWithPath(file), 1, null)
-  for (const item of spec.items) draw(spec, item)
-  return `rendered ${spec.items.length}`
+  // 실제로 그린 영역(아래에서 잰 픽셀)을 돌려준다 — 렌더가 얼굴·대상 가림을 잰다.
+  return JSON.stringify(spec.items.map((item) => draw(spec, item)))
 }
 
 // '#RRGGBB' 또는 '#RRGGBBAA'
@@ -79,7 +79,8 @@ function save(rep, path) {
 // 글자를 한 번 그리고, 등장 동작은 그 그림을 중심 기준으로 키우거나 흐리게 다시 찍어 만든다.
 function draw(spec, item) {
   const base = newCanvas(spec)
-  const center = item.style === 'plain' ? plain(spec, item) : styled(spec, item)
+  const bounds = item.style === 'plain' ? plain(spec, item) : styled(spec, item)
+  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 }
   $.NSGraphicsContext.restoreGraphicsState
   const image = $.NSImage.alloc.initWithSize($.NSMakeSize(spec.width, spec.height))
   image.addRepresentation(base)
@@ -89,6 +90,7 @@ function draw(spec, item) {
     image.drawInRectFromRectOperationFraction(rect, $.NSMakeRect(0, 0, 0, 0), 2, frame.alpha) // 2 = source over
     save(rep, `${item.out}-${String(index).padStart(2, '0')}.png`)
   })
+  return bounds
 }
 
 function box(x, y, w, h, radius, fill, shadow) {
@@ -131,7 +133,9 @@ function styled(spec, item) {
   const padY = Math.round(size * (subtitleLike ? 0.2 : 0.38))
   const w = Math.ceil(measured.width) + (design.fill ? padX * 2 : 0)
   const h = Math.ceil(measured.height) + (design.fill ? padY * 2 : 0)
-  const x = Math.round((spec.width - w) / 2)
+  // 정렬: 가운데, 또는 좌우 여백(6%)에 붙인다.
+  const margin = Math.round(spec.width * 0.06)
+  const x = item.align === 'left' ? margin : item.align === 'right' ? spec.width - margin - w : Math.round((spec.width - w) / 2)
   const y = item.anchor === 'top' ? item.y + item.h - h : Math.round(item.y + item.h / 2 - h / 2)
   if (design.fill) box(x, y, w, h, radius(design.shape, size, h), color(design.fill), design.shadow ? softShadow(size) : undefined)
   const inner = design.fill ? $.NSMakeRect(x + padX, y + padY, w - padX * 2, h - padY * 2) : $.NSMakeRect(x - size, y, w + size * 2, h)
@@ -142,14 +146,16 @@ function styled(spec, item) {
   fillText.drawInRect(inner)
   if (item.label && item.labelDesign) {
     // 판 위에서는 라벨이 판 윗변에 걸치고, 판이 없으면 글자에 닿지 않게 위로 띄운다.
-    const top = labelPill(spec, item.label, item.labelDesign, Math.round(size * 0.55), y + h, Boolean(design.fill))
-    return { x: spec.width / 2, y: (y + top) / 2 }
+    const pill = labelPill(spec, item.label, item.labelDesign, Math.round(size * 0.55), y + h, Boolean(design.fill), x + w / 2)
+    const left = Math.min(x, pill.x)
+    const right = Math.max(x + w, pill.x + pill.w)
+    return { x: left, y, w: right - left, h: pill.y + pill.h - y }
   }
-  return { x: spec.width / 2, y: y + h / 2 }
+  return { x, y, w, h }
 }
 
-// 제목 위에 걸치는 알약 라벨. 돌려주는 값은 라벨의 윗변.
-function labelPill(spec, text, design, size, bottom, overlap) {
+// 제목 위에 걸치는 알약 라벨. 돌려주는 값은 라벨이 차지한 영역.
+function labelPill(spec, text, design, size, bottom, overlap, centerX) {
   const label = attributed(text, [
     [$.NSFontAttributeName, font(design.font, size, spec.font)],
     [$.NSForegroundColorAttributeName, color(design.ink)],
@@ -157,11 +163,11 @@ function labelPill(spec, text, design, size, bottom, overlap) {
   const measured = label.size
   const w = Math.ceil(measured.width) + size * 1.4
   const h = Math.ceil(measured.height) + size * 0.5
-  const x = Math.round((spec.width - w) / 2)
+  const x = Math.round(centerX - w / 2)
   const y = overlap ? bottom - h * 0.35 : bottom + size * 0.3
   box(x, y, w, h, radius(design.shape, size, h), color(design.fill))
   label.drawAtPoint($.NSMakePoint(x + size * 0.7, y + size * 0.25))
-  return y + h
+  return { x, y, w, h }
 }
 
 // 콘티 카드(애니매틱) — 흰 글자·검은 외곽선·그림자.
@@ -173,5 +179,5 @@ function plain(spec, item) {
   const rect = $.NSMakeRect(item.x, item.y, item.w, item.h)
   attributed(item.text, [...base, [$.NSStrokeColorAttributeName, $.NSColor.blackColor], [$.NSStrokeWidthAttributeName, 16], [$.NSShadowAttributeName, softShadow(item.fontSize)]]).drawInRect(rect)
   attributed(item.text, [...base, [$.NSForegroundColorAttributeName, $.NSColor.whiteColor]]).drawInRect(rect)
-  return { x: item.x + item.w / 2, y: item.y + item.h / 2 }
+  return { x: item.x, y: item.y, w: item.w, h: item.h }
 }
