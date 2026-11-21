@@ -8,7 +8,7 @@ In Saycode the agent's procedure comes from the organization skill `shorts-direc
 toolkit, so nothing has to be copied into a project.
 
 ```bash
-npx -y @buzzni/shorts-director init       # .gitignore rules, .env.example, materials/ (+ --ltx-url/--tts-url once per PC)
+npx -y @buzzni/shorts-director init       # .gitignore rules, .env.example, materials/, fonts (+ --ltx-url/--tts-url once per PC)
 npx -y @buzzni/shorts-director doctor     # ffmpeg, caption renderer, video and voice servers
 npx -y @buzzni/shorts-director check      # plan.json rules
 npx -y @buzzni/shorts-director voice      # narration, measured lengths
@@ -51,7 +51,15 @@ npx -y @buzzni/shorts-director status     # status.md
 - Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
   1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated.
-- The mix ducks the scene sound (and `plan.music`, a track from `materials/`) only while narration plays, adds short
+- Captions have a look per role: the hook sits in a white rounded box for its first three seconds, with one
+  `caption.emphasis` word in blue and an optional `caption.label` pill above it; `info` is a blue chip; narration
+  subtitles change in one-line pieces of about fifteen characters timed to the speech. Boxes pop in and subtitles fade
+  in. `init` downloads the Pretendard font (SIL OFL 1.1) to `~/.config/shorts-director/fonts/`; without it the
+  system font is used.
+- Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
+  downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of
+  your own works too: `plan.music: { file: "materials/…" }`.
+- The mix ducks the scene sound and the music only while narration plays, adds short
   sound effects synthesized by ffmpeg on the hook, cuts, the re-hook and titles (no audio files ship with the package),
   fades out the last half second and limits peaks.
 - The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
