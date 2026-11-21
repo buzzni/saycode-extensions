@@ -6,6 +6,7 @@ import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promis
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { FONTS, MUSIC, ensureAsset } from '../lib/assets.mjs'
 import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
@@ -17,7 +18,7 @@ import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
 
-const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render|sheet [--draft]|cuts <file>|status|import-knowledge --from <shorts_maker>|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render|sheet [--draft]|cuts <file>|status|music|import-knowledge --from <shorts_maker>|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
@@ -32,7 +33,7 @@ const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, 'import-knowledge': importKnowledge }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, music, 'import-knowledge': importKnowledge }
 
 try {
   if (command === '--version' || command === '-v') {
@@ -76,7 +77,24 @@ async function init() {
     const file = join(userConfigDir(), '.env')
     console.log(added.length ? `✓ 이 PC 설정(${file})에 ${added.join(', ')} 저장 — 모든 프로젝트에서 쓴다` : `이 PC 설정(${file})에 서버 주소가 이미 있다 — 그대로 둔다`)
   }
+  if (!flags.has('--offline')) await fetchFonts()
   console.log('다음: shorts-director doctor')
+}
+
+// 글꼴(Pretendard, OFL)은 이 PC 에 한 번 받아 둔다. 받지 못해도 시스템 글꼴로 계속한다.
+async function fetchFonts() {
+  try {
+    for (const font of FONTS) await ensureAsset(font, join(userConfigDir(), 'fonts'))
+    console.log(`✓ 글꼴 ${FONTS.map((font) => font.name).join(', ')} (SIL OFL 1.1) — ${join(userConfigDir(), 'fonts')}`)
+  } catch (error) {
+    console.log(`! 글꼴을 받지 못했다(${error.message}) — 시스템 글꼴로 그린다. 다시 받으려면 init 을 한 번 더 한다.`)
+  }
+}
+
+// 기획에서 고를 수 있는 배경음(CC0) 목록. 곡은 처음 render 할 때 이 PC 에 받는다.
+async function music() {
+  console.log('배경음(CC0 공개 도메인, 출처: FreePD.com) — plan.json 에 "music": { "track": "<id>" } 로 고른다')
+  for (const [id, track] of Object.entries(MUSIC)) console.log(`${id.padEnd(18)}${track.mood}`)
 }
 
 function optionValue(name) {

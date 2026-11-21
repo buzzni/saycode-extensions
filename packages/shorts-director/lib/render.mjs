@@ -4,7 +4,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
+import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
 import { materialPath } from './takeState.mjs'
@@ -41,7 +43,8 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   }
   addInput('-i', base)
   const narrationIndex = narration.map((line) => addInput('-i', join(root, line.file)))
-  const musicIndex = plan.music?.file ? addInput('-stream_loop', '-1', '-i', materialPath(root, plan.music.file)) : undefined
+  const music = await musicSource(root, plan.music)
+  const musicIndex = music ? addInput('-stream_loop', '-1', '-ss', String(music.start), '-i', music.path) : undefined
   const sounds = sfxEvents(plan).filter((sound) => sound.at < total)
   const sfxIndex = sounds.map((sound) => addInput('-f', 'lavfi', '-i', SFX_KINDS[sound.kind]))
   const captionIndex = captions.map((caption) => addInput('-i', caption.file))
@@ -53,7 +56,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     filters.push(`[${video}][${captionIndex[position]}:v]overlay=0:0:enable='between(t,${caption.start},${caption.end})'[${label}]`)
     video = label
   })
-  filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: plan.music, sounds, sfxIndex, total, mix: config.mix }))
+  filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: { ...plan.music, ...music }, sounds, sfxIndex, total, mix: config.mix }))
 
   await mkdir(join(root, 'out'), { recursive: true })
   await ffmpeg([
@@ -76,6 +79,20 @@ export async function contactSheet(input, out, { every = 1.5, columns = 6, tileW
   return out
 }
 
+// 배경음: 목록의 CC0 곡(track)은 이 PC 에 받아 두고 완성본 음량(-14 LUFS)에 맞춘다. materials/ 의 파일은 사용자가 정한 크기 그대로.
+const MUSIC_TARGET_LUFS = -14
+
+async function musicSource(root, music) {
+  if (music?.track !== undefined) {
+    const track = MUSIC[music.track]
+    if (!track) throw new Error(`배경음 목록에 없는 곡이다: ${music.track} — shorts-director music 으로 고른다`)
+    const path = await ensureAsset(track, join(userConfigDir(), 'music'))
+    return { path, start: track.start, gain: 10 ** ((MUSIC_TARGET_LUFS - track.lufs) / 20) }
+  }
+  if (music?.file) return { path: materialPath(root, music.file), start: 0, gain: 1 }
+  return undefined
+}
+
 // 소리 바닥: 장면 소리와 배경음은 말할 때만 내려가고(덕킹) 말이 없으면 원래 크기로 들린다. 끝은 페이드아웃한다.
 // 전체를 한 번에 줄이면 말 사이가 빈 소리가 된다 — 숏폼에서 가장 크게 체감되는 차이였다.
 function audioFilters({ narration, narrationIndex, musicIndex, music, sounds, sfxIndex, total, mix }) {
@@ -83,7 +100,7 @@ function audioFilters({ narration, narrationIndex, musicIndex, music, sounds, sf
   const filters = [`[0:a]${stereo}[scene]`]
   const under = ['[scene]']
   if (musicIndex !== undefined) {
-    const volume = Number(music.volume ?? mix.music)
+    const volume = Number(music.volume ?? mix.music) * music.gain
     filters.push(`[${musicIndex}:a]${stereo},atrim=0:${total},volume=${volume},afade=t=in:d=0.3,afade=t=out:st=${Math.max(0, total - mix.fadeOut)}:d=${mix.fadeOut}[music]`)
     under.push('[music]')
   }

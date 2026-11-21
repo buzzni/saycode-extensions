@@ -31,7 +31,7 @@ test('usage names the shorts-director command', async () => {
 
 test('init prepares any project folder once: ignore rules and an env example, never overwriting', () => inProject(async (root) => {
   await writeFile(join(root, '.gitignore'), 'node_modules/\n.env\n')
-  const first = await exec(process.execPath, [cli, 'init'], { cwd: root })
+  const first = await exec(process.execPath, [cli, 'init', '--offline'], { cwd: root })
   assert.match(first.stdout, /\.env\.example/)
   const ignore = await readFile(join(root, '.gitignore'), 'utf8')
   assert.ok(ignore.startsWith('node_modules/\n.env\n'), 'existing rules are kept')
@@ -43,7 +43,7 @@ test('init prepares any project folder once: ignore rules and an env example, ne
   assert.match(example, /^# QWEN_TTS_TOKEN=/m)
 
   await writeFile(join(root, '.env.example'), 'mine\n')
-  await exec(process.execPath, [cli, 'init'], { cwd: root })
+  await exec(process.execPath, [cli, 'init', '--offline'], { cwd: root })
   assert.equal(await readFile(join(root, '.env.example'), 'utf8'), 'mine\n')
   assert.equal(await readFile(join(root, '.gitignore'), 'utf8'), ignore)
 }))
@@ -53,4 +53,11 @@ test('import-knowledge requires the source repository path', async () => {
     assert.match(error.stderr, /--from/)
     return true
   })
+})
+
+test('music lists the CC0 tracks a plan can pick, with their mood, without downloading anything', async () => {
+  const { stdout } = await exec(process.execPath, [cli, 'music'], { env: { PATH: process.env.PATH, HOME: tmpdir() } })
+  assert.match(stdout, /be-chillin\s+느긋한 그루브/)
+  assert.match(stdout, /CC0/)
+  assert.match(stdout, /"music": \{ "track"/)
 })

@@ -49,7 +49,7 @@ test('the token file is the last fallback for the TTS token', () => withDirs(asy
 
 test('init --ltx-url --tts-url saves the server addresses once per PC, keeps what is there and never writes a token', () => withDirs(async ({ home, project, userEnv }) => {
   const env = { ...process.env, HOME: home }
-  await exec(process.execPath, [cli, 'init', '--ltx-url', 'http://172.0.0.1:8010', '--tts-url', 'http://172.0.0.1:8765'], { cwd: project, env })
+  await exec(process.execPath, [cli, 'init', '--offline', '--ltx-url', 'http://172.0.0.1:8010', '--tts-url', 'http://172.0.0.1:8765'], { cwd: project, env })
   const saved = await readFile(userEnv, 'utf8')
   assert.match(saved, /^LTX_URL=http:\/\/172\.0\.0\.1:8010$/m)
   assert.match(saved, /^QWEN_TTS_URL=http:\/\/172\.0\.0\.1:8765$/m)
@@ -57,7 +57,7 @@ test('init --ltx-url --tts-url saves the server addresses once per PC, keeps wha
   assert.equal((await stat(userEnv)).mode & 0o777, 0o600)
 
   await writeFile(userEnv, 'LTX_URL=http://mine:8010\n')
-  const { stdout } = await exec(process.execPath, [cli, 'init', '--ltx-url', 'http://other:8010', '--tts-url', 'http://other:8765'], { cwd: project, env })
+  const { stdout } = await exec(process.execPath, [cli, 'init', '--offline', '--ltx-url', 'http://other:8010', '--tts-url', 'http://other:8765'], { cwd: project, env })
   assert.equal(await readFile(userEnv, 'utf8'), 'LTX_URL=http://mine:8010\nQWEN_TTS_URL=http://other:8765\n', 'only the missing key is added')
   assert.match(stdout, /QWEN_TTS_URL/)
 }))

@@ -213,6 +213,12 @@ test('moment ids and file paths cannot leave the project folder', () => {
   const fifth = goodPlan()
   fifth.music = { file: '../../Music/song.mp3' }
   assert.ok(codes(fifth).includes('music.file'))
+  const unknownTrack = goodPlan()
+  unknownTrack.music = { track: 'top-40-hit' }
+  assert.ok(codes(unknownTrack).includes('music.track'), 'only tracks from the CC0 catalog')
+  const catalogTrack = goodPlan()
+  catalogTrack.music = { track: 'be-chillin' }
+  assert.ok(!codes(catalogTrack).some((code) => code.startsWith('music.')))
   const sixth = goodPlan()
   sixth.moments[0].sfx = [{ kind: 'boom', at: 1 }]
   assert.ok(codes(sixth).includes('sfx.kind'), 'only the sounds the renderer can make')

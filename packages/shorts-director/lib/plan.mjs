@@ -4,6 +4,7 @@
 import { posix } from 'node:path'
 
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
+import { MUSIC } from './assets.mjs'
 import { SFX_KINDS } from './sfx.mjs'
 
 const MAX_SHOT_SECONDS = 4
@@ -47,7 +48,9 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const error = (code, message, where) => issues.push({ level: 'error', code, message, ...(where ? { where } : {}) })
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
 
-  if (plan.music && !inMaterials(plan.music.file)) {
+  if (plan.music?.track !== undefined) {
+    if (!Object.hasOwn(MUSIC, String(plan.music.track))) error('music.track', '배경음 track 은 `shorts-director music` 목록의 id 다(CC0 곡만).')
+  } else if (plan.music && !inMaterials(plan.music.file)) {
     error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
   }
 
