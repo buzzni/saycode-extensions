@@ -102,3 +102,18 @@ test('captions carry their look: boxed hook with an emphasised word and a label,
     assert.ok(centreFromTop > 0.72 && centreFromTop < 0.77, `subtitle centre about 74.5% down (${centreFromTop})`)
   }
 })
+
+test('an info chip over footage sits in the upper third so it does not cover the subject; on a text card it is centred', () => {
+  const size = { width: 1080, height: 1920 }
+  const events = captionEvents({ moments: [
+    { id: 'm1', kind: 'take', seconds: 3, caption: { text: '창가 = 바람길', role: 'info' } },
+    { id: 'm2', kind: 'card', seconds: 2, caption: { text: '오늘 밤 비 90%', role: 'info' } },
+  ] })
+  const centreFromTop = (event) => {
+    const box = captionBox(event, size)
+    return 1 - (box.y + box.h / 2) / size.height
+  }
+  const overFootage = centreFromTop(events[0])
+  assert.ok(overFootage > 0.25 && overFootage < 0.35, `chip over footage at about 30% (${overFootage})`)
+  assert.ok(Math.abs(centreFromTop(events[1]) - 0.5) < 0.01, 'chip on a card is centred')
+})
