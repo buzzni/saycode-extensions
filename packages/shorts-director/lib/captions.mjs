@@ -10,6 +10,7 @@ const ROLES = {
   info: { size: 0.034, anchor: 'upper', maxChars: 10, maxLines: 2, style: 'chip' },
   narration: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
   dialogue: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
+  aside: { size: 0.03, anchor: 'aside', maxChars: 12, maxLines: 2, style: 'aside' },
   storyboard: { size: 0.026, anchor: 'center', maxChars: 22, maxLines: 5, style: 'plain' },
 }
 const TOP_MARGIN = 0.12
@@ -17,6 +18,10 @@ const TOP_MARGIN = 0.12
 const SUBTITLE_BOTTOM = 0.235
 // 영상 위의 칩은 중심이 위에서 약 30% — 화면 가운데의 인물·제품을 가리지 않는다. 글자 카드 위에서는 가운데.
 const UPPER_CENTRE = 0.3
+// 속마음·상태·해설은 위쪽 문구 아래, 화면 40% 쯤에 작게 — 사건 바로 옆의 짧은 한마디다.
+const ASIDE_CENTRE = 0.4
+// 속마음 한마디의 기본 노출 시간.
+const ASIDE_SECONDS = 1.5
 // 훅 제목은 처음 3초만 둔다. 그 뒤에도 남아 있으면 말·자막과 겹쳐 읽을 게 늘어난다.
 const HOOK_SECONDS = 3
 // 자막 한 조각의 폭(한글 1, 공백·문장부호 0.3, 영문·숫자 0.55 로 센다). 16 이면 54px 글자로 화면 폭의 약 80%.
@@ -95,8 +100,8 @@ export function captionBox(event, { width, height }) {
     ? Math.round(height * (1 - TOP_MARGIN)) - h
     : anchor === 'subtitle'
       ? Math.round(height * SUBTITLE_BOTTOM)
-      : anchor === 'upper'
-        ? Math.round(height * (1 - UPPER_CENTRE) - h / 2)
+      : anchor === 'upper' || anchor === 'aside'
+        ? Math.round(height * (1 - (anchor === 'aside' ? ASIDE_CENTRE : UPPER_CENTRE)) - h / 2)
         : Math.round((height - h) / 2)
   const x = Math.round(width * SIDE_MARGIN)
   return {
@@ -107,6 +112,7 @@ export function captionBox(event, { width, height }) {
     w: width - 2 * x,
     h,
     style: role.style,
+    anchor,
     ...(event.emphasis ? { emphasis: event.emphasis } : {}),
     ...(event.label ? { label: event.label } : {}),
   }
@@ -129,6 +135,10 @@ export function captionEvents(plan, narration = []) {
         ...(label ? { label } : {}),
         ...(moment.kind === 'card' ? { card: true } : {}),
       })
+    }
+    for (const aside of moment.asides ?? []) {
+      const asideStart = round(start + Number(aside.at ?? 0))
+      events.push({ text: aside.text, role: 'aside', start: asideStart, end: round(asideStart + Number(aside.seconds ?? ASIDE_SECONDS)) })
     }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))

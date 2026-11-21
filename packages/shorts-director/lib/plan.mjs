@@ -5,6 +5,7 @@ import { posix } from 'node:path'
 
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
 import { MUSIC } from './assets.mjs'
+import { LOOKS } from './looks.mjs'
 import { SFX_KINDS } from './sfx.mjs'
 
 const MAX_SHOT_SECONDS = 4
@@ -48,6 +49,9 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const error = (code, message, where) => issues.push({ level: 'error', code, message, ...(where ? { where } : {}) })
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
 
+  if (plan.look !== undefined && !Object.hasOwn(LOOKS, String(plan.look))) {
+    error('look', `글자 디자인 묶음(look)은 ${Object.keys(LOOKS).join(', ')} 중 하나다 — shorts-director looks 로 본다.`)
+  }
   if (plan.music?.track !== undefined) {
     if (!Object.hasOwn(MUSIC, String(plan.music.track))) error('music.track', '배경음 track 은 `shorts-director music` 목록의 id 다(CC0 곡만).')
   } else if (plan.music && !inMaterials(plan.music.file)) {

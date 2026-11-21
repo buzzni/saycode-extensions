@@ -111,6 +111,14 @@ test('numbers spoken or shown need a source in plan.facts', () => {
   assert.ok(codes(spoken).includes('claim.unsourced'))
 })
 
+test('the look is one of the genre looks', () => {
+  const plan = goodPlan()
+  plan.look = 'neon'
+  assert.ok(codes(plan).includes('look'))
+  plan.look = 'recipe'
+  assert.ok(!codes(plan).includes('look'))
+})
+
 test('an emphasised word must be in its caption', () => {
   const plan = goodPlan()
   plan.moments[0].caption.emphasis = '없는말'

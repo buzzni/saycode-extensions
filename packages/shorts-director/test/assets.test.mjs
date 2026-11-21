@@ -60,7 +60,7 @@ test('only openly licensed assets are listed: OFL fonts and CC0 music, each pinn
   for (const font of FONTS) {
     assert.equal(font.license, 'OFL-1.1')
     assert.match(font.sha256, /^[0-9a-f]{64}$/)
-    assert.match(font.url, /^https:\/\/cdn\.jsdelivr\.net\/gh\/orioncactus\/pretendard@v\d/)
+    assert.match(font.url, /^https:\/\/(cdn\.jsdelivr\.net\/gh\/orioncactus\/pretendard@v\d|raw\.githubusercontent\.com\/google\/fonts\/[0-9a-f]{40}\/ofl\/)/, 'pinned to a release or a commit')
   }
   assert.ok(Object.keys(MUSIC).length >= 6)
   for (const [id, track] of Object.entries(MUSIC)) {

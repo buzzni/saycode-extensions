@@ -6,12 +6,30 @@ import { join } from 'node:path'
 
 const PRETENDARD = 'https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/public/static'
 
-// Pretendard (Kil Hyung-jin, SIL Open Font License 1.1) — https://github.com/orioncactus/pretendard
+// Pretendard (Kil Hyung-jin, SIL Open Font License 1.1) — https://github.com/orioncactus/pretendard. 기본 묶음(clean)의 글꼴.
 export const FONTS = [
   { name: 'Pretendard-SemiBold', file: 'Pretendard-SemiBold.otf', sha256: 'c89bc43027dc7cde5726e96223376f8eec09302b2fc1f8147fd5b57cfc376118' },
   { name: 'Pretendard-Bold', file: 'Pretendard-Bold.otf', sha256: '2e91915fab54df71cc9598ebf608b2bdb54c6fe3c066ac61dff0bc44fca71cc7' },
   { name: 'Pretendard-ExtraBold', file: 'Pretendard-ExtraBold.otf', sha256: 'c35fe941b7568d52a96010561540e47f9d3948dfde66ba25bc1908233e0a40cd' },
-].map((font) => ({ ...font, url: `${PRETENDARD}/${font.file}`, license: 'OFL-1.1' }))
+].map((font) => ({ ...font, url: `${PRETENDARD}/${font.file}`, license: 'OFL-1.1' })).concat(googleFonts())
+
+// Google Fonts 저장소의 ofl/ 폴더(모두 SIL OFL 1.1, 폴더마다 OFL.txt). 한 커밋에 고정해 받는다. name 은 AppKit 이 찾는 PostScript 이름.
+function googleFonts() {
+  const commit = '06bfe0d62a98375cb09c942fa18e68bd32cff057'
+  return [
+    { name: 'BlackHanSans-Regular', path: 'blackhansans/BlackHanSans-Regular.ttf', sha256: '31960809284026681774a8e52dc19ebcad26cf69b0ad9d560f288296fbb52739' },
+    { name: 'DoHyeon-Regular', path: 'dohyeon/DoHyeon-Regular.ttf', sha256: '35644be7f28e0a68a447b1f7af351dcde5674b870f24f7b5f43e26d00b4ab653' },
+    { name: 'Jua-Regular', path: 'jua/Jua-Regular.ttf', sha256: '769677aef240bfc3b9965f2b50748075bff885e6c6992fc591a3fb268279f898' },
+    { name: 'NanumPen-Regular', path: 'nanumpenscript/NanumPenScript-Regular.ttf', sha256: '6f0d1ab29c7894010dc88831fb7a0a51edb79136e450344183de5b1a8b52bd43' },
+    { name: 'Gaegu-Bold', path: 'gaegu/Gaegu-Bold.ttf', sha256: 'cc38a4af9506a45254d1ce07c589ec473d9e5f0be319e5a77b17c214903f8c1c' },
+    { name: 'GowunBatang-Bold', path: 'gowunbatang/GowunBatang-Bold.ttf', sha256: 'dbfcaa646e5831e7478524924f02906f550285a5050699b4e38c9950b3ec4b94' },
+  ].map(({ path, ...font }) => ({
+    ...font,
+    file: path.split('/').pop(),
+    url: `https://raw.githubusercontent.com/google/fonts/${commit}/ofl/${path}`,
+    license: 'OFL-1.1',
+  }))
+}
 
 const FREEPD = 'https://archive.org/download/abook-music-freepd-cc0'
 

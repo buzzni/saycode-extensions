@@ -61,3 +61,9 @@ test('music lists the CC0 tracks a plan can pick, with their mood, without downl
   assert.match(stdout, /CC0/)
   assert.match(stdout, /"music": \{ "track"/)
 })
+
+test('looks lists the genre looks a plan can pick', async () => {
+  const { stdout } = await exec(process.execPath, [cli, 'looks'])
+  for (const id of ['clean', 'vlog', 'news', 'recipe', 'review', 'ad', 'drama', 'calm']) assert.match(stdout, new RegExp(`^${id}\\s`, 'm'))
+  assert.match(stdout, /"look": "/)
+})

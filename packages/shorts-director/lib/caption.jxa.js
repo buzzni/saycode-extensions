@@ -1,17 +1,12 @@
 // 화면 글자를 투명 PNG 로 그린다(macOS JXA + AppKit). ffmpeg 빌드에 libass·drawtext 가 없어도 자막을 얹기 위해서다.
 // 사용: osascript -l JavaScript caption.jxa.js <spec.json>
-// spec: { width, height, font, fontFiles, items: [{ text, fontSize, x, y, w, h, style, emphasis?, label?, frames, out }] }
-// — y 는 아래에서 잰 상자 밑변. frames 는 등장 동작의 장면별 { scale, alpha } 이고 <out>-00.png, -01.png … 로 쓴다.
-// style: box(흰 둥근 상자·남색 글자·강조어 파랑, label 이 있으면 위에 파란 알약), chip(파란 칩·흰 글자·강조어 노랑),
-//        subtitle(흰 글자·얇은 남색 외곽선), plain(흰 글자·검은 외곽선·그림자 — 콘티 카드).
+// spec: { width, height, font, fontFiles, items: [{ text, fontSize, x, y, w, h, anchor, style, design?, emphasis?, label?,
+//         labelDesign?, frames, out }] } — y 는 아래에서 잰 상자 밑변. frames 는 등장 동작의 장면별 { scale, alpha } 이고
+// <out>-00.png, -01.png … 로 쓴다. design 은 looks.mjs 의 한 역할(서체·글자색·판·외곽선·그림자·강조). style 이 plain 이면
+// 콘티 카드용 흰 글자.
 ObjC.import('AppKit')
 ObjC.import('CoreText')
 ObjC.import('Foundation')
-
-const NAVY = [14, 22, 36]
-const BLUE = [30, 134, 197]
-const YELLOW = [255, 214, 0]
-const WHITE = [255, 255, 255]
 
 function run(argv) {
   const raw = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null).js
@@ -22,8 +17,10 @@ function run(argv) {
   return `rendered ${spec.items.length}`
 }
 
-function color([r, g, b], alpha = 1) {
-  return $.NSColor.colorWithSRGBRedGreenBlueAlpha(r / 255, g / 255, b / 255, alpha)
+// '#RRGGBB' 또는 '#RRGGBBAA'
+function color(hex) {
+  const value = (at) => parseInt(hex.slice(at, at + 2), 16) / 255
+  return $.NSColor.colorWithSRGBRedGreenBlueAlpha(value(1), value(3), value(5), hex.length === 9 ? value(7) : 1)
 }
 
 function font(name, size, fallback) {
@@ -33,22 +30,33 @@ function font(name, size, fallback) {
   return system.isNil() ? $.NSFont.boldSystemFontOfSize(size) : system
 }
 
-function attributed(text, attributes, emphasis, emphasisColor) {
+function attributed(text, attributes, emphasis) {
   // 이 브리지에서는 initWithString 이 보이지 않아 빈 문자열을 만든 뒤 채운다.
   const value = $.NSMutableAttributedString.alloc.init
   value.mutableString.setString($(text))
   const all = $.NSMakeRange(0, text.length)
   for (const [key, attribute] of attributes) value.addAttributeValueRange(key, attribute, all)
-  const at = emphasis ? text.indexOf(emphasis) : -1
-  if (at >= 0) value.addAttributeValueRange($.NSForegroundColorAttributeName, emphasisColor, $.NSMakeRange(at, emphasis.length))
+  const at = emphasis?.text ? text.indexOf(emphasis.text) : -1
+  if (at >= 0) {
+    const range = $.NSMakeRange(at, emphasis.text.length)
+    for (const [key, attribute] of emphasis.attributes) value.addAttributeValueRange(key, attribute, range)
+  }
   return value
 }
 
-function centered(lineHeight = 1.1) {
+function centered(lineHeight) {
   const paragraph = $.NSMutableParagraphStyle.alloc.init
   paragraph.alignment = 1 // macOS: 1 = center
   paragraph.lineHeightMultiple = lineHeight
   return paragraph
+}
+
+function softShadow(size) {
+  const shadow = $.NSShadow.alloc.init
+  shadow.shadowColor = $.NSColor.colorWithCalibratedWhiteAlpha(0, 0.55)
+  shadow.shadowBlurRadius = Math.max(6, size / 5)
+  shadow.shadowOffset = $.NSMakeSize(0, -Math.max(2, size / 18))
+  return shadow
 }
 
 function newCanvas(spec) {
@@ -71,96 +79,99 @@ function save(rep, path) {
 // 글자를 한 번 그리고, 등장 동작은 그 그림을 중심 기준으로 키우거나 흐리게 다시 찍어 만든다.
 function draw(spec, item) {
   const base = newCanvas(spec)
-  const center = (STYLES[item.style] ?? STYLES.plain)(spec, item)
+  const center = item.style === 'plain' ? plain(spec, item) : styled(spec, item)
   $.NSGraphicsContext.restoreGraphicsState
   const image = $.NSImage.alloc.initWithSize($.NSMakeSize(spec.width, spec.height))
   image.addRepresentation(base)
   item.frames.forEach((frame, index) => {
     const rep = newCanvas(spec)
-    const w = spec.width * frame.scale
-    const h = spec.height * frame.scale
-    const rect = $.NSMakeRect(center.x - center.x * frame.scale, center.y - center.y * frame.scale, w, h)
+    const rect = $.NSMakeRect(center.x - center.x * frame.scale, center.y - center.y * frame.scale, spec.width * frame.scale, spec.height * frame.scale)
     image.drawInRectFromRectOperationFraction(rect, $.NSMakeRect(0, 0, 0, 0), 2, frame.alpha) // 2 = source over
     save(rep, `${item.out}-${String(index).padStart(2, '0')}.png`)
   })
 }
 
-function roundedBox(x, y, w, h, radius, fill, shadow) {
+function box(x, y, w, h, radius, fill, shadow) {
   $.NSGraphicsContext.saveGraphicsState
-  if (shadow) {
-    const softShadow = $.NSShadow.alloc.init
-    softShadow.shadowColor = color([0, 0, 0], 0.28)
-    softShadow.shadowBlurRadius = 24
-    softShadow.shadowOffset = $.NSMakeSize(0, -6)
-    softShadow.set
-  }
+  if (shadow) shadow.set
   fill.setFill
   $.NSBezierPath.bezierPathWithRoundedRectXRadiusYRadius($.NSMakeRect(x, y, w, h), radius, radius).fill
   $.NSGraphicsContext.restoreGraphicsState
 }
 
-function boxed(spec, item, { fill, ink, emphasisInk, pillShape }) {
-  const size = item.fontSize
-  const text = attributed(item.text, [
-    [$.NSFontAttributeName, font('Pretendard-ExtraBold', size, spec.font)],
-    [$.NSForegroundColorAttributeName, color(ink)],
-    [$.NSParagraphStyleAttributeName, centered()],
-  ], item.emphasis, color(emphasisInk))
-  const measured = text.size
-  const padX = Math.round(size * 0.6)
-  const padY = Math.round(size * 0.38)
-  const boxW = Math.ceil(measured.width) + padX * 2
-  const boxH = Math.ceil(measured.height) + padY * 2
-  const boxX = Math.round((spec.width - boxW) / 2)
-  const top = item.y + item.h
-  const boxY = item.style === 'chip' ? Math.round(item.y + item.h / 2 - boxH / 2) : top - boxH
-  const radius = pillShape && boxH < size * 2.2 ? boxH / 2 : size * 0.42
-  roundedBox(boxX, boxY, boxW, boxH, radius, color(fill), item.style === 'box')
-  text.drawInRect($.NSMakeRect(boxX + padX, boxY + padY, boxW - padX * 2, boxH - padY * 2))
-  if (item.label) {
-    const pillSize = Math.round(size * 0.55)
-    const label = attributed(item.label, [
-      [$.NSFontAttributeName, font('Pretendard-Bold', pillSize, spec.font)],
-      [$.NSForegroundColorAttributeName, color(WHITE)],
-    ])
-    const labelSize = label.size
-    const pillW = Math.ceil(labelSize.width) + pillSize * 1.4
-    const pillH = Math.ceil(labelSize.height) + pillSize * 0.5
-    const pillX = Math.round((spec.width - pillW) / 2)
-    const pillY = boxY + boxH - pillH * 0.35
-    roundedBox(pillX, pillY, pillW, pillH, pillH / 2, color(BLUE), false)
-    label.drawAtPoint($.NSMakePoint(pillX + pillSize * 0.7, pillY + pillSize * 0.25))
-    return { x: spec.width / 2, y: (boxY + pillY + pillH) / 2 }
-  }
-  return { x: spec.width / 2, y: boxY + boxH / 2 }
+function radius(shape, size, height) {
+  if (shape === 'pill' && height < size * 2.2) return height / 2
+  if (shape === 'square') return Math.max(2, size * 0.06)
+  return size * 0.42
 }
 
-const STYLES = {
-  box: (spec, item) => boxed(spec, item, { fill: WHITE, ink: NAVY, emphasisInk: BLUE }),
-  chip: (spec, item) => boxed(spec, item, { fill: BLUE, ink: WHITE, emphasisInk: YELLOW, pillShape: true }),
-  subtitle(spec, item) {
-    const base = [
-      [$.NSFontAttributeName, font('Pretendard-SemiBold', item.fontSize, spec.font)],
-      [$.NSParagraphStyleAttributeName, centered(1)],
-    ]
-    const rect = $.NSMakeRect(item.x, item.y, item.w, item.h)
-    // 외곽선 패스(양수 = 선만) 뒤에 채움 패스. 선 두께는 글자 크기의 14%, 진한 남색.
-    attributed(item.text, [...base, [$.NSStrokeColorAttributeName, color([16, 22, 34])], [$.NSStrokeWidthAttributeName, 14]]).drawInRect(rect)
-    attributed(item.text, [...base, [$.NSForegroundColorAttributeName, color(WHITE)]]).drawInRect(rect)
-    return { x: item.x + item.w / 2, y: item.y + item.h / 2 }
-  },
-  plain(spec, item) {
-    const shadow = $.NSShadow.alloc.init
-    shadow.shadowColor = $.NSColor.colorWithCalibratedWhiteAlpha(0, 0.75)
-    shadow.shadowBlurRadius = Math.max(4, item.fontSize / 14)
-    shadow.shadowOffset = $.NSMakeSize(0, -Math.max(2, item.fontSize / 30))
-    const base = [
-      [$.NSFontAttributeName, font(spec.font, item.fontSize, spec.font)],
-      [$.NSParagraphStyleAttributeName, centered(1)],
-    ]
-    const rect = $.NSMakeRect(item.x, item.y, item.w, item.h)
-    attributed(item.text, [...base, [$.NSStrokeColorAttributeName, $.NSColor.blackColor], [$.NSStrokeWidthAttributeName, 16], [$.NSShadowAttributeName, shadow]]).drawInRect(rect)
-    attributed(item.text, [...base, [$.NSForegroundColorAttributeName, $.NSColor.whiteColor]]).drawInRect(rect)
-    return { x: item.x + item.w / 2, y: item.y + item.h / 2 }
-  },
+// 묶음(design)대로: 판이 있으면 판을 깔고, 없으면 외곽선·그림자로 그림 위에 세운다. 강조어는 글자색·형광펜으로.
+function styled(spec, item) {
+  const design = item.design
+  const size = item.fontSize
+  const emphasis = item.emphasis ? {
+    text: item.emphasis,
+    attributes: [
+      ...(design.emphasis ? [[$.NSForegroundColorAttributeName, color(design.emphasis)]] : []),
+      ...(design.emphasisFill ? [[$.NSBackgroundColorAttributeName, color(design.emphasisFill)]] : []),
+    ],
+  } : undefined
+  const base = [
+    [$.NSFontAttributeName, font(design.font, size, spec.font)],
+    [$.NSParagraphStyleAttributeName, centered(item.text.includes('\n') ? 1.1 : 1)],
+  ]
+  const fillText = attributed(item.text, [...base, [$.NSForegroundColorAttributeName, color(design.ink)]], emphasis)
+  const outlineText = design.outline
+    ? attributed(item.text, [...base, [$.NSStrokeColorAttributeName, color(design.outline)], [$.NSStrokeWidthAttributeName, design.outlineWidth ?? 14],
+      ...(design.shadow ? [[$.NSShadowAttributeName, softShadow(size)]] : [])])
+    : undefined
+  const measured = fillText.size
+  const subtitleLike = item.anchor === 'subtitle' || item.anchor === 'aside'
+  const padX = Math.round(size * (subtitleLike ? 0.45 : 0.6))
+  const padY = Math.round(size * (subtitleLike ? 0.2 : 0.38))
+  const w = Math.ceil(measured.width) + (design.fill ? padX * 2 : 0)
+  const h = Math.ceil(measured.height) + (design.fill ? padY * 2 : 0)
+  const x = Math.round((spec.width - w) / 2)
+  const y = item.anchor === 'top' ? item.y + item.h - h : Math.round(item.y + item.h / 2 - h / 2)
+  if (design.fill) box(x, y, w, h, radius(design.shape, size, h), color(design.fill), design.shadow ? softShadow(size) : undefined)
+  const inner = design.fill ? $.NSMakeRect(x + padX, y + padY, w - padX * 2, h - padY * 2) : $.NSMakeRect(x - size, y, w + size * 2, h)
+  if (outlineText) outlineText.drawInRect(inner)
+  if (!design.fill && !outlineText && design.shadow) {
+    attributed(item.text, [...base, [$.NSForegroundColorAttributeName, color(design.ink)], [$.NSShadowAttributeName, softShadow(size)]], emphasis).drawInRect(inner)
+  }
+  fillText.drawInRect(inner)
+  if (item.label && item.labelDesign) {
+    // 판 위에서는 라벨이 판 윗변에 걸치고, 판이 없으면 글자에 닿지 않게 위로 띄운다.
+    const top = labelPill(spec, item.label, item.labelDesign, Math.round(size * 0.55), y + h, Boolean(design.fill))
+    return { x: spec.width / 2, y: (y + top) / 2 }
+  }
+  return { x: spec.width / 2, y: y + h / 2 }
+}
+
+// 제목 위에 걸치는 알약 라벨. 돌려주는 값은 라벨의 윗변.
+function labelPill(spec, text, design, size, bottom, overlap) {
+  const label = attributed(text, [
+    [$.NSFontAttributeName, font(design.font, size, spec.font)],
+    [$.NSForegroundColorAttributeName, color(design.ink)],
+  ])
+  const measured = label.size
+  const w = Math.ceil(measured.width) + size * 1.4
+  const h = Math.ceil(measured.height) + size * 0.5
+  const x = Math.round((spec.width - w) / 2)
+  const y = overlap ? bottom - h * 0.35 : bottom + size * 0.3
+  box(x, y, w, h, radius(design.shape, size, h), color(design.fill))
+  label.drawAtPoint($.NSMakePoint(x + size * 0.7, y + size * 0.25))
+  return y + h
+}
+
+// 콘티 카드(애니매틱) — 흰 글자·검은 외곽선·그림자.
+function plain(spec, item) {
+  const base = [
+    [$.NSFontAttributeName, font(spec.font, item.fontSize, spec.font)],
+    [$.NSParagraphStyleAttributeName, centered(1)],
+  ]
+  const rect = $.NSMakeRect(item.x, item.y, item.w, item.h)
+  attributed(item.text, [...base, [$.NSStrokeColorAttributeName, $.NSColor.blackColor], [$.NSStrokeWidthAttributeName, 16], [$.NSShadowAttributeName, softShadow(item.fontSize)]]).drawInRect(rect)
+  attributed(item.text, [...base, [$.NSForegroundColorAttributeName, $.NSColor.whiteColor]]).drawInRect(rect)
+  return { x: item.x + item.w / 2, y: item.y + item.h / 2 }
 }

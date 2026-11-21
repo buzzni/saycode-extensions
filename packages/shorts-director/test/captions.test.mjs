@@ -117,3 +117,18 @@ test('an info chip over footage sits in the upper third so it does not cover the
   assert.ok(overFootage > 0.25 && overFootage < 0.35, `chip over footage at about 30% (${overFootage})`)
   assert.ok(Math.abs(centreFromTop(events[1]) - 0.5) < 0.01, 'chip on a card is centred')
 })
+
+test('asides (inner voice, status, commentary) appear at their moment for their seconds, a little below the upper titles', () => {
+  const size = { width: 1080, height: 1920 }
+  const events = captionEvents({ moments: [
+    { id: 'm1', seconds: 3 },
+    { id: 'm2', seconds: 4, asides: [{ text: '(당황)', at: 0.5, seconds: 1.2 }, { text: '아 망했다..', at: 2 }] },
+  ] })
+  assert.deepEqual(events.map((event) => [event.role, event.text, event.start, event.end]), [
+    ['aside', '(당황)', 3.5, 4.7],
+    ['aside', '아 망했다..', 5, 6.5],
+  ])
+  const box = captionBox(events[0], size)
+  const centreFromTop = 1 - (box.y + box.h / 2) / size.height
+  assert.ok(centreFromTop > 0.35 && centreFromTop < 0.45, `aside centre about 40% down (${centreFromTop})`)
+})

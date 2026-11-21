@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { FONTS, MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
+import { designFor, lookFonts } from './looks.mjs'
 import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
@@ -33,7 +34,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', base])
 
   const events = [...(mode === 'draft' ? storyboardEvents(plan) : []), ...captionEvents(plan, narration)]
-  const captions = await renderCaptions(events, join(work, 'captions'), config)
+  const captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
   const total = segmentsSeconds(plan)
 
   const inputs = []
@@ -234,24 +235,46 @@ const ENTRANCES = {
   fade: [[1, 0.35], [1, 0.7], [1, 1]],
   none: [[1, 1]],
 }
-const ENTRANCE_BY_STYLE = { box: 'pop', chip: 'pop', subtitle: 'fade', plain: 'none' }
-
-async function renderCaptions(events, directory, config) {
+async function renderCaptions(events, directory, config, look) {
   if (events.length === 0) return []
   const items = events.map((event, index) => {
     const box = captionBox(event, config)
-    const frames = ENTRANCES[ENTRANCE_BY_STYLE[box.style] ?? 'none'].map(([scale, alpha]) => ({ scale, alpha }))
-    return { ...box, frames, out: join(directory, `cap-${String(index).padStart(2, '0')}`) }
+    const design = box.style === 'plain' ? undefined : designFor(look, event.role)
+    const frames = ENTRANCES[design?.entrance ?? 'none'].map(([scale, alpha]) => ({ scale, alpha }))
+    return {
+      ...box,
+      fontSize: Math.round(box.fontSize * (design?.size ?? 1)),
+      ...(design ? { design } : {}),
+      ...(box.label ? { labelDesign: designFor(look, 'label') } : {}),
+      frames,
+      out: join(directory, `cap-${String(index).padStart(2, '0')}`),
+    }
   })
-  const fontFiles = []
-  for (const font of FONTS) {
-    const file = join(userConfigDir(), 'fonts', font.file)
-    if (await access(file).then(() => true, () => false)) fontFiles.push(file)
-  }
   const spec = join(directory, 'spec.json')
-  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, fontFiles, items }))
+  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, fontFiles: await fontFiles(look, config), items }))
   await run('osascript', ['-l', 'JavaScript', JXA, spec])
   return events.map((event, index) => ({ pattern: `${items[index].out}-%02d.png`, start: event.start, end: event.end }))
+}
+
+// 묶음의 글꼴(SIL OFL)을 이 PC 에 받아 둔다. 받지 못하면 시스템 글꼴로 그린다(가짜 모드는 받지 않고 있는 것만 쓴다).
+async function fontFiles(look, config) {
+  const directory = join(userConfigDir(), 'fonts')
+  const files = []
+  for (const name of lookFonts(look)) {
+    const font = FONTS.find((candidate) => candidate.name === name)
+    const file = join(directory, font.file)
+    if (await access(file).then(() => true, () => false)) {
+      files.push(file)
+      continue
+    }
+    if (config.fake) continue
+    try {
+      files.push(await ensureAsset(font, directory))
+    } catch (error) {
+      console.log(`! 글꼴 ${name} 을(를) 받지 못했다(${error.message}) — 시스템 글꼴로 그린다`)
+    }
+  }
+  return files
 }
 
 function round(value) {
