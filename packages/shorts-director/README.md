@@ -1,41 +1,47 @@
-# Shorts Director (project template)
+# @buzzni/shorts-director
 
-Creates a project in which the agent works as a shorts director: from one request it plans a vertical (9:16) short,
-checks the plan, generates takes and voice, and assembles a review-ready cut. The user-facing guide is
-[`templates/shorts-director/README.md`](templates/shorts-director/README.md); the agent's procedure is the skill in
-`templates/shorts-director/.claude/skills/shorts-director/`.
+Toolkit a coding agent uses to make a vertical (9:16) short from one request: it checks the plan, records narration,
+renders an animatic, generates video takes, assembles the cut and builds a contact sheet for review. The project
+folder is the state store, so a new conversation can pick up where the last one stopped.
 
-## What ships
-
-- `tools/sd.mjs` — server checks (`doctor`), plan validation, take job state machine (no double submission),
-  clients for an LTX-2.5 video server (text to video with sound, up to 121 frames) and a Qwen3-TTS server (bearer
-  token), speech silence trimming, ffmpeg assembly, caption rendering through macOS JXA (works without
-  libass/drawtext), contact sheet, status board. Server addresses and the token live in the project's `.env`.
-- `tools/test/` — unit tests and a full pipeline test with fake backends (no Google calls; rendering tests need macOS).
-- `tools/import-viskit-knowledge.py` — copies the internal viskit director prompts from a local `shorts_maker`
-  checkout into the created project's git-ignored `knowledge/` folder.
-
-## Private knowledge stays out of this repository
-
-This repository is public. The viskit planning prompts belong to a private repository, so the template ships only a
-summary written for this package (`references/craft.md`) and the importer. Do not commit imported `knowledge/` files
-or text copied from them here.
-
-## Opening the template in Desktop today
-
-Desktop 0.1.94 has no Templates tab in the new-project dialog (removed on 2026-09-30), so an installed
-`projectTemplates` contribution is not reachable from the UI. Until that entry point returns, zip
-`templates/shorts-director/` and use **New project → ZIP·파일** — ZIP import keeps `.claude/` and other dotfiles.
-
-## Not done yet
-
-- Release wiring (`release.yml`, catalog entry).
-- Rendering on Windows/Linux (captions use macOS JXA).
-
-## Checks
+In Saycode the agent's procedure comes from the organization skill `shorts-director`; this package is only the
+toolkit, so nothing has to be copied into a project.
 
 ```bash
-npm run build -w @buzzni/saycode-extension-sdk
-node --test tests/shorts-director.test.mjs packages/shorts-director/templates/shorts-director/tools/test/*.test.mjs
-npm run package:shorts-director
+npx -y @buzzni/shorts-director init       # .gitignore rules, .env.example, materials/
+npx -y @buzzni/shorts-director doctor     # ffmpeg, caption renderer, video and voice servers
+npx -y @buzzni/shorts-director check      # plan.json rules
+npx -y @buzzni/shorts-director voice      # narration, measured lengths
+npx -y @buzzni/shorts-director animatic   # storyboard draft out/draft.mp4
+npx -y @buzzni/shorts-director takes submit && npx -y @buzzni/shorts-director takes wait
+npx -y @buzzni/shorts-director render     # out/final.mp4
+npx -y @buzzni/shorts-director sheet      # out/contact.png
+npx -y @buzzni/shorts-director status     # status.md
 ```
+
+## Requirements
+
+- macOS (captions are drawn with JXA/AppKit, so no libass or drawtext build of ffmpeg is needed), Node.js 20+, ffmpeg.
+- An LTX-2.5 video server and a Qwen3-TTS server. Put their addresses in the project's `.env`:
+
+  ```
+  LTX_URL=http://<video server>:8010
+  QWEN_TTS_URL=http://<voice server>:8765
+  ```
+
+  The TTS bearer token goes in `QWEN_TTS_TOKEN` or in `~/.config/shorts-director/tts-token`.
+- `"fake": true` in `config/settings.json` rehearses the whole flow without either server.
+
+## What it enforces
+
+- Plan rules: 3–4 hook candidates, a cut every ~3 seconds, no title-card opening, takes of 1–5 seconds, no
+  subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Takes are recorded before they are submitted and reused when the same request was already downloaded, so a lost
+  connection never generates the same take twice.
+- `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.
+- Narration is trimmed of leading, trailing and long inner silences and measured before it is laid out.
+
+## Private knowledge
+
+`import-knowledge --from <shorts_maker>` copies internal viskit planning prompts from a local checkout into the
+project's git-ignored `knowledge/` folder. Nothing private ships in this package.

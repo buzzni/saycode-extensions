@@ -10,6 +10,7 @@
     "package:fixture": "node packages/sdk/dist/cli.js pack examples/hello-world",
     "verify:project-templates": "node scripts/verify-project-templates.mjs",
     "publish:sdk": "node scripts/publish-sdk.mjs",
+    "publish:shorts-director": "node scripts/publish-shorts-director.mjs",
     "package:project-templates": "npm run --workspace @buzzni/saycode-extension-project-templates pack",
     "package:plugin-manager": "npm run --workspace @buzzni/saycode-extension-plugin-manager pack",
     "package:artifact-publisher": "npm run --workspace @buzzni/saycode-extension-artifact-publisher pack",
@@ -21,7 +22,6 @@
     "package:document-templates": "npm run --workspace @buzzni/saycode-extension-document-templates pack",
     "package:computer-control": "npm run --workspace @buzzni/saycode-extension-computer-control pack",
     "package:moai": "npm run --workspace @buzzni/saycode-extension-moai pack",
-    "package:shorts-director": "npm run --workspace @buzzni/saycode-extension-shorts-director pack",
     "catalog:sign": "node scripts/sign-extension-catalog.mjs"
   },
   "devDependencies": {

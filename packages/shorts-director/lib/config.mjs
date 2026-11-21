@@ -1,4 +1,4 @@
-// 프로젝트 설정(config/settings.json)과 .env 읽기. 서버 주소·토큰은 .env 에만 둔다(템플릿에 싣지 않는다).
+// 프로젝트 설정(config/settings.json)과 .env 읽기. 서버 주소·토큰은 .env 에만 둔다(패키지에 싣지 않는다).
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'

@@ -1,52 +1,33 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { execFile } from 'node:child_process'
+import { access, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
-import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
-
+const exec = promisify(execFile)
 const root = new URL('../packages/shorts-director', import.meta.url).pathname
-const template = join(root, 'templates/shorts-director')
+const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 
-async function filesBelow(directory) {
-  const files = []
-  for (const entry of await readdir(directory, { withFileTypes: true, recursive: true })) {
-    if (entry.isFile()) files.push(relative(directory, join(entry.parentPath, entry.name)).replaceAll('\\', '/'))
-  }
-  return files.sort()
-}
-
-test('shorts-director declares one namespaced project template that ships the skill and tools', async () => {
-  const manifest = parseExtensionManifest(JSON.parse(await readFile(join(root, 'extension.json'), 'utf8')), { supportedApiVersion: 2 })
-  assert.equal(manifest.id, 'buzzni.shorts-director')
-  assert.deepEqual(manifest.permissions, [])
-  const [studio] = manifest.contributes.projectTemplates
-  assert.equal(studio.id, 'buzzni.shorts-director.studio')
-  assert.equal(studio.assetsRoot, 'templates/shorts-director')
-  assert.match(studio.localizations.ko.firstPrompt, /SKILL\.md/)
-
-  const files = await filesBelow(template)
-  for (const required of ['.claude/skills/shorts-director/SKILL.md', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'config/settings.json']) {
-    assert.ok(files.includes(required), `${required} is shipped`)
-  }
+test('shorts-director is a public npm CLI package with an explicit file whitelist', async () => {
+  assert.equal(manifest.name, '@buzzni/shorts-director')
+  assert.notEqual(manifest.private, true)
+  assert.equal(manifest.license, 'MIT')
+  assert.deepEqual(manifest.publishConfig, { access: 'public' })
+  assert.deepEqual(manifest.bin, { 'shorts-director': 'bin/shorts-director.mjs' })
+  assert.deepEqual(manifest.files, ['bin', 'lib', 'README.md', 'LICENSE'])
+  const entry = await readFile(join(root, manifest.bin['shorts-director']), 'utf8')
+  assert.ok(entry.startsWith('#!/usr/bin/env node\n'), 'the bin runs through npx')
+  for (const file of manifest.files) await access(join(root, file))
 })
 
-test('the public template never carries private knowledge, secrets or generated media', async () => {
-  const files = await filesBelow(template)
-  const leaked = files.filter((file) => /^(knowledge|takes|stills|audio|out|jobs|\.work)\//.test(file) || file === '.env' || /\.(mp4|wav|png)$/.test(file))
+test('the published tarball carries only the runtime: no tests, no private knowledge, no secrets', async () => {
+  const { stdout } = await exec('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: root })
+  const [packed] = JSON.parse(stdout)
+  const files = packed.files.map((file) => file.path).sort()
+  assert.ok(files.includes('bin/shorts-director.mjs'))
+  assert.ok(files.includes('lib/caption.jxa.js'), 'the caption renderer ships next to the code that loads it')
+  assert.ok(files.includes('lib/import-viskit-knowledge.py'))
+  const leaked = files.filter((file) => /^(test|knowledge)\//.test(file) || /(^|\/)\.env/.test(file) || /\.(mp4|wav|png)$/.test(file))
   assert.deepEqual(leaked, [])
-  const ignore = (await readFile(join(template, '.gitignore'), 'utf8')).split('\n')
-  for (const entry of ['.env', 'knowledge/', 'takes/', 'out/']) assert.ok(ignore.includes(entry), `${entry} is git-ignored in created projects`)
-})
-
-test('the template stays inside project-template asset limits', async () => {
-  const files = await filesBelow(template)
-  assert.ok(files.length < 500)
-  let total = 0
-  for (const file of files) {
-    const size = (await readFile(join(template, file))).length
-    assert.ok(size < 1024 * 1024, `${file} is under 1 MiB`)
-    total += size
-  }
-  assert.ok(total < 10 * 1024 * 1024)
 })

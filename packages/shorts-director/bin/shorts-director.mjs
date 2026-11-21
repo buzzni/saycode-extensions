@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// 숏폼 총감독 도구. 현재 작업 폴더(프로젝트 루트)를 상태 저장소로 쓴다.
+// 숏폼 총감독 도구(npx @buzzni/shorts-director). 현재 작업 폴더(프로젝트 루트)를 상태 저장소로 쓴다.
 // 영상은 LTX 로컬 서버, 음성은 Qwen3-TTS 서버(주소·토큰은 .env). config/settings.json 의 fake: true 면 서버 없이 리허설한다.
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -16,15 +17,27 @@ import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { buildTake } from '../lib/takes.mjs'
 
-const USAGE = 'usage: node tools/sd.mjs <doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes status|render|sheet [--draft]|cuts <file>|status>'
+const USAGE = 'usage: shorts-director <init|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes status|render|sheet [--draft]|cuts <file>|status|import-knowledge --from <shorts_maker>|--version>'
+const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
+const ENV_EXAMPLE = `# shorts-director 서버 설정. 이 파일을 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
+LTX_URL=http://<영상 서버>:8010
+QWEN_TTS_URL=http://<음성 서버>:8765
+# 토큰은 ~/.config/shorts-director/tts-token 에 두거나 여기에 적는다.
+# QWEN_TTS_TOKEN=
+`
 const root = process.cwd()
 const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { doctor, check, voice, animatic, takes, render, sheet, cuts, status }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, 'import-knowledge': importKnowledge }
 
 try {
+  if (command === '--version' || command === '-v') {
+    console.log(PACKAGE.version)
+    process.exit(0)
+  }
   if (!commands[command]) {
     console.log(USAGE)
     process.exit(command ? 1 : 0)
@@ -33,6 +46,38 @@ try {
 } catch (error) {
   console.error(`✗ ${error.message}`)
   process.exit(error.exitCode ?? 1)
+}
+
+// 아무 프로젝트 폴더나 쓸 수 있게 한 번 준비한다. 기존 파일은 덮어쓰지 않고, 무시 규칙은 빠진 줄만 더한다.
+async function init() {
+  let ignore = ''
+  try {
+    ignore = await readFile(join(root, '.gitignore'), 'utf8')
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  const present = new Set(ignore.split('\n').map((line) => line.trim()))
+  const missing = IGNORED.filter((entry) => !present.has(entry))
+  if (missing.length) {
+    const prefix = ignore && !ignore.endsWith('\n') ? '\n' : ''
+    await writeFile(join(root, '.gitignore'), `${ignore}${prefix}${ignore ? '\n' : ''}# shorts-director\n${missing.join('\n')}\n`)
+    console.log(`✓ .gitignore 에 ${missing.length}줄 추가`)
+  }
+  if (!await exists(join(root, '.env.example'))) {
+    await writeFile(join(root, '.env.example'), ENV_EXAMPLE)
+    console.log('✓ .env.example — .env 로 복사해 서버 주소를 채운다')
+  }
+  await mkdir(join(root, 'materials'), { recursive: true })
+  console.log('다음: .env 를 채우고 shorts-director doctor')
+}
+
+async function importKnowledge() {
+  const from = rest[rest.indexOf('--from') + 1]
+  if (!rest.includes('--from') || !from) throw new Error('usage: shorts-director import-knowledge --from <shorts_maker 경로>')
+  const script = new URL('../lib/import-viskit-knowledge.py', import.meta.url).pathname
+  const result = spawnSync('python3', ['-I', script, '--from', from, '--out', join(root, 'knowledge')], { stdio: 'inherit' })
+  if (result.error) throw new Error(`python3 를 실행하지 못했다: ${result.error.message}`)
+  if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
 async function doctor() {
@@ -256,7 +301,7 @@ async function sheet() {
 }
 
 async function cuts() {
-  if (!args[0]) throw new Error('usage: node tools/sd.mjs cuts <video file>')
+  if (!args[0]) throw new Error('usage: shorts-director cuts <video file>')
   console.log(JSON.stringify({ file: args[0], cuts: await detectCuts(join(root, args[0])) }))
 }
 

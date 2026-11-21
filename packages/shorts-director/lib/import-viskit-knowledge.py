@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """viskit(shorts_maker) 총감독 지식 원문을 이 프로젝트의 knowledge/ 로 가져온다.
 
-원문은 비공개 저장소의 자산이라 이 템플릿(공개 저장소)에 싣지 않는다. shorts_maker 에 접근할 수 있는 사람이
+원문은 비공개 저장소의 자산이라 이 패키지(공개 npm)에 싣지 않는다. shorts_maker 에 접근할 수 있는 사람이
 자기 PC 에서 이 스크립트를 실행해 로컬로만 가져온다. knowledge/ 는 .gitignore 에 들어 있다 — 커밋·공유하지 않는다.
 
-    python3 tools/import-viskit-knowledge.py --from /path/to/shorts_maker
+    npx @buzzni/shorts-director import-knowledge --from /path/to/shorts_maker
 
 파이썬 표준 라이브러리만 쓴다. 원문 파이썬 파일은 실행하지 않고 구문 트리에서 문자열 상수만 읽는다.
 """

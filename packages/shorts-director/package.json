@@ -1,14 +1,25 @@
 {
-  "name": "@buzzni/saycode-extension-shorts-director",
-  "private": true,
+  "name": "@buzzni/shorts-director",
   "version": "0.1.0",
+  "description": "Shorts director toolkit for coding agents: plan checks, LTX video takes, Qwen TTS narration and ffmpeg assembly for vertical shorts.",
+  "license": "MIT",
   "type": "module",
-  "scripts": {
-    "validate": "node ../sdk/dist/cli.js validate .",
-    "pack": "node ../sdk/dist/cli.js pack .",
-    "test": "node --test templates/shorts-director/tools/test/"
+  "bin": {
+    "shorts-director": "bin/shorts-director.mjs"
   },
-  "dependencies": {
-    "@buzzni/saycode-extension-sdk": "0.9.0"
+  "files": ["bin", "lib", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buzzni/saycode-extensions.git",
+    "directory": "packages/shorts-director"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/"
   }
 }

@@ -58,8 +58,8 @@ jobs:
       - run: node --test packages/react-source-locator/tests/*.test.mjs
       - run: npm run package:react-source-locator
       # Rendering tests skip on Linux (they need macOS osascript); the rest run everywhere.
+      - run: node scripts/publish-shorts-director.mjs --dry-run
       - run: node --test tests/shorts-director.test.mjs packages/shorts-director/test/*.test.mjs
-      - run: npm run package:shorts-director
 
   publish-contract:
     # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first
