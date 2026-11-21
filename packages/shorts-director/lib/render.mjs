@@ -2,11 +2,14 @@
 // 내레이션을 깔고 글자 PNG 를 시간대별로 겹친다.
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { captionBox, captionEvents } from './captions.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
+import { materialPath } from './takeState.mjs'
 
-const JXA = new URL('./caption.jxa.js', import.meta.url).pathname
+// pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
+const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
 
 export async function renderVideo({ root, plan, config, mode, narration = [], out }) {
   const { width, height, fps } = config
@@ -116,10 +119,11 @@ async function renderSegment({ root, moment, mode, config, file }) {
   if (moment.kind === 'photo') {
     const frames = Math.round(Number(moment.seconds) * fps)
     const zoom = `scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps},setsar=1`
-    await ffmpeg(['-i', join(root, moment.file), ...silence, '-map', '0:v', '-map', '1:a', '-vf', zoom, ...encode])
+    await ffmpeg(['-i', materialPath(root, moment.file), ...silence, '-map', '0:v', '-map', '1:a', '-vf', zoom, ...encode])
     return
   }
-  const color = moment.background ?? (moment.kind === 'card' ? '0x111111' : '0x2a3442')
+  const fallback = moment.kind === 'card' ? '0x111111' : '0x2a3442'
+  const color = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/.test(String(moment.background ?? '')) ? moment.background : fallback
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', ...encode])
 }
 

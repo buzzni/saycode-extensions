@@ -1,5 +1,6 @@
 // ffmpeg·ffprobe·osascript 호출과 미디어 조회.
 import { execFile } from 'node:child_process'
+import { access, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
@@ -40,9 +41,17 @@ export async function tightenSpeech(input, output) {
 }
 
 // 영상에서 한 프레임을 PNG 로 뽑는다. at 이 'end' 면 마지막 프레임.
+// 끝에서 1초를 디코딩해 같은 파일을 덮어쓰게 해 마지막 프레임이 남게 한다 — 오디오가 영상보다 조금 길면
+// 컨테이너 끝 기준 짧은 seek 은 프레임 없이 성공해 버린다(실측). 결과 파일이 없으면 실패로 본다.
 export async function extractFrame(video, out, at = 'end') {
-  const seek = at === 'end' ? ['-sseof', '-0.05'] : ['-ss', String(at)]
-  await ffmpeg([...seek, '-i', video, '-frames:v', '1', '-update', '1', out])
+  await rm(out, { force: true })
+  const input = at === 'end' ? ['-sseof', '-1', '-i', video] : ['-ss', String(at), '-i', video, '-frames:v', '1']
+  await ffmpeg([...input, '-map', '0:v:0', '-update', '1', out])
+  try {
+    await access(out)
+  } catch {
+    throw new Error(`${video} 에서 프레임을 뽑지 못했다`)
+  }
 }
 
 // 장면이 바뀐 시각들. 테이크 안의 컷이 프롬프트대로 나왔는지 확인할 때 쓴다.

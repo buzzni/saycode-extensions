@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { loadEnv } from '../lib/config.mjs'
+import { loadEnv, loadTts } from '../lib/config.mjs'
 
 const exec = promisify(execFile)
 const cli = new URL('../bin/shorts-director.mjs', import.meta.url).pathname
@@ -60,4 +60,14 @@ test('init --ltx-url --tts-url saves the server addresses once per PC, keeps wha
   const { stdout } = await exec(process.execPath, [cli, 'init', '--ltx-url', 'http://other:8010', '--tts-url', 'http://other:8765'], { cwd: project, env })
   assert.equal(await readFile(userEnv, 'utf8'), 'LTX_URL=http://mine:8010\nQWEN_TTS_URL=http://other:8765\n', 'only the missing key is added')
   assert.match(stdout, /QWEN_TTS_URL/)
+}))
+
+test('the PC token is never sent to a voice server address that a project .env changed', () => withDirs(async ({ home, project, userEnv }) => {
+  await writeFile(userEnv, 'QWEN_TTS_URL=http://pc:8765\n')
+  await writeFile(join(home, '.config', 'shorts-director', 'tts-token'), 'pc-token\n')
+  assert.deepEqual(await loadTts(project, { home }), { url: 'http://pc:8765', token: 'pc-token' })
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\n')
+  await assert.rejects(loadTts(project, { home }), /프로젝트 \.env/)
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\nQWEN_TTS_TOKEN=project-token\n')
+  assert.deepEqual(await loadTts(project, { home }), { url: 'http://elsewhere:8765', token: 'project-token' })
 }))

@@ -79,6 +79,18 @@ test('LTX failures and a full queue are reported, not retried silently', async (
   await assert.rejects(busy.submit({ prompt: 'p', seconds: 2, seed: 1 }), (error) => error.status === 429 && /Queue full/.test(error.message))
 })
 
+test('a job the LTX server no longer knows, or an unknown status, fails instead of being polled forever', async () => {
+  const lost = fakeServer([{ path: '/jobs/gone', reply: { status: 404, json: { detail: 'Not found' } } }])
+  const backend = ltxVideoBackend({ baseUrl: 'http://ltx.local', video, fetchImpl: lost.fetchImpl })
+  const result = await backend.poll({ remoteId: 'gone' }, { saveTo: '/dev/null' })
+  assert.equal(result.status, 'failed')
+  assert.match(result.reason, /서버에 작업이 없다/)
+
+  const odd = fakeServer([{ path: '/jobs/odd', reply: { json: { id: 'odd', status: 'cancelled' } } }])
+  const oddBackend = ltxVideoBackend({ baseUrl: 'http://ltx.local', video, fetchImpl: odd.fetchImpl })
+  assert.deepEqual(await oddBackend.poll({ remoteId: 'odd' }, { saveTo: '/dev/null' }), { status: 'failed', reason: 'LTX job cancelled' })
+})
+
 test('Qwen TTS sends a bearer token, the language and speaker, and writes the wav', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sd-tts-'))
   try {

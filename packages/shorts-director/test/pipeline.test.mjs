@@ -123,3 +123,101 @@ test('takes submit without a server address explains what to set', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+async function fakeProject(plan, settings = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'sd-state-'))
+  await mkdir(join(root, 'config'), { recursive: true })
+  await writeFile(join(root, 'plan.json'), JSON.stringify(plan))
+  await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 128, height: 224, fps: 24, video: { width: 128, height: 192, fps: 24 }, ...settings }))
+  return root
+}
+
+function chainPlan() {
+  const shot = (seconds) => [{ seconds, framing: 'wide', action: 'a' }]
+  return {
+    title: 'chain',
+    hook: { options: ['A', 'B', 'C'], chosen: 0 },
+    moments: [
+      { id: 'm1', kind: 'take', place: 'p', seconds: 2, shots: shot(2), video_prompt: 'one' },
+      { id: 'm2', kind: 'take', place: 'p', seconds: 2, from: { take: 'm1' }, shots: shot(2), video_prompt: 'two' },
+      { id: 'm3', kind: 'take', place: 'p', seconds: 2, from: { take: 'm2' }, shots: shot(2), video_prompt: 'three' },
+    ],
+  }
+}
+
+test('a take file always matches the current plan: reverting a change restores that version instead of keeping a stale clip', { skip: !canRender && 'needs ffmpeg', timeout: 120_000 }, async () => {
+  const plan = chainPlan()
+  plan.moments = [plan.moments[0]]
+  plan.moments[0].seconds = 4
+  plan.moments[0].shots = [{ seconds: 4, framing: 'wide', action: 'a' }]
+  const root = await fakeProject(plan)
+  try {
+    const duration = async () => Number((await probe(join(root, 'takes/m1.mp4'))).format.duration)
+    await run(root, 'takes', 'wait')
+    assert.ok(Math.abs(await duration() - 4) < 0.2)
+    plan.moments[0].seconds = 2
+    plan.moments[0].shots = [{ seconds: 2, framing: 'wide', action: 'a' }]
+    await writeFile(join(root, 'plan.json'), JSON.stringify(plan))
+    await run(root, 'takes', 'wait')
+    assert.ok(Math.abs(await duration() - 2) < 0.2)
+    plan.moments[0].seconds = 4
+    plan.moments[0].shots = [{ seconds: 4, framing: 'wide', action: 'a' }]
+    await writeFile(join(root, 'plan.json'), JSON.stringify(plan))
+    const reuse = await run(root, 'takes', 'submit')
+    assert.match(reuse.stdout, /재사용/)
+    assert.ok(Math.abs(await duration() - 4) < 0.2, 'the 4-second version is back in takes/')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('when a take fails, the takes chained from it stop too and wait reports it instead of spinning', { skip: !canRender && 'needs ffmpeg', timeout: 120_000 }, async () => {
+  const root = await fakeProject(chainPlan(), { fake: { fail: ['m1'] } })
+  try {
+    const started = Date.now()
+    await assert.rejects(run(root, 'takes', 'wait', '--minutes', '1'), (error) => {
+      assert.equal(error.code, 2)
+      assert.match(error.stdout, /m1/)
+      assert.match(error.stdout, /m3.*m2/)
+      return true
+    })
+    assert.ok(Date.now() - started < 20_000, 'wait stops as soon as nothing can progress')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('takes forget closes a stuck job so the take can be submitted again', async () => {
+  const root = await fakeProject(chainPlan())
+  try {
+    await mkdir(join(root, 'jobs'), { recursive: true })
+    const { JobStore } = await import('../lib/jobs.mjs')
+    const { buildTake } = await import('../lib/takes.mjs')
+    const plan = chainPlan()
+    const store = new JobStore(root)
+    const stuck = await store.create(buildTake(plan.moments[0], plan, { video: { width: 128, height: 192, fps: 24 } }), 'fake')
+    await store.transition(stuck.id, 'submitting')
+    const forget = await run(root, 'takes', 'forget', 'm1')
+    assert.match(forget.stdout, /m1/)
+    assert.equal((await store.get(stuck.id)).state, 'failed')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('status works before plan.json exists and keeps the notes section across refreshes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-status-'))
+  try {
+    await run(root, 'status')
+    const first = await readFile(join(root, 'status.md'), 'utf8')
+    assert.match(first, /plan\.json 없음/)
+    await writeFile(join(root, 'status.md'), `${first}\n## 메모\n\n- 훅 후보 3번을 골랐다\n`)
+    await writeFile(join(root, 'plan.json'), JSON.stringify(chainPlan()))
+    await run(root, 'status')
+    const second = await readFile(join(root, 'status.md'), 'utf8')
+    assert.match(second, /테이크 0\/3/)
+    assert.match(second, /## 메모\n\n- 훅 후보 3번을 골랐다/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

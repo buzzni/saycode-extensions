@@ -107,6 +107,21 @@ test('a hard cut inside a chained take loses the face, so it is warned', () => {
   assert.ok(!codes(plan).includes('take.cut_after_anchor'))
 })
 
+test('moment ids and file paths cannot leave the project folder', () => {
+  const plan = goodPlan()
+  plan.moments[0].id = '../../evil'
+  assert.ok(codes(plan).includes('moment.id'))
+  const second = goodPlan()
+  second.moments[3].file = 'materials/../../.ssh/id_ed25519'
+  assert.ok(codes(second).includes('photo.real'))
+  const third = goodPlan()
+  third.moments[1].from = { file: 'materials/../secret.png' }
+  assert.ok(codes(third).includes('take.from'))
+  const fourth = goodPlan()
+  fourth.moments.at(-1).background = 'black,drawbox'
+  assert.ok(codes(fourth).includes('card.background'))
+})
+
 test('camera moves over stills are only for real photos from materials/', () => {
   const plan = goodPlan()
   plan.moments[3].file = 'stills/generated.png'

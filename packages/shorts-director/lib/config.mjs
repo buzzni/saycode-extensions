@@ -34,12 +34,33 @@ export function userConfigDir(home = homedir()) {
 }
 
 export async function loadEnv(root, { home = homedir() } = {}) {
-  const user = await readEnvFile(join(userConfigDir(home), '.env'))
-  const project = await readEnvFile(join(root, '.env'))
-  const merged = { ...user, ...project, ...pick(process.env, KEYS) }
-  if (!merged.QWEN_TTS_TOKEN) merged.QWEN_TTS_TOKEN = await readTokenFile(home)
-  if (!merged.QWEN_TTS_TOKEN) delete merged.QWEN_TTS_TOKEN
+  const layers = await readLayers(root, home)
+  const merged = { ...layers.user, ...layers.project, ...layers.shell }
+  if (!merged.QWEN_TTS_TOKEN && layers.tokenFile) merged.QWEN_TTS_TOKEN = layers.tokenFile
   return merged
+}
+
+// 음성 서버 주소와 토큰. 프로젝트 .env 가 주소를 바꿨는데 토큰은 PC 쪽(사용자 설정·토큰 파일)에서 온다면
+// 토큰을 보내지 않는다 — 남이 만든 프로젝트를 열었을 때 토큰이 그 프로젝트가 정한 서버로 가지 않게.
+export async function loadTts(root, { home = homedir() } = {}) {
+  const layers = await readLayers(root, home)
+  const source = (key) => ['shell', 'project', 'user'].find((layer) => layers[layer][key])
+  const urlSource = source('QWEN_TTS_URL')
+  const tokenSource = source('QWEN_TTS_TOKEN') ?? (layers.tokenFile ? 'tokenFile' : undefined)
+  if (urlSource === 'project' && tokenSource && tokenSource !== 'project') {
+    throw new Error('프로젝트 .env 가 음성 서버 주소를 바꿨다 — 이 PC 의 토큰을 그 주소로 보내지 않는다. 그 서버를 쓰려면 프로젝트 .env 에 QWEN_TTS_TOKEN 도 둔다.')
+  }
+  const env = await loadEnv(root, { home })
+  return { url: env.QWEN_TTS_URL, token: env.QWEN_TTS_TOKEN }
+}
+
+async function readLayers(root, home) {
+  return {
+    shell: pick(process.env, KEYS),
+    project: await readEnvFile(join(root, '.env')),
+    user: await readEnvFile(join(userConfigDir(home), '.env')),
+    tokenFile: await readTokenFile(home),
+  }
 }
 
 // 이 PC 의 설정 파일에 빠진 값만 더한다. 이미 있는 값은 바꾸지 않는다. 더한 키 이름을 돌려준다.
@@ -54,10 +75,13 @@ export async function saveUserEnv(values, { home = homedir() } = {}) {
   }
   const existing = parseEnv(text)
   const added = Object.entries(values).filter(([key, value]) => value && !existing[key])
-  if (added.length === 0) return []
+  if (added.length === 0) {
+    if (text) await chmod(file, 0o600)
+    return []
+  }
   await mkdir(directory, { recursive: true })
   const prefix = text && !text.endsWith('\n') ? '\n' : ''
-  await writeFile(file, `${text}${prefix}${added.map(([key, value]) => `${key}=${value}`).join('\n')}\n`)
+  await writeFile(file, `${text}${prefix}${added.map(([key, value]) => `${key}=${value}`).join('\n')}\n`, { mode: 0o600 })
   await chmod(file, 0o600)
   return added.map(([key]) => key)
 }

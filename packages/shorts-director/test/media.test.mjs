@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { probe, tightenSpeech } from '../lib/media.mjs'
+import { extractFrame, probe, tightenSpeech } from '../lib/media.mjs'
+import { access } from 'node:fs/promises'
 
 const exec = promisify(execFile)
 const hasFfmpeg = await exec('ffmpeg', ['-version']).then(() => true, () => false)
@@ -23,6 +24,19 @@ test('speech is trimmed at both ends and long inner pauses are shortened', { ski
     await tightenSpeech(raw, tight)
     const { duration } = await probe(tight)
     assert.ok(duration > 2.1 && duration < 2.6, `expected about 2.3s of speech with a short pause, got ${duration}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('the last frame is extracted even when the audio runs a little past the video', { skip: !hasFfmpeg && 'needs ffmpeg' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-frame-'))
+  try {
+    const clip = join(root, 'clip.mp4')
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=64x112:r=24:d=1', '-f', 'lavfi', '-i', 'sine=d=1.1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', clip])
+    const out = join(root, 'last.png')
+    await extractFrame(clip, out, 'end')
+    await access(out)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

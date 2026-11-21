@@ -1,6 +1,8 @@
 // plan.json 검증기. 숏폼 규칙 중 숫자로 잴 수 있는 것만 강제한다 — 나머지(훅의 강도, 장면의 매력)는
 // 기획 점검(시청자 점검 하위 에이전트)이 본다. 규칙의 근거는 references/workflow.md 에 있다.
 
+import { posix } from 'node:path'
+
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
 
 const MAX_SHOT_SECONDS = 4
@@ -10,6 +12,9 @@ const TARGET_TOLERANCE = 0.2
 // 영상 모델에 자막을 넣지 말라고 쓰면 오히려 가짜 글자를 그린다(LTX 실측 2026-11-21). 그런 단어 자체를 쓰지 않는다.
 const TEXT_WORDS = /subtitle|caption|자막|on-screen text|\bno text\b/i
 const NUMBERS_IN_PROMPT = /(\d[\d,.]*\s*(원|만원|달러|%|퍼센트))|([₩$€]\s*\d)/
+// 장면 id 는 파일 이름(takes/<id>.mp4, jobs/…)이 된다. 경로 문자를 막는다.
+const MOMENT_ID = /^[A-Za-z0-9_-]{1,40}$/
+const COLOR = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/
 const TAIL_ENDING = /구독|좋아요|팔로우|알림\s*설정|subscribe|like and/i
 
 export function planSeconds(plan) {
@@ -45,6 +50,7 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const earlierTakes = new Set()
   let cuts = 0
   for (const moment of moments) {
+    if (!MOMENT_ID.test(String(moment.id ?? ''))) error('moment.id', '장면 id 는 영문·숫자·_·- 만, 40자 이하.', String(moment.id))
     const shots = moment.shots ?? []
     cuts += shots.length
     for (const shot of shots) {
@@ -64,7 +70,10 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
       checkFrom(moment, earlierTakes, error, warn)
       earlierTakes.add(moment.id)
     }
-    if (moment.kind === 'photo' && !String(moment.file ?? '').startsWith('materials/')) {
+    if (moment.kind === 'card' && moment.background !== undefined && !COLOR.test(String(moment.background))) {
+      error('card.background', '배경색은 0xRRGGBB 또는 색 이름(black 등)만 쓴다.', moment.id)
+    }
+    if (moment.kind === 'photo' && !inMaterials(moment.file)) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
   }
@@ -116,12 +125,17 @@ function checkFrom(moment, earlierTakes, error, warn) {
   if (!from) return
   if (from.take && !earlierTakes.has(from.take)) {
     error('take.from', `${from.take} 는 이 장면보다 앞의 테이크여야 한다.`, moment.id)
-  } else if (!from.take && !String(from.file ?? '').startsWith('materials/')) {
+  } else if (!from.take && !inMaterials(from.file)) {
     error('take.from', '시작 사진은 materials/ 의 실제 사진이어야 한다.', moment.id)
   }
   if ((moment.shots ?? []).some((shot, index) => index > 0 && shot.transition === 'cut')) {
     warn('take.cut_after_anchor', '이어 찍는 테이크 안에서 하드 컷을 하면 얼굴이 바뀐다 — 카메라 이동(transition: move)으로 바꾼다.', moment.id)
   }
+}
+
+function inMaterials(file) {
+  const normalized = posix.normalize(String(file ?? ''))
+  return normalized.startsWith('materials/') && !normalized.split('/').includes('..')
 }
 
 function round(value) {

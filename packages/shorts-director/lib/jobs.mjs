@@ -1,17 +1,18 @@
-// 테이크 생성 작업 상태 기계. 제출 직후 원격 id 를 먼저 기록해, 시간 초과·탭 유실 뒤에도 다시 생성하지 않고
-// 그 작업을 다시 확인만 한다 — 한도·비용의 이중 차감을 막는 장치다.
+// 테이크 생성 작업 상태 기계. 제출 직후 원격 id 를 먼저 기록해, 확인이 끊겨도 다시 생성하지 않고
+// 그 작업을 다시 확인만 한다 — GPU 대기열에 같은 작업이 두 번 쌓이지 않게 하는 장치다.
+// 막힌 작업은 `takes forget` 이 failed 로 닫는다(planned·ready·needs_user 에서도).
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const TRANSITIONS = {
-  planned: ['submitting'],
+  planned: ['submitting', 'failed'],
   submitting: ['submitted', 'failed', 'unknown', 'blocked', 'quota_exhausted', 'needs_user'],
   submitted: ['generating', 'ready', 'unknown', 'failed', 'blocked'],
   generating: ['ready', 'unknown', 'failed', 'blocked'],
-  ready: ['downloaded', 'unknown'],
+  ready: ['downloaded', 'unknown', 'failed'],
   unknown: ['generating', 'ready', 'downloaded', 'failed', 'blocked'],
-  needs_user: ['submitting'],
+  needs_user: ['submitting', 'failed'],
   downloaded: [],
   failed: [],
   blocked: [],
@@ -78,11 +79,6 @@ export class JobStore {
     const next = { ...job, ...data, state, updatedAt: at, history: [...job.history, { state, at, ...(data.reason ? { reason: data.reason } : {}) }] }
     await this.write(next)
     return next
-  }
-
-  async findReusable(take) {
-    const hash = promptHash(take)
-    return (await this.list()).find((job) => job.promptHash === hash && job.state === 'downloaded')
   }
 
   path(id) {

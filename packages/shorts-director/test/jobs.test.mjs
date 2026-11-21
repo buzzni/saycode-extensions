@@ -46,19 +46,18 @@ test('a timeout leaves the job unknown, recoverable only by checking the remote 
   await store.transition(job.id, 'generating')
 }))
 
-test('the same prompt that already downloaded is reused instead of generated again', () => withStore(async (store) => {
-  const first = await store.create(take, 'fake')
-  for (const state of ['submitting', 'submitted', 'generating', 'ready']) await store.transition(first.id, state, { remoteId: 'r' })
-  await store.transition(first.id, 'downloaded', { file: 'takes/m1.mp4', sha256: 'x' })
-  const reusable = await store.findReusable(take)
-  assert.equal(reusable?.id, first.id)
-  assert.equal(await store.findReusable({ ...take, prompt: 'different' }), undefined)
-}))
-
 test('an in-flight job for the same prompt blocks a duplicate submission', () => withStore(async (store) => {
   const first = await store.create(take, 'fake')
   await store.transition(first.id, 'submitting')
   await assert.rejects(store.create(take, 'fake'), /already in flight/)
+}))
+
+test('a leftover planned or ready job can be closed so it stops blocking the take', () => withStore(async (store) => {
+  const job = await store.create(take, 'fake')
+  await store.transition(job.id, 'failed', { reason: 'forgotten' })
+  const again = await store.create(take, 'fake')
+  for (const state of ['submitting', 'submitted', 'ready']) await store.transition(again.id, state, { remoteId: 'r' })
+  await store.transition(again.id, 'failed', { reason: 'forgotten' })
 }))
 
 test('prompt hash covers everything that changes the generated video', () => {

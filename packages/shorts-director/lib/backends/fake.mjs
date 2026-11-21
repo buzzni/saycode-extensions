@@ -1,13 +1,15 @@
 // 가짜 백엔드: 서버 호출 없이 흐름 전체를 리허설한다. 결과물은 테스트 패턴과 삐 소리다.
 import { ffmpeg } from '../media.mjs'
 
-export function fakeVideoBackend({ video }) {
+// fail: 실패를 흉내 낼 장면 id 목록(config.fake = { fail: [...] }) — 실패 전파를 리허설한다.
+export function fakeVideoBackend({ video, fail = [] }) {
   return {
     name: 'fake',
     async submit(take) {
       return { remoteId: `fake-${take.momentId}-${Date.now()}` }
     },
     async poll(job, { saveTo }) {
+      if (fail.includes(job.momentId)) return { status: 'failed', reason: 'fake failure' }
       const seconds = String(job.take.seconds)
       await ffmpeg([
         '-f', 'lavfi', '-i', `testsrc2=s=${video.width}x${video.height}:r=${video.fps}:d=${seconds}`,

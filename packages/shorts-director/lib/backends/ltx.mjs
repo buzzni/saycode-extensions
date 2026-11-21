@@ -54,9 +54,17 @@ export function ltxVideoBackend({ baseUrl, video, fetchImpl = fetch }) {
       return { remoteId: job.id }
     },
     async poll(job, { saveTo }) {
-      const state = await (await call(`/jobs/${encodeURIComponent(job.remoteId)}`)).json()
+      let state
+      try {
+        state = await (await call(`/jobs/${encodeURIComponent(job.remoteId)}`)).json()
+      } catch (error) {
+        // 서버가 재시작되면 작업 기록이 사라진다. 계속 확인해도 오지 않으니 실패로 닫고 다시 낼 수 있게 한다.
+        if (error.status === 404) return { status: 'failed', reason: 'LTX 서버에 작업이 없다(서버 재시작 등) — takes submit 으로 다시 낸다' }
+        throw error
+      }
       if (state.status === 'queued' || state.status === 'running') return { status: 'generating' }
       if (state.status === 'failed') return { status: 'failed', reason: state.error ?? 'LTX job failed' }
+      if (state.status !== 'succeeded') return { status: 'failed', reason: `LTX job ${state.status}` }
       const response = await call(`/jobs/${encodeURIComponent(job.remoteId)}/video`)
       await writeFile(saveTo, Buffer.from(await response.arrayBuffer()))
       return { status: 'completed' }
