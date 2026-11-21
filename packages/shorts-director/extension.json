@@ -1,0 +1,28 @@
+{
+  "id": "buzzni.shorts-director",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "engines": { "saycode": "^1.0.0" },
+  "entrypoint": "index.js",
+  "permissions": [],
+  "activationEvents": [],
+  "contributes": {
+    "projectTemplates": [
+      {
+        "id": "buzzni.shorts-director.studio",
+        "title": "Shorts Director",
+        "description": "Plan, check, generate and assemble a vertical short from one request — up to a review-ready final cut.",
+        "stack": "Node · ffmpeg · Gemini API",
+        "firstPrompt": "This project starts from the Shorts Director template. Read .claude/skills/shorts-director/SKILL.md first. Then check the prerequisites in README.md (node, ffmpeg, GEMINI_API_KEY in .env) and run node --test tools/test/ to confirm the tools work, and report what is ready and what is missing. Finally ask me what short to make, together with the autonomy mode (manual / plan / draft / auto), recommending draft.",
+        "assetsRoot": "templates/shorts-director",
+        "localizations": {
+          "ko": {
+            "title": "숏폼 총감독",
+            "description": "요청 하나로 세로 숏폼을 기획·점검·생성·조립해 검수 대기 완성본까지 만듭니다.",
+            "firstPrompt": "이 프로젝트는 숏폼 총감독 템플릿에서 시작했어. 먼저 .claude/skills/shorts-director/SKILL.md 를 읽어. 그다음 README.md 의 준비물(node, ffmpeg, .env 의 GEMINI_API_KEY)을 확인하고 node --test tools/test/ 로 도구가 동작하는지 확인해서, 준비된 것과 빠진 것을 알려줘. 마지막으로 어떤 숏폼을 만들지와 자율 모드(manual / plan / draft / auto)를 물어봐줘. 추천은 draft야."
+          }
+        }
+      }
+    ]
+  }
+}

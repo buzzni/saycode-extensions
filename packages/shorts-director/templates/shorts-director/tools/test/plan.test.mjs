@@ -1,0 +1,132 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
+
+function shots(count, seconds) {
+  return Array.from({ length: count }, (_, index) => ({ seconds, framing: `f${index}`, action: 'a' }))
+}
+
+function goodPlan() {
+  return {
+    version: 1,
+    title: '퇴근길 우산',
+    language: 'ko',
+    aspect: '9:16',
+    target_seconds: 30,
+    hook: { options: ['A', 'B', 'C'], chosen: 1 },
+    subjects: [{ id: 'hero', kind: 'person', look: 'Korean office worker in her 30s, beige trench coat' }],
+    moments: [
+      { id: 'm1', kind: 'take', place: 'subway exit', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(4, 2), video_prompt: 'p1' },
+      { id: 'm2', kind: 'take', place: 'bus stop', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(3, 8 / 3), video_prompt: 'p2' },
+      { id: 'm3', kind: 'photo', file: 'materials/umbrella.jpg', seconds: 3, shots: shots(1, 3) },
+      { id: 'm4', kind: 'take', place: 'home door', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(3, 8 / 3), video_prompt: 'p3' },
+      { id: 'm5', kind: 'card', seconds: 3, shots: shots(1, 3), caption: { text: '오늘 밤 비 90%', role: 'info' } },
+    ],
+    narration: [{ text: '비 오는 날 퇴근길, 우산 없이 나와 본 적 있죠?' }],
+  }
+}
+
+function codes(plan) {
+  return validatePlan(plan).issues.map((issue) => issue.code)
+}
+
+test('a plan that follows the shortform rules has no errors', () => {
+  const result = validatePlan(goodPlan())
+  assert.deepEqual(result.issues.filter((issue) => issue.level === 'error'), [])
+  assert.equal(result.ok, true)
+  assert.equal(planSeconds(goodPlan()), 30)
+  assert.equal(countTakes(goodPlan()), 3)
+})
+
+test('the hook question must offer three or four options and record the choice', () => {
+  const plan = goodPlan()
+  plan.hook = { options: ['only one'], chosen: 0 }
+  assert.ok(codes(plan).includes('hook.options'))
+  plan.hook = { options: ['A', 'B', 'C'] }
+  assert.ok(codes(plan).includes('hook.chosen'))
+})
+
+test('the video must not open on a text-only card', () => {
+  const plan = goodPlan()
+  plan.moments.unshift({ id: 'm0', kind: 'card', seconds: 2, shots: shots(1, 2), caption: { text: '안녕하세요', role: 'title' } })
+  plan.moments.at(-1).seconds = 1
+  plan.moments.at(-1).shots = shots(1, 1)
+  assert.ok(codes(plan).includes('opening.card'))
+})
+
+test('too few cuts for the length reads as a slideshow', () => {
+  const plan = goodPlan()
+  for (const moment of plan.moments) {
+    moment.shots = shots(1, moment.seconds)
+  }
+  assert.ok(codes(plan).includes('pace.cuts'))
+})
+
+test('a shot longer than four seconds is flagged', () => {
+  const plan = goodPlan()
+  plan.moments[0].shots = [{ seconds: 5, framing: 'wide', action: 'a' }, { seconds: 3, framing: 'close', action: 'b' }]
+  assert.ok(codes(plan).includes('pace.shot'))
+})
+
+test('take shots must add up to the take length', () => {
+  const plan = goodPlan()
+  plan.moments[0].shots = shots(2, 2)
+  assert.ok(codes(plan).includes('take.shots_sum'))
+})
+
+test('take length must fit the backend limits', () => {
+  const plan = goodPlan()
+  plan.moments[0].seconds = 16
+  plan.moments[0].shots = shots(8, 2)
+  assert.ok(codes(plan).includes('take.seconds'))
+})
+
+test('a take with a person subject needs a first frame so identity carries across takes', () => {
+  const plan = goodPlan()
+  delete plan.moments[0].first_frame
+  assert.ok(codes(plan).includes('take.first_frame'))
+})
+
+test('camera moves over stills are only for real photos from materials/', () => {
+  const plan = goodPlan()
+  plan.moments[2].file = 'stills/generated.png'
+  assert.ok(codes(plan).includes('photo.real'))
+})
+
+test('unknown subjects are rejected', () => {
+  const plan = goodPlan()
+  plan.moments[0].subjects = ['ghost']
+  assert.ok(codes(plan).includes('subject.unknown'))
+})
+
+test('deprecated Omni control tags in prompts are rejected', () => {
+  const plan = goodPlan()
+  plan.moments[0].video_prompt = '<IMAGE_REF_0> walks in'
+  assert.ok(codes(plan).includes('prompt.control_tag'))
+})
+
+test('prices and numbers inside a video prompt are warned to move to overlays', () => {
+  const plan = goodPlan()
+  plan.moments[0].video_prompt = 'a sign that says 9,900원'
+  const issue = validatePlan(plan).issues.find((item) => item.code === 'prompt.numbers')
+  assert.equal(issue?.level, 'warning')
+})
+
+test('a subscribe or like ending is warned', () => {
+  const plan = goodPlan()
+  plan.moments.at(-1).caption = { text: '구독과 좋아요 부탁해요', role: 'info' }
+  assert.ok(codes(plan).includes('ending.tail'))
+})
+
+test('narration far longer than the video can carry is warned before TTS', () => {
+  const plan = goodPlan()
+  plan.narration = [{ text: '가'.repeat(400) }]
+  assert.ok(codes(plan).includes('narration.length'))
+})
+
+test('total length far from the target is flagged', () => {
+  const plan = goodPlan()
+  plan.target_seconds = 60
+  assert.ok(codes(plan).includes('length.target'))
+})

@@ -1,0 +1,12 @@
+# 비밀·비공개
+.env
+knowledge/
+
+# 만들어지는 파일
+.work/
+stills/
+takes/
+audio/
+out/
+jobs/
+.DS_Store

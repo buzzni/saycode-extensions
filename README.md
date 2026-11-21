@@ -33,3 +33,7 @@ prompts, source assets, and content tests. Saycode Desktop ships a checksum-pinn
 enables it only after the user confirms from the new-project **Templates** tab. See the
 [user guide](docs/USER_GUIDE.md#official-project-templates) for lifecycle behavior and the
 [developer guide](docs/DEVELOPMENT.md#first-party-project-templates) for package gates.
+
+`packages/shorts-director` is a project template for an autonomous vertical-shorts director: a skill, a `tools/sd.mjs`
+pipeline (plan checks, Gemini API video/voice/images, ffmpeg assembly) and tests. It is not released yet; see
+[its README](packages/shorts-director/README.md).

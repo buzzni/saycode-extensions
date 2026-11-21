@@ -1,0 +1,14 @@
+{
+  "name": "@buzzni/saycode-extension-shorts-director",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "validate": "node ../sdk/dist/cli.js validate .",
+    "pack": "node ../sdk/dist/cli.js pack .",
+    "test": "node --test templates/shorts-director/tools/test/"
+  },
+  "dependencies": {
+    "@buzzni/saycode-extension-sdk": "0.9.0"
+  }
+}
