@@ -33,7 +33,7 @@ export class ServerError extends Error {
 }
 
 export function ltxVideoBackend({ baseUrl, video, fetchImpl = fetch }) {
-  if (!baseUrl) throw new Error('LTX_URL is not set — put the LTX server address in .env')
+  if (!baseUrl) throw new Error('LTX_URL is not set — run: shorts-director init --ltx-url <url> --tts-url <url> (saved once for this PC)')
   const base = baseUrl.replace(/\/+$/, '')
 
   async function call(path, init = {}) {

@@ -10,20 +10,21 @@ import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
 import { layoutNarration } from '../lib/captions.mjs'
-import { loadConfig, loadEnv } from '../lib/config.mjs'
+import { loadConfig, loadEnv, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
 import { detectCuts, extractFrame, probe, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { buildTake } from '../lib/takes.mjs'
 
-const USAGE = 'usage: shorts-director <init|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes status|render|sheet [--draft]|cuts <file>|status|import-knowledge --from <shorts_maker>|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes status|render|sheet [--draft]|cuts <file>|status|import-knowledge --from <shorts_maker>|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
-const ENV_EXAMPLE = `# shorts-director 서버 설정. 이 파일을 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
+const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
+# 보통은 shorts-director init --ltx-url <주소> --tts-url <주소> 로 이 PC 에 한 번 저장하면 된다
+# (~/.config/shorts-director/.env). 토큰은 ~/.config/shorts-director/tts-token 에 한 줄로 둔다.
 LTX_URL=http://<영상 서버>:8010
 QWEN_TTS_URL=http://<음성 서버>:8765
-# 토큰은 ~/.config/shorts-director/tts-token 에 두거나 여기에 적는다.
 # QWEN_TTS_TOKEN=
 `
 const root = process.cwd()
@@ -68,7 +69,19 @@ async function init() {
     console.log('✓ .env.example — .env 로 복사해 서버 주소를 채운다')
   }
   await mkdir(join(root, 'materials'), { recursive: true })
-  console.log('다음: .env 를 채우고 shorts-director doctor')
+  const ltx = optionValue('--ltx-url')
+  const tts = optionValue('--tts-url')
+  if (ltx || tts) {
+    const added = await saveUserEnv({ LTX_URL: ltx, QWEN_TTS_URL: tts })
+    const file = join(userConfigDir(), '.env')
+    console.log(added.length ? `✓ 이 PC 설정(${file})에 ${added.join(', ')} 저장 — 모든 프로젝트에서 쓴다` : `이 PC 설정(${file})에 서버 주소가 이미 있다 — 그대로 둔다`)
+  }
+  console.log('다음: shorts-director doctor')
+}
+
+function optionValue(name) {
+  const index = rest.indexOf(name)
+  return index >= 0 ? rest[index + 1] : undefined
 }
 
 async function importKnowledge() {
@@ -107,11 +120,11 @@ async function doctor() {
 }
 
 async function checkServer(name, url, path, headers, describe) {
-  if (!url) return [false, `${name}: 주소가 없다 — .env 에 ${name.startsWith('LTX') ? 'LTX_URL' : 'QWEN_TTS_URL'} 를 넣는다`]
+  if (!url) return [false, `${name}: 주소가 없다 — shorts-director init --ltx-url <주소> --tts-url <주소> 로 이 PC 에 한 번 저장하거나 프로젝트 .env 에 ${name.startsWith('LTX') ? 'LTX_URL' : 'QWEN_TTS_URL'} 를 넣는다`]
   try {
     const response = await fetch(`${url.replace(/\/+$/, '')}${path}`, { headers, signal: AbortSignal.timeout(10_000) })
     const json = await response.json().catch(() => ({}))
-    if (response.status === 401) return [false, `${name}: 토큰이 없거나 틀렸다 — QWEN_TTS_TOKEN`]
+    if (response.status === 401) return [false, `${name}: 토큰이 없거나 틀렸다 — ~/.config/shorts-director/tts-token 에 한 줄로 넣는다`]
     if (!response.ok) return [false, `${name}: HTTP ${response.status}`]
     return [true, `${name}: ${describe(json)}`]
   } catch (error) {

@@ -7,8 +7,8 @@ import { errorText, ServerError } from './ltx.mjs'
 const MAX_TEXT = 500
 
 export function qwenSpeech({ baseUrl, token, fetchImpl = fetch }) {
-  if (!baseUrl) throw new Error('QWEN_TTS_URL is not set — put the TTS server address in .env')
-  if (!token) throw new Error('QWEN_TTS_TOKEN is not set — put the TTS token in .env or ~/.config/shorts-director/tts-token')
+  if (!baseUrl) throw new Error('QWEN_TTS_URL is not set — run: shorts-director init --ltx-url <url> --tts-url <url> (saved once for this PC)')
+  if (!token) throw new Error('QWEN_TTS_TOKEN is not set — put the token in ~/.config/shorts-director/tts-token (one line)')
   const url = `${baseUrl.replace(/\/+$/, '')}/v1/tts/speech`
 
   return async function speak(out, { text, language = 'auto', speaker }) {

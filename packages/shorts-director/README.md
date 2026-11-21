@@ -8,7 +8,7 @@ In Saycode the agent's procedure comes from the organization skill `shorts-direc
 toolkit, so nothing has to be copied into a project.
 
 ```bash
-npx -y @buzzni/shorts-director init       # .gitignore rules, .env.example, materials/
+npx -y @buzzni/shorts-director init       # .gitignore rules, .env.example, materials/ (+ --ltx-url/--tts-url once per PC)
 npx -y @buzzni/shorts-director doctor     # ffmpeg, caption renderer, video and voice servers
 npx -y @buzzni/shorts-director check      # plan.json rules
 npx -y @buzzni/shorts-director voice      # narration, measured lengths
@@ -22,14 +22,15 @@ npx -y @buzzni/shorts-director status     # status.md
 ## Requirements
 
 - macOS (captions are drawn with JXA/AppKit, so no libass or drawtext build of ffmpeg is needed), Node.js 20+, ffmpeg.
-- An LTX-2.5 video server and a Qwen3-TTS server. Put their addresses in the project's `.env`:
+- An LTX-2.5 video server and a Qwen3-TTS server. Save their addresses once per machine:
 
-  ```
-  LTX_URL=http://<video server>:8010
-  QWEN_TTS_URL=http://<voice server>:8765
+  ```bash
+  npx -y @buzzni/shorts-director init --ltx-url http://<video server>:8010 --tts-url http://<voice server>:8765
   ```
 
-  The TTS bearer token goes in `QWEN_TTS_TOKEN` or in `~/.config/shorts-director/tts-token`.
+  This writes `~/.config/shorts-director/.env` (mode 600, missing keys only). The TTS bearer token goes in
+  `~/.config/shorts-director/tts-token` (one line). A project `.env` overrides the machine file key by key, and
+  shell environment variables override both.
 - `"fake": true` in `config/settings.json` rehearses the whole flow without either server.
 
 ## What it enforces
