@@ -61,7 +61,8 @@ npx -y @buzzni/shorts-director status     # status.md
 - One caption can differ from its look: `caption.look` overrides font, colours, box, outline, size or entrance, and
   `caption.position` moves it (`y` from the top, `x` left/center/right); `check` refuses unknown fonts and unreadable
   colours. After `render`, each on-screen caption's drawn box is compared with the faces and the main subject that
-  macOS Vision finds in the caption-free frame; covering more than 15% of a face or 25% of the subject's middle, or
+  macOS Vision finds in caption-free frames sampled about every 0.8 seconds while it shows (a face cut off by the top
+  of the frame is estimated from the person outline); covering more than 15% of a face or 25% of the subject's middle, or
   touching the side edges, is reported (also in `out/text-check.json`) so the caption can be moved and re-rendered.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of

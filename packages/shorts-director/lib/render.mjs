@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { FONTS, MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
 import { designFor, lookFonts } from './looks.mjs'
-import { textProblems } from './textcheck.mjs'
+import { croppedHeads, textProblems } from './textcheck.mjs'
 import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
@@ -273,14 +273,26 @@ async function renderCaptions(events, directory, config, look) {
 // 화면 문구(자막 띠 제외)가 그 순간의 글자 없는 화면에서 얼굴·주인공 사물을 가리거나 가장자리를 넘는지 잰다.
 // 결과는 out/text-check.json 과 render 출력으로 남기고, 에이전트가 caption.position·look 으로 옮겨 다시 render 한다.
 const SUBTITLE_ROLES = new Set(['narration', 'dialogue'])
+const SAMPLE_EVERY = 0.8
+const MAX_SAMPLES = 5
+
+function sampleTimes(start, end) {
+  const first = Math.min(start + 0.4, (start + end) / 2)
+  const last = Math.max(first, end - 0.3)
+  const count = Math.min(MAX_SAMPLES, Math.max(1, Math.round((last - first) / SAMPLE_EVERY) + 1))
+  return Array.from({ length: count }, (_, index) => (count === 1 ? first : first + ((last - first) * index) / (count - 1)))
+}
 
 async function checkPlacement({ root, base, work, captions, config }) {
   const placed = captions.filter((caption) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
   if (placed.length === 0) return []
-  // 문구가 떠 있는 동안 화면이 움직이므로 등장 직후와 사라지기 직전 두 장면을 보고, 더 많이 가린 쪽을 남긴다.
+  // 문구가 떠 있는 동안 화면이 움직이므로 등장 직후부터 사라지기 직전까지 약 0.8초마다(최대 5장) 본다 — 두 장만 보면
+  // 그 사이에 지나가는 클로즈업을 놓쳤다(리뷰 훅 1.8초).
   const stills = []
+  const sampled = []
   for (const [index, caption] of placed.entries()) {
-    const moments = [Math.min(caption.start + 0.4, (caption.start + caption.end) / 2), Math.max(caption.start, caption.end - 0.3)]
+    const moments = sampleTimes(caption.start, caption.end)
+    sampled.push(moments.length)
     for (const [order, at] of moments.entries()) {
       const still = join(work, `check-${String(index).padStart(2, '0')}-${order}.png`)
       await ffmpeg(['-ss', String(at), '-i', base, '-frames:v', '1', still])
@@ -289,11 +301,18 @@ async function checkPlacement({ root, base, work, captions, config }) {
   }
   const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
   const scenes = JSON.parse(stdout)
-  const found = placed.map((_, index) => ({
-    faces: [...scenes[index * 2].faces, ...scenes[index * 2 + 1].faces],
-    subjects: [...scenes[index * 2].subjects, ...scenes[index * 2 + 1].subjects],
-  }))
   const fromTop = (rect, width = 1, height = 1) => ({ x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height })
+  // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변에 닿아 위로 잘린 것으로 보이는 머리를 함께 본다.
+  const faces = (scene) => {
+    const detected = scene.faces.map((face) => fromTop(face))
+    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height })]
+  }
+  let next = 0
+  const found = sampled.map((count) => {
+    const mine = scenes.slice(next, next + count)
+    next += count
+    return { faces: mine.flatMap(faces), subjects: mine.flatMap((scene) => scene.subjects).map((subject) => fromTop(subject)) }
+  })
   const report = placed.map((caption, index) => ({
     text: caption.text,
     role: caption.role,
@@ -301,8 +320,8 @@ async function checkPlacement({ root, base, work, captions, config }) {
     box: fromTop(caption.bounds, config.width, config.height),
     problems: textProblems({
       box: fromTop(caption.bounds, config.width, config.height),
-      faces: found[index].faces.map((face) => fromTop(face)),
-      subjects: found[index].subjects.map((subject) => fromTop(subject)),
+      faces: found[index].faces,
+      subjects: found[index].subjects,
     }),
   }))
   await mkdir(join(root, 'out'), { recursive: true })
