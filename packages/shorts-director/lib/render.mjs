@@ -1,10 +1,10 @@
 // 애니매틱(draft)과 완성본(final) 조립. 장면마다 같은 규격의 조각을 만들고 이어 붙인 뒤,
 // 내레이션을 깔고 글자 PNG 를 시간대별로 겹친다.
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { MUSIC, ensureAsset } from './assets.mjs'
+import { FONTS, MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
 import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
@@ -47,13 +47,15 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   const musicIndex = music ? addInput('-stream_loop', '-1', '-ss', String(music.start), '-i', music.path) : undefined
   const sounds = sfxEvents(plan).filter((sound) => sound.at < total)
   const sfxIndex = sounds.map((sound) => addInput('-f', 'lavfi', '-i', SFX_KINDS[sound.kind]))
-  const captionIndex = captions.map((caption) => addInput('-i', caption.file))
+  const captionIndex = captions.map((caption) => addInput('-framerate', String(fps), '-i', caption.pattern))
 
   const filters = []
   let video = '0:v'
   captions.forEach((caption, position) => {
     const label = `v${position}`
-    filters.push(`[${video}][${captionIndex[position]}:v]overlay=0:0:enable='between(t,${caption.start},${caption.end})'[${label}]`)
+    // 등장 동작 프레임 뒤로 마지막 프레임을 붙들고, 글자가 뜰 시각으로 옮겨 겹친다.
+    filters.push(`[${captionIndex[position]}:v]tpad=stop_mode=clone:stop_duration=${round(caption.end - caption.start)},setpts=PTS+${caption.start}/TB[c${position}]`)
+    filters.push(`[${video}][c${position}]overlay=0:0:eof_action=pass:enable='between(t,${caption.start},${caption.end})'[${label}]`)
     video = label
   })
   filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: { ...plan.music, ...music }, sounds, sfxIndex, total, mix: config.mix }))
@@ -226,14 +228,32 @@ function takeVideo(moment, fit, seconds, zooms) {
   return `${split};${parts.join(';')};${shots.map((_, index) => `[q${index}]`).join('')}concat=n=${shots.length}:v=1:a=0`
 }
 
+// 등장 동작: 상자·칩은 작게 시작해 살짝 넘쳤다가 제자리로(팝, 약 0.25초), 자막은 짧은 페이드. 프레임마다 { scale, alpha }.
+const ENTRANCES = {
+  pop: [[0.72, 0.5], [0.9, 0.85], [1.03, 1], [1.06, 1], [1.02, 1], [1, 1]],
+  fade: [[1, 0.35], [1, 0.7], [1, 1]],
+  none: [[1, 1]],
+}
+const ENTRANCE_BY_STYLE = { box: 'pop', chip: 'pop', subtitle: 'fade', plain: 'none' }
+
 async function renderCaptions(events, directory, config) {
   if (events.length === 0) return []
-  const items = events.map((event, index) => ({
-    ...captionBox(event, config),
-    out: join(directory, `cap-${String(index).padStart(2, '0')}.png`),
-  }))
+  const items = events.map((event, index) => {
+    const box = captionBox(event, config)
+    const frames = ENTRANCES[ENTRANCE_BY_STYLE[box.style] ?? 'none'].map(([scale, alpha]) => ({ scale, alpha }))
+    return { ...box, frames, out: join(directory, `cap-${String(index).padStart(2, '0')}`) }
+  })
+  const fontFiles = []
+  for (const font of FONTS) {
+    const file = join(userConfigDir(), 'fonts', font.file)
+    if (await access(file).then(() => true, () => false)) fontFiles.push(file)
+  }
   const spec = join(directory, 'spec.json')
-  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, items }))
+  await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, fontFiles, items }))
   await run('osascript', ['-l', 'JavaScript', JXA, spec])
-  return events.map((event, index) => ({ file: items[index].out, start: event.start, end: event.end }))
+  return events.map((event, index) => ({ pattern: `${items[index].out}-%02d.png`, start: event.start, end: event.end }))
+}
+
+function round(value) {
+  return Math.round(value * 1000) / 1000
 }

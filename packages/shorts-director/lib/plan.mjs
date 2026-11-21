@@ -55,6 +55,9 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   }
 
   for (const moment of plan.moments ?? []) {
+    if (moment.caption?.emphasis && !String(moment.caption.text ?? '').includes(moment.caption.emphasis)) {
+      warn('caption.emphasis', '강조어(caption.emphasis)는 그 문구 안에 있는 낱말이어야 색이 바뀐다.', moment.id)
+    }
     if (Array.isArray(moment.sfx) && moment.sfx.some((sound) => !SFX_KINDS[sound?.kind])) {
       error('sfx.kind', `효과음은 ${Object.keys(SFX_KINDS).join(', ')} 중에서 고른다.`, moment.id)
     }

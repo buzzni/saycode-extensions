@@ -111,6 +111,14 @@ test('numbers spoken or shown need a source in plan.facts', () => {
   assert.ok(codes(spoken).includes('claim.unsourced'))
 })
 
+test('an emphasised word must be in its caption', () => {
+  const plan = goodPlan()
+  plan.moments[0].caption.emphasis = '없는말'
+  assert.ok(codes(plan).includes('caption.emphasis'))
+  plan.moments[0].caption.emphasis = '폭우'
+  assert.ok(!codes(plan).includes('caption.emphasis'))
+})
+
 test('a hook caption that cannot be read in two seconds is warned', () => {
   const plan = goodPlan()
   plan.moments[0].caption.text = '퇴근 십 분 전에 갑자기 비가 쏟아져서 우산도 없이 나왔던 그날'

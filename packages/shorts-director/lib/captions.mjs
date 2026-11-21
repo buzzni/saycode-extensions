@@ -1,18 +1,24 @@
 // 화면 글자 배치. 안전 영역은 위 약 10%, 아래 약 18% — 플랫폼 UI(제목·버튼·설명)가 덮는 곳을 피한다.
-// 제목류는 한 줄 약 8자, 최대 3줄. 글자는 상자 없이 외곽선·그림자로 선다.
+// 제목류는 상자에 담고 최대 2줄, 자막은 한 줄 조각으로 말에 맞춰 바꾼다.
 // ffmpeg 빌드마다 libass·drawtext 유무가 달라, 글자는 PNG 로 그려(caption.jxa.js) 겹친다.
 // 좌표는 그리는 쪽(AppKit) 기준이라 y 가 아래에서 위로 잰 상자 밑변이다.
 
+// style: box(흰 둥근 상자·남색 글자·강조어 파랑), chip(파란 칩·흰 글자), subtitle(한 줄·흰 글자·얇은 남색 외곽선), plain(콘티 카드).
 const ROLES = {
-  hook: { size: 0.05, anchor: 'top', maxChars: 8 },
-  title: { size: 0.036, anchor: 'top', maxChars: 10 },
-  info: { size: 0.05, anchor: 'center', maxChars: 8 },
-  narration: { size: 0.034, anchor: 'bottom', maxChars: 14 },
-  dialogue: { size: 0.034, anchor: 'bottom', maxChars: 14 },
-  storyboard: { size: 0.026, anchor: 'center', maxChars: 22, maxLines: 5 },
+  hook: { size: 0.036, anchor: 'top', maxChars: 10, maxLines: 2, style: 'box' },
+  title: { size: 0.03, anchor: 'top', maxChars: 12, maxLines: 2, style: 'box' },
+  info: { size: 0.034, anchor: 'center', maxChars: 10, maxLines: 2, style: 'chip' },
+  narration: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
+  dialogue: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
+  storyboard: { size: 0.026, anchor: 'center', maxChars: 22, maxLines: 5, style: 'plain' },
 }
 const TOP_MARGIN = 0.12
-const BOTTOM_MARGIN = 0.2
+// 자막 한 줄의 밑변. 중심이 위에서 약 74.5% 에 온다(기준 영상 실측) — 플랫폼 하단 UI 위.
+const SUBTITLE_BOTTOM = 0.235
+// 훅 제목은 처음 3초만 둔다. 그 뒤에도 남아 있으면 말·자막과 겹쳐 읽을 게 늘어난다.
+const HOOK_SECONDS = 3
+// 자막 한 조각의 폭(한글 1, 공백·문장부호 0.3, 영문·숫자 0.55 로 센다). 16 이면 54px 글자로 화면 폭의 약 80%.
+const SUBTITLE_WIDTH = 16
 const SIDE_MARGIN = 0.06
 const LINE_HEIGHT = 1.35
 
@@ -84,11 +90,21 @@ export function captionBox(event, { width, height }) {
   const h = Math.ceil(lines.length * fontSize * LINE_HEIGHT)
   const y = role.anchor === 'top'
     ? Math.round(height * (1 - TOP_MARGIN)) - h
-    : role.anchor === 'bottom'
-      ? Math.round(height * BOTTOM_MARGIN)
+    : role.anchor === 'subtitle'
+      ? Math.round(height * SUBTITLE_BOTTOM)
       : Math.round((height - h) / 2)
   const x = Math.round(width * SIDE_MARGIN)
-  return { text: lines.join('\n'), fontSize, x, y, w: width - 2 * x, h }
+  return {
+    text: lines.join('\n'),
+    fontSize,
+    x,
+    y,
+    w: width - 2 * x,
+    h,
+    style: role.style,
+    ...(event.emphasis ? { emphasis: event.emphasis } : {}),
+    ...(event.label ? { label: event.label } : {}),
+  }
 }
 
 export function captionEvents(plan, narration = []) {
@@ -97,7 +113,17 @@ export function captionEvents(plan, narration = []) {
   for (const moment of plan.moments ?? []) {
     const start = cursor
     const end = round(cursor + Number(moment.seconds))
-    if (moment.caption?.text) events.push({ text: moment.caption.text, role: moment.caption.role ?? 'title', start, end })
+    if (moment.caption?.text) {
+      const { text, role = 'title', emphasis, label } = moment.caption
+      events.push({
+        text,
+        role,
+        start,
+        end: role === 'hook' ? round(Math.min(end, start + HOOK_SECONDS)) : end,
+        ...(emphasis ? { emphasis } : {}),
+        ...(label ? { label } : {}),
+      })
+    }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))
       events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)) })
@@ -105,9 +131,72 @@ export function captionEvents(plan, narration = []) {
     cursor = end
   }
   if (plan.subtitles !== false) {
-    for (const line of narration) events.push({ text: line.text, role: 'narration', start: line.start, end: line.end })
+    for (const line of narration) {
+      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end })
+    }
   }
   return events
+}
+
+// 내레이션 한 줄을 한 줄짜리 자막 조각으로 나눈다. 쉼표·마침표에서 먼저 끊고, 그래도 넓으면 띄어쓰기에서 고르게 나눈다.
+// 조각 시각은 음절 수에 비례해 나눈다(TTS 가 글자 시각을 주지 않는다).
+export function subtitleChunks(line, { maxWidth = SUBTITLE_WIDTH } = {}) {
+  const clauses = String(line.text).match(/[^,.?!…]+[,.?!…]*/g)?.map((clause) => clause.trim()).filter(Boolean) ?? []
+  const pieces = []
+  for (const clause of clauses) pieces.push(...splitClause(clause, maxWidth))
+  for (let index = 0; index < pieces.length - 1; index += 1) {
+    if (textWidth(pieces[index]) < 5 && textWidth(`${pieces[index]} ${pieces[index + 1]}`) <= maxWidth) {
+      pieces.splice(index, 2, `${pieces[index]} ${pieces[index + 1]}`)
+      index -= 1
+    }
+  }
+  const weights = pieces.map((piece) => Math.max(1, syllables(piece)))
+  const total = weights.reduce((sum, weight) => sum + weight, 0)
+  const span = Number(line.end) - Number(line.start)
+  let cursor = Number(line.start)
+  return pieces.map((text, index) => {
+    const end = index === pieces.length - 1 ? Number(line.end) : round(cursor + (span * weights[index]) / total)
+    const piece = { text, start: round(cursor), end }
+    cursor = end
+    return piece
+  })
+}
+
+function splitClause(clause, maxWidth) {
+  const width = textWidth(clause)
+  if (width <= maxWidth) return [clause]
+  const words = clause.split(/\s+/)
+  const target = width / Math.ceil(width / maxWidth)
+  const pieces = []
+  let current = ''
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word
+    if (current && (textWidth(candidate) > maxWidth || textWidth(current) >= target)) {
+      // 한 음절 낱말(다·안·못·둔…)은 보통 뒤 낱말을 꾸민다 — 조각 끝에 남기지 않고 다음 조각으로 넘긴다.
+      const kept = current.split(' ')
+      const carried = kept.length > 1 && syllables(kept.at(-1)) === 1 ? kept.pop() : undefined
+      pieces.push(kept.join(' '))
+      current = carried ? `${carried} ${word}` : word
+    } else {
+      current = candidate
+    }
+  }
+  if (current) pieces.push(current)
+  return pieces
+}
+
+function textWidth(text) {
+  let width = 0
+  for (const character of String(text)) {
+    if (/[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(character)) width += 1
+    else if (/[A-Za-z0-9%]/.test(character)) width += 0.55
+    else width += 0.3
+  }
+  return width
+}
+
+function syllables(text) {
+  return (String(text).match(/[가-힣]|[A-Za-z]+|\d/g) ?? []).length
 }
 
 // 마지막 줄에 한두 글자만 남지 않게, 앞줄의 끝 단어를 내려 두 줄 길이를 맞춘다.

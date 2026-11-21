@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { captionBox, captionEvents, layoutNarration, scenesLongerThanSpeech, speechTempo, wrapLine } from '../lib/captions.mjs'
+import { captionBox, captionEvents, layoutNarration, scenesLongerThanSpeech, speechTempo, subtitleChunks, wrapLine } from '../lib/captions.mjs'
 
 test('narration lines are laid out back to back from measured durations with a breath gap', () => {
   const timed = layoutNarration([{ text: '하나', seconds: 1.2 }, { text: '둘', seconds: 0.8 }], { start: 0.5, gap: 0.3 })
@@ -43,7 +43,7 @@ test('caption boxes keep inside the safe area: below the top 10%, above the bott
   const hook = captionBox({ text: '비 오는 날 퇴근길에 우산 없이', role: 'hook' }, size)
   const hookTopFromTop = size.height - (hook.y + hook.h)
   assert.ok(hookTopFromTop >= size.height * 0.1, 'hook below the top 10%')
-  assert.equal(hook.text, '비 오는 날\n퇴근길에\n우산 없이')
+  assert.equal(hook.text, '비 오는 날\n퇴근길에 우산 없이', 'a boxed title keeps to two lines')
   const narration = captionBox({ text: '우산 없이 나와 본 적 있죠', role: 'narration' }, size)
   assert.ok(narration.y >= size.height * 0.18, 'narration above the bottom 18%')
   for (const box of [hook, narration]) {
@@ -53,7 +53,7 @@ test('caption boxes keep inside the safe area: below the top 10%, above the bott
   assert.ok(hook.fontSize > narration.fontSize, 'the hook title is the biggest text')
 })
 
-test('caption events: moment captions span their moment, narration lines become subtitles', () => {
+test('caption events: the hook title shows for the first three seconds, other captions span their moment, narration becomes subtitles', () => {
   const plan = {
     moments: [
       { id: 'm1', seconds: 8, caption: { text: '훅', role: 'hook' } },
@@ -62,9 +62,43 @@ test('caption events: moment captions span their moment, narration lines become 
   }
   const events = captionEvents(plan, [{ text: '내레이션', start: 0.2, end: 2 }])
   assert.deepEqual(events, [
-    { text: '훅', role: 'hook', start: 0, end: 8 },
+    { text: '훅', role: 'hook', start: 0, end: 3 },
     { text: '대사', role: 'dialogue', start: 9, end: 10.5 },
     { text: '내레이션', role: 'narration', start: 0.2, end: 2 },
   ])
   assert.deepEqual(captionEvents({ ...plan, subtitles: false }, [{ text: '내레이션', start: 0, end: 1 }]).map((event) => event.role), ['hook', 'dialogue'])
+})
+
+test('narration subtitles change in one-line pieces of about fifteen characters, cut at commas first, timed by syllables', () => {
+  const pieces = subtitleChunks({ text: '근데 범인은 빨래가 아니라, 하루 종일 펼쳐 둔 건조대였어요.', start: 6.7, end: 10.58 })
+  assert.deepEqual(pieces.map((piece) => piece.text), ['근데 범인은 빨래가 아니라,', '하루 종일 펼쳐 둔 건조대였어요.'])
+  assert.equal(pieces[0].start, 6.7)
+  assert.equal(pieces.at(-1).end, 10.58)
+  assert.ok(Math.abs(pieces[0].end - pieces[1].start) < 0.001, 'pieces follow each other')
+  assert.ok(Math.abs((pieces[0].end - 6.7) / (10.58 - 6.7) - 11 / 24) < 0.01, 'time split by syllables (11 of 24)')
+
+  const long = subtitleChunks({ text: '미니 건조대는 창가에 세워 걸고 다 마르면 납작하게 접어 틈새에 쏙', start: 0, end: 4 })
+  assert.deepEqual(long.map((piece) => piece.text), ['미니 건조대는 창가에 세워 걸고', '다 마르면 납작하게 접어 틈새에 쏙'], 'a one-syllable word goes with the word it modifies')
+})
+
+test('captions carry their look: boxed hook with an emphasised word and a label, a chip for info, one-line subtitles low in the frame', () => {
+  const size = { width: 1080, height: 1920 }
+  const events = captionEvents({ moments: [
+    { id: 'm1', seconds: 4, caption: { text: '빨래 널면 방이 사라짐', role: 'hook', emphasis: '사라짐', label: '원룸 자취 3년 차' } },
+    { id: 'm2', seconds: 3, caption: { text: '납작하게 접힘', role: 'info' } },
+  ] }, [{ text: '빨래 한 번 널면, 원룸이 통째로 사라져요.', start: 0.2, end: 2.7 }])
+  const hook = events.find((event) => event.role === 'hook')
+  assert.equal(hook.emphasis, '사라짐')
+  assert.equal(hook.label, '원룸 자취 3년 차')
+  assert.equal(captionBox(hook, size).style, 'box')
+  assert.equal(captionBox(events.find((event) => event.role === 'info'), size).style, 'chip')
+  const subtitles = events.filter((event) => event.role === 'narration')
+  assert.ok(subtitles.length >= 2, 'the narration line is split into pieces')
+  for (const event of subtitles) {
+    const box = captionBox(event, size)
+    assert.equal(box.style, 'subtitle')
+    assert.ok(!box.text.includes('\n'), `one line: ${box.text}`)
+    const centreFromTop = 1 - (box.y + box.h / 2) / size.height
+    assert.ok(centreFromTop > 0.72 && centreFromTop < 0.77, `subtitle centre about 74.5% down (${centreFromTop})`)
+  }
 })
