@@ -186,7 +186,8 @@ async function renderSegment({ root, moment, mode, config, file, zooms }) {
 // 번갈아 바꿔(펀치인) 인물은 그대로 두고 화면만 바꾼다. 576p 원본을 더 키우므로 1.18배를 넘기지 않는다.
 const PUNCH_IN = 1.15
 
-// 장면 id → 샷마다 확대 여부, 그리고 화면 배율이 바뀌는 시각들(렌더러가 만든 컷).
+// 장면 id → 샷마다 확대 여부, 그리고 렌더러가 아는 컷 시각들 — 펀치인으로 배율이 바뀌는 시각과 이어 찍지 않은 새 장면이
+// 시작하는 시각. 비슷한 화면끼리 넘어가면 장면 점수(0.3)가 컷을 놓쳐 "한 화면"으로 잘못 경고했다(레시피 실측 10초).
 function punchIns(plan) {
   const zooms = new Map()
   const edits = []
@@ -206,6 +207,7 @@ function punchIns(plan) {
       }
       zooms.set(moment.id, flags)
     } else {
+      if (cursor > 0) edits.push(Math.round(cursor * 1000) / 1000)
       shown = false
     }
     cursor += Number(moment.seconds)

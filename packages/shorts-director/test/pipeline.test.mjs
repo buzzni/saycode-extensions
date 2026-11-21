@@ -266,6 +266,21 @@ test('a chained take changes framing at each planned shot (punch-in), so a conti
   }
 })
 
+test('the rhythm report counts every switch to a new take as a cut, even when the frames look alike', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 120_000 }, async () => {
+  const separate = chainPlan()
+  for (const moment of separate.moments) delete moment.from
+  const root = await fakeProject(separate)
+  try {
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    const { stdout } = await run(root, 'render')
+    assert.match(stdout, /컷 2개\(기획 2개\)/, stdout)
+    assert.doesNotMatch(stdout, /한 화면으로/, 'no false "one long shot" warning')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('takes forget closes a stuck job so the take can be submitted again', async () => {
   const root = await fakeProject(chainPlan())
   try {
