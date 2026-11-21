@@ -68,7 +68,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 #story-limit { font-size: 12px; }
 .error { color: var(--danger); font-size: 13px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.pilot-scene { display: grid; gap: 10px; }
+.pilot-scene { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .pilot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pilot-tools button[aria-pressed=true] { background: var(--surface); }
 .pilot-tools select { min-height: 36px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; color: inherit; background: var(--background); font: inherit; }

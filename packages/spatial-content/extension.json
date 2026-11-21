@@ -5,10 +5,11 @@
   "engines": { "saycode": "^1.2.0" },
   "entrypoint": "index.js",
   "permissions": [],
-  "activationEvents": ["onCommand:buzzni.spatial-content.open"],
+  "activationEvents": ["onCommand:buzzni.spatial-content.open", "onCommand:buzzni.spatial-content.read-sample"],
   "contributes": {
     "commands": [
-      { "id": "buzzni.spatial-content.open", "title": "공간컨텐츠", "panelId": "buzzni.spatial-content.studio" }
+      { "id": "buzzni.spatial-content.open", "title": "공간컨텐츠", "panelId": "buzzni.spatial-content.studio" },
+      { "id": "buzzni.spatial-content.read-sample", "title": "공간컨텐츠 샘플 읽기" }
     ],
     "panels": [
       { "id": "buzzni.spatial-content.studio", "title": "공간컨텐츠", "entrypoint": "dist/panel.html", "surfaceSize": "wide" }

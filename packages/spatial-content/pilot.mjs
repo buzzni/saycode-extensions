@@ -16,6 +16,8 @@ const modes = [...pilot.querySelectorAll('[data-pilot-mode]')]
 const placementButtons = [...pilot.querySelectorAll('[data-pilot-place]')]
 let view
 let pending
+let source
+let verifiedSample
 
 function setStatus(message, error = false) {
   status.textContent = message
@@ -35,6 +37,9 @@ enter.addEventListener('click', () => {
   pilot.hidden = false
   exit.focus()
   view?.start()
+  if (window.saycodePanel && source !== 'sample' && !pending) {
+    void loadLobby(loadPackagedSample, 'sample')
+  }
 })
 exit.addEventListener('click', () => {
   view?.pause()
@@ -43,18 +48,24 @@ exit.addEventListener('click', () => {
   enter.focus()
 })
 pilot.querySelector('#pick-spatial-pilot').addEventListener('click', () => input.click())
-input.addEventListener('change', async () => {
+input.addEventListener('change', () => {
   const file = input.files[0]
   input.value = ''
-  if (!file) return
+  if (file) void loadLobby(() => file, 'file')
+})
+
+async function loadLobby(readFile, nextSource) {
   const attempt = Symbol()
   pending = attempt
   setStatus('3D 로비를 여는 중…')
   try {
+    const file = await readFile()
+    if (pending !== attempt) return
     const next = await openLobby(file, viewport)
     if (pending !== attempt) return next.dispose()
     view?.dispose()
     view = next
+    source = nextSource
     viewport.replaceChildren(next.canvas)
     sceneControls.hidden = false
     setMode('visit')
@@ -67,7 +78,34 @@ input.addEventListener('change', async () => {
   } finally {
     if (pending === attempt) pending = undefined
   }
-})
+}
+
+async function loadPackagedSample() {
+  if (verifiedSample) return verifiedSample
+  const command = 'buzzni.spatial-content.read-sample'
+  try {
+    const { bytes, chunkBytes } = await window.saycodePanel.invokeCommand(command, [null])
+    if (
+      !Number.isSafeInteger(bytes) || bytes < 28 || bytes > 5 * 1024 * 1024
+      || !Number.isSafeInteger(chunkBytes) || chunkBytes < 16 * 1024 || chunkBytes > 24 * 1024
+    ) throw new Error()
+    const model = new Uint8Array(bytes)
+    const count = Math.ceil(bytes / chunkBytes)
+    const workers = Math.min(4, count)
+    await Promise.all(Array.from({ length: workers }, async (_, worker) => {
+      for (let index = worker; index < count; index += workers) {
+        const text = atob(await window.saycodePanel.invokeCommand(command, [index]))
+        const offset = index * chunkBytes
+        if (text.length !== Math.min(chunkBytes, bytes - offset)) throw new Error()
+        model.set(Uint8Array.from(text, byte => byte.charCodeAt(0)), offset)
+      }
+    }))
+    verifiedSample = new File([model], 'photoreal-lobby-pilot.glb', { type: 'model/gltf-binary' })
+    return verifiedSample
+  } catch {
+    throw new Error('내장 샘플을 열지 못했어요. 편집기로 돌아가 다시 시도해 주세요.')
+  }
+}
 
 for (const button of modes) button.addEventListener('click', () => {
   setMode(button.dataset.pilotMode)
