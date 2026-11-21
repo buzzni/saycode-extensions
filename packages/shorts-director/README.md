@@ -51,11 +51,13 @@ npx -y @buzzni/shorts-director status     # status.md
 - Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
   1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated.
-- Captions have a look per role: the hook sits in a white rounded box for its first three seconds, with one
-  `caption.emphasis` word in blue and an optional `caption.label` pill above it; `info` is a blue chip; narration
-  subtitles change in one-line pieces of about fifteen characters timed to the speech. Boxes pop in and subtitles fade
-  in. `init` downloads the Pretendard font (SIL OFL 1.1) to `~/.config/shorts-director/fonts/`; without it the
-  system font is used.
+- Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
+  ad, drama and calm each set the font, colours, box shape, outline, shadow, emphasis and entrance for every role
+  (hook, title, info chip, subtitles, asides, label pill). The hook shows for its first three seconds with one
+  `caption.emphasis` word and an optional `caption.label`; `moments[].asides` adds short inner-voice or status lines;
+  narration subtitles change in one-line pieces of about fifteen characters timed to the speech. Fonts are Korean
+  SIL OFL fonts (Pretendard and Google Fonts `ofl/`, pinned by checksum) downloaded to `~/.config/shorts-director/fonts/`;
+  without them the system font is used. Every look keeps text-on-box contrast at 4.5:1 or more.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of
   your own works too: `plan.music: { file: "materials/…" }`.
