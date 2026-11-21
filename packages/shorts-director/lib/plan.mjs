@@ -46,6 +46,10 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const error = (code, message, where) => issues.push({ level: 'error', code, message, ...(where ? { where } : {}) })
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
 
+  if (plan.music && !inMaterials(plan.music.file)) {
+    error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
+  }
+
   const options = plan.hook?.options
   if (!Array.isArray(options) || options.length < 3 || options.length > 4 || !options.every((option) => option?.line && option?.question)) {
     error('hook.options', '훅 후보는 3~4개이고, 각각 { line(첫 문장), mechanism, question(시청자 머릿속에 남는 단 하나의 질문) } 이다.')

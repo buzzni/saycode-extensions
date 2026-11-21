@@ -125,6 +125,38 @@ test('captions after a JPEG photo still show: a phone photo does not drop the la
   }
 })
 
+// 구간 평균 음량(dBFS).
+async function loudnessAt(file, from, seconds) {
+  const { stderr } = await exec('ffmpeg', ['-hide_banner', '-ss', String(from), '-t', String(seconds), '-i', file, '-af', 'volumedetect', '-f', 'null', '-'])
+  return Number(stderr.match(/mean_volume: (-?[\d.]+|-inf) dB/)?.[1] ?? -Infinity)
+}
+
+test('the sound bed: scene sound dips only under narration, music fills the gaps and the ending fades out', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 240_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-mix-'))
+  try {
+    await mkdir(join(root, 'materials'), { recursive: true })
+    await mkdir(join(root, 'config'), { recursive: true })
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=orange:s=640x960', '-frames:v', '1', join(root, 'materials/photo.png')])
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=5', join(root, 'materials/music.wav')])
+    const withMusic = { ...plan(), music: { file: 'materials/music.wav' } }
+    await writeFile(join(root, 'plan.json'), JSON.stringify(withMusic, null, 2))
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+
+    await run(root, 'voice')
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    await run(root, 'render')
+    const final = join(root, 'out/final.mp4')
+    const sceneAlone = await loudnessAt(final, 7.5, 2) // m3 테이크, 내레이션 없음
+    const underVoice = await loudnessAt(final, 0.4, 1) // m1 테이크 위 내레이션
+    assert.ok(sceneAlone > underVoice - 3, `scene sound without narration keeps its level (${sceneAlone} vs ${underVoice} dB)`)
+    assert.ok(await loudnessAt(final, 4.5, 2) > -45, 'music plays under the silent photo scene')
+    assert.ok(await loudnessAt(final, 11.85, 0.15) < (await loudnessAt(final, 10.5, 0.5)) - 6, 'the last moment fades out')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('check exits non-zero when the plan breaks a rule', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sd-check-'))
   try {

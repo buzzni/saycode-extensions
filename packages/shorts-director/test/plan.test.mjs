@@ -210,6 +210,9 @@ test('moment ids and file paths cannot leave the project folder', () => {
   const fourth = goodPlan()
   fourth.moments.at(-1).background = 'black,drawbox'
   assert.ok(codes(fourth).includes('card.background'))
+  const fifth = goodPlan()
+  fifth.music = { file: '../../Music/song.mp3' }
+  assert.ok(codes(fifth).includes('music.file'))
 })
 
 test('camera moves over stills are only for real photos from materials/', () => {

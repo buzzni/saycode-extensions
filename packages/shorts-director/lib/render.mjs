@@ -32,17 +32,15 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   const captions = await renderCaptions(events, join(work, 'captions'), config)
   const total = segmentsSeconds(plan)
 
-  const inputs = ['-i', base]
-  const narrationIndex = []
-  for (const line of narration) {
-    narrationIndex.push(inputs.length / 2)
-    inputs.push('-i', join(root, line.file))
+  const inputs = []
+  const addInput = (...args) => {
+    inputs.push(...args)
+    return inputs.filter((arg) => arg === '-i').length - 1
   }
-  const captionIndex = []
-  for (const caption of captions) {
-    captionIndex.push(inputs.length / 2)
-    inputs.push('-i', caption.file)
-  }
+  addInput('-i', base)
+  const narrationIndex = narration.map((line) => addInput('-i', join(root, line.file)))
+  const musicIndex = plan.music?.file ? addInput('-stream_loop', '-1', '-i', materialPath(root, plan.music.file)) : undefined
+  const captionIndex = captions.map((caption) => addInput('-i', caption.file))
 
   const filters = []
   let video = '0:v'
@@ -51,15 +49,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     filters.push(`[${video}][${captionIndex[position]}:v]overlay=0:0:enable='between(t,${caption.start},${caption.end})'[${label}]`)
     video = label
   })
-  const underNarration = narration.length ? config.mix.underNarration : 1
-  filters.push(`[0:a]volume=${underNarration}[bed]`)
-  const mixInputs = ['[bed]']
-  narration.forEach((line, position) => {
-    const delay = Math.round(line.start * 1000)
-    filters.push(`[${narrationIndex[position]}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${delay}|${delay}[n${position}]`)
-    mixInputs.push(`[n${position}]`)
-  })
-  filters.push(`${mixInputs.join('')}amix=inputs=${mixInputs.length}:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`)
+  filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: plan.music, total, mix: config.mix }))
 
   await mkdir(join(root, 'out'), { recursive: true })
   await ffmpeg([
@@ -80,6 +70,34 @@ export async function contactSheet(input, out, { every = 1.5, columns = 6, tileW
   const rows = Math.max(1, Math.ceil(Math.ceil(duration / every) / columns))
   await ffmpeg(['-i', input, '-vf', `fps=1/${every},scale=${tileWidth}:-2,tile=${columns}x${rows}:padding=4:color=white`, '-frames:v', '1', out])
   return out
+}
+
+// 소리 바닥: 장면 소리와 배경음은 말할 때만 내려가고(덕킹) 말이 없으면 원래 크기로 들린다. 끝은 페이드아웃한다.
+// 전체를 한 번에 줄이면 말 사이가 빈 소리가 된다 — 숏폼에서 가장 크게 체감되는 차이였다.
+function audioFilters({ narration, narrationIndex, musicIndex, music, total, mix }) {
+  const stereo = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo'
+  const filters = [`[0:a]${stereo}[scene]`]
+  const under = ['[scene]']
+  if (musicIndex !== undefined) {
+    const volume = Number(music.volume ?? mix.music)
+    filters.push(`[${musicIndex}:a]${stereo},atrim=0:${total},volume=${volume},afade=t=in:d=0.3,afade=t=out:st=${Math.max(0, total - mix.fadeOut)}:d=${mix.fadeOut}[music]`)
+    under.push('[music]')
+  }
+  filters.push(under.length > 1 ? `${under.join('')}amix=inputs=${under.length}:duration=first:normalize=0[bed]` : '[scene]anull[bed]')
+  let front = '[bed]'
+  if (narration.length) {
+    narration.forEach((line, position) => {
+      const delay = Math.round(line.start * 1000)
+      filters.push(`[${narrationIndex[position]}:a]${stereo},adelay=${delay}|${delay}[n${position}]`)
+    })
+    const voices = narration.map((_, position) => `[n${position}]`).join('')
+    filters.push(`${voices}amix=inputs=${narration.length}:duration=longest:normalize=0,apad,asplit=2[voice][key]`)
+    filters.push(`[bed][key]sidechaincompress=threshold=${mix.duck.threshold}:ratio=${mix.duck.ratio}:attack=${mix.duck.attack}:release=${mix.duck.release}[ducked]`)
+    filters.push('[ducked][voice]amix=inputs=2:duration=first:normalize=0[front]')
+    front = '[front]'
+  }
+  filters.push(`${front}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,alimiter=limit=0.89,afade=t=out:st=${Math.max(0, total - mix.fadeOut)}:d=${mix.fadeOut}[aout]`)
+  return filters
 }
 
 // 애니매틱에서 아직 만들지 않은 테이크 자리에 장소와 컷 구성을 적어 둔다(콘티 카드).
