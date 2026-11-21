@@ -57,6 +57,7 @@ textarea { resize: vertical; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 .samples { position: relative; min-width: max-content; }
 .sample-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.studio-header > div:first-child { flex: 1 1 240px; }
 .sample-menu { position: absolute; z-index: 1; inset-inline-end: 0; inset-block-start: calc(100% + 4px); display: grid; min-width: 160px; padding: 4px; background: var(--background); border: 1px solid var(--border); border-radius: 12px; }
 .sample-menu button { text-align: start; min-height: 32px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; }
 .preview-image { display: grid; place-items: center; aspect-ratio: 16/9; background: var(--surface); overflow: hidden; border-radius: 8px; }

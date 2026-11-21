@@ -24,6 +24,7 @@ const saveButton = byId('export')
 const buildButton = byId('build')
 const buildStatus = byId('build-status')
 const undoSample = byId('undo-sample')
+const quickStart = byId('quick-start')
 const imageHint = byId('image-hint')
 const previewImage = document.createElement('img')
 previewImage.alt = ''
@@ -76,6 +77,8 @@ function renderDraft() {
   const ready = [environment, characterName.value.trim() || characterImage, storyReady].filter(Boolean).length
   buildStatus.textContent = ready + ' / 3 파트 준비됨'
   buildStatus.classList.remove('error')
+  quickStart.hidden = Boolean(environment) || hasAuthoredInput()
+  sampleMenu.hidden = !quickStart.hidden
   undoSample.hidden = !beforeSample
 }
 
@@ -103,7 +106,7 @@ async function readStory(file) {
 }
 
 function updateBusy() {
-  buildButton.disabled = pending.size > 0
+  buildButton.disabled = quickStart.disabled = pending.size > 0
   buildButton.textContent = pending.size ? '파일 읽는 중…' : '콘텐츠 만들기'
 }
 
@@ -171,8 +174,7 @@ sampleMenu.addEventListener('keydown', event => {
   sampleMenu.querySelector('summary').focus()
 })
 
-for (const button of sampleMenu.querySelectorAll('[data-sample]')) button.addEventListener('click', () => {
-  const sample = samples[button.dataset.sample]
+function loadSample(sample) {
   if (hasAuthoredInput()) beforeSample = { title: title.value, story: story.value, character: characterName.value, environment, characterImage, scene }
   resetFileReads()
   authored = false
@@ -184,6 +186,15 @@ for (const button of sampleMenu.querySelectorAll('[data-sample]')) button.addEve
   sampleMenu.open = false
   renderDraft()
   title.focus()
+}
+
+quickStart.addEventListener('click', () => {
+  loadSample(samples.tour)
+  buildButton.click()
+})
+
+for (const button of sampleMenu.querySelectorAll('[data-sample]')) button.addEventListener('click', () => {
+  loadSample(samples[button.dataset.sample])
 })
 
 undoSample.addEventListener('click', () => {
