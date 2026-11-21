@@ -18,10 +18,11 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   await rm(work, { recursive: true, force: true })
   await mkdir(join(work, 'captions'), { recursive: true })
 
+  const framing = mode === 'final' ? punchIns(plan) : { zooms: new Map(), edits: [] }
   const segments = []
   for (const [index, moment] of plan.moments.entries()) {
     const file = join(work, `seg-${String(index).padStart(2, '0')}.mp4`)
-    await renderSegment({ root, moment, mode, config, file })
+    await renderSegment({ root, moment, mode, config, file, zooms: framing.zooms.get(moment.id) })
     segments.push(file)
   }
   const list = join(work, 'segments.txt')
@@ -65,7 +66,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     out,
   ])
-  return { out, seconds: total, captions: captions.length, sounds: sounds.length }
+  return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits }
 }
 
 export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240 } = {}) {
@@ -131,7 +132,7 @@ function segmentsSeconds(plan) {
   return Math.round(plan.moments.reduce((sum, moment) => sum + Number(moment.seconds), 0) * 1000) / 1000
 }
 
-async function renderSegment({ root, moment, mode, config, file }) {
+async function renderSegment({ root, moment, mode, config, file, zooms }) {
   const { width: W, height: H, fps } = config
   const seconds = String(moment.seconds)
   // 장면마다 색 형식이 다르면(휴대폰 JPEG 는 full range) 이어 붙인 영상 중간에 형식이 바뀌고, ffmpeg 가 필터를 다시 만들면서
@@ -147,7 +148,7 @@ async function renderSegment({ root, moment, mode, config, file }) {
   if (moment.kind === 'take' && mode === 'final') {
     const info = await probe(clip)
     const audio = info.hasAudio ? ['-map', '0:a', '-af', 'aresample=48000,apad'] : ['-map', '1:a']
-    await ffmpeg(['-i', clip, ...silence, '-filter_complex', `${takeVideo(moment, fit, seconds)}[v]`, '-map', '[v]', ...audio, ...encode])
+    await ffmpeg(['-i', clip, ...silence, '-filter_complex', `${takeVideo(moment, fit, seconds, zooms)}[v]`, '-map', '[v]', ...audio, ...encode])
     return
   }
   if (moment.kind === 'photo') {
@@ -161,19 +162,46 @@ async function renderSegment({ root, moment, mode, config, file }) {
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
 }
 
-// 이어 찍은 테이크는 인물을 지키려고 컷 없이 한 번에 찍는다. 기획한 컷 경계마다 화면 배율을 1.0↔1.15 로 번갈아
-// 바꿔(펀치인) 인물은 그대로 두고 화면만 바꾼다. 576p 원본을 더 키우므로 1.18배를 넘기지 않는다.
+// 이어 찍은 테이크는 인물을 지키려고 컷 없이 한 번에 찍는다. 이어지는 장면들의 기획 컷 경계마다 화면 배율을 1.0↔1.15 로
+// 번갈아 바꿔(펀치인) 인물은 그대로 두고 화면만 바꾼다. 576p 원본을 더 키우므로 1.18배를 넘기지 않는다.
 const PUNCH_IN = 1.15
 
-function takeVideo(moment, fit, seconds) {
-  const shots = moment.from?.take ? moment.shots ?? [] : []
+// 장면 id → 샷마다 확대 여부, 그리고 화면 배율이 바뀌는 시각들(렌더러가 만든 컷).
+function punchIns(plan) {
+  const zooms = new Map()
+  const edits = []
+  let shown = false
+  let cursor = 0
+  for (const moment of plan.moments) {
+    const shots = moment.shots?.length ? moment.shots : [{ seconds: moment.seconds }]
+    if (moment.kind === 'take' && moment.from?.take) {
+      const flags = []
+      let at = cursor
+      for (const shot of shots) {
+        const zoom = !shown
+        flags.push(zoom)
+        edits.push(Math.round(at * 1000) / 1000)
+        shown = zoom
+        at += Number(shot.seconds)
+      }
+      zooms.set(moment.id, flags)
+    } else {
+      shown = false
+    }
+    cursor += Number(moment.seconds)
+  }
+  return { zooms, edits }
+}
+
+function takeVideo(moment, fit, seconds, zooms) {
   const hold = `tpad=stop_mode=clone:stop_duration=${seconds}`
-  if (shots.length < 2) return `[0:v]${fit},${hold}`
+  if (!zooms) return `[0:v]${fit},${hold}`
+  const shots = moment.shots?.length ? moment.shots : [{ seconds }]
   const parts = []
   let start = 0
   shots.forEach((shot, index) => {
     const end = index === shots.length - 1 ? Number(seconds) + 1 : start + Number(shot.seconds)
-    const zoom = index % 2 === 1 ? `crop=iw/${PUNCH_IN}:ih/${PUNCH_IN},` : ''
+    const zoom = zooms[index] ? `crop=iw/${PUNCH_IN}:ih/${PUNCH_IN},` : ''
     parts.push(`[p${index}]trim=start=${start}:end=${end},setpts=PTS-STARTPTS,${zoom}${fit}[q${index}]`)
     start += Number(shot.seconds)
   })

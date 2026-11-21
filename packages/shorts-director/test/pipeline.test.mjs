@@ -259,8 +259,8 @@ test('a chained take changes framing at each planned shot (punch-in), so a conti
     // 시험 패턴(색 막대)은 확대해도 장면 점수가 낮아 기준을 낮춰 잰다.
     const { stderr } = await exec('ffmpeg', ['-hide_banner', '-i', join(root, 'out/final.mp4'), '-filter:v', "select='gt(scene,0.15)',showinfo", '-f', 'null', '-'])
     const cuts = [...stderr.matchAll(/pts_time:([\d.]+)/g)].map((match) => Number(match[1]))
-    assert.ok(cuts.some((at) => Math.abs(at - 3) < 0.1), `the framing changes at the second shot of m2 (3s): ${cuts}`)
-    assert.match(stdout, /컷 \d+개/, 'render reports the real cut rhythm')
+    for (const at of [2, 3, 4]) assert.ok(cuts.some((cut) => Math.abs(cut - at) < 0.1), `the framing changes at ${at}s along the chain: ${cuts}`)
+    assert.match(stdout, /컷 3개\(기획 3개\)/, 'the punch-ins the renderer made count as cuts in the rhythm report')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
