@@ -19,16 +19,10 @@ const TRANSITIONS = {
 }
 const TERMINAL = new Set(['downloaded', 'failed', 'blocked', 'quota_exhausted'])
 
+// 생성 결과를 바꾸는 값 전부(장면 id 제외)의 해시. 같은 요청은 다른 장면에서도 재사용한다.
 export function promptHash(take) {
-  const key = {
-    prompt: take.prompt,
-    seconds: take.seconds,
-    aspect: take.aspect,
-    resolution: take.resolution ?? null,
-    firstFrame: take.firstFrame ?? null,
-    lastFrame: take.lastFrame ?? null,
-    refs: take.refs ?? [],
-  }
+  const { momentId, ...request } = take
+  const key = Object.fromEntries(Object.entries(request).sort(([left], [right]) => left.localeCompare(right)))
   return createHash('sha256').update(JSON.stringify(key)).digest('hex')
 }
 

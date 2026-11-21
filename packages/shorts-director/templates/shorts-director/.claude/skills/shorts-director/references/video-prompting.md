@@ -1,38 +1,32 @@
-# 영상 프롬프트 (Gemini Omni Flash, 공식 API)
+# 영상 프롬프트 (LTX-2.5 로컬 서버)
 
-출처: Google 공식 문서 "Generate and edit videos with Gemini Omni Flash"(ai.google.dev/gemini-api/docs/omni).
-Gemini 앱(웹)에서의 동작은 실측 전이라 이 문서는 **API 기준 잠정본**이다.
+LTX는 **글만 받아** 영상과 장면 소리를 함께 만든다. 이미지 입력이 없고, 한 번 생성은 최대 121프레임(24fps 약 5초)이다.
+576×1024 5초 한 개에 약 1분 30초 걸린다(2026-11-21 실측). 서버는 대기열로 한 개씩 처리한다.
 
 ## 도구가 자동으로 하는 것 (`tools/lib/takes.mjs`)
 
-`video_prompt` 뒤에 컷 시간표와 대사, 조용히 하라는 줄을 붙인다:
+`plan.json` 의 테이크 하나를 한 문단으로 만든다:
 
 ```
-<video_prompt>
-
-Shots (hard cuts between them, same place and moment):
-[0-2s] wide: ...
-[2-4s] close-up: ...
-
-Spoken lines:
-the woman says in Korean: "..."
-
-No subtitles, no captions, no on-screen text. No background music.
+<video_prompt> The same person throughout: <subjects[].look>. Wide shot: <action>. Hard cut to close-up: <action>.
+She says in Korean, "…" <sound>
 ```
 
-첫 프레임 이미지가 있으면 맨 앞에 "Image 1 is the first frame of the video; start exactly from it." 가 붙는다.
+- 등장 대상의 `look` 을 매 테이크에 그대로 넣는다 — 이미지 참조가 없어 같은 묘사 반복이 일관성의 유일한 수단이다.
+- 컷은 `Hard cut to` 로 잇는다. 실측에서 한 생성 안에 3~4컷이 실제로 나뉘었다.
+- seed 는 장면마다 고정된다(같은 plan 이면 같은 결과). 다른 결과가 필요하면 `moments[].seed` 를 바꾼다.
 
-## video_prompt 쓰는 법
+## 꼭 지킬 것
 
-- 촬영 방식 → 스타일 → 빛 → 장소 → 분위기 순서로 짧게. 예: "Handheld phone footage, realistic, cool streetlight, rainy Seoul subway exit at dusk."
-- 이미지의 역할은 자연어로 쓴다. `<IMAGE_REF_0>`, `<FIRST_FRAME>` 같은 제어 태그는 폐기됐다(검증기가 막는다).
-- 부정 지시는 평범한 문장으로 쓴다("Do not show any logos."). 별도 negative prompt 필드는 없다.
-- 길이는 3~15초 정수. 첫·마지막 프레임을 둘 다 주면 10초 이하.
-- 참조 이미지는 한 호출에 최대 6장.
-- 가격·숫자·로고 글자는 그리게 하지 않는다 — 화면 글자로 얹는다.
-- 실존 인물로 보이는 얼굴, 미성년자 이미지는 거부될 수 있다. 차단되면 인물 참조를 빼고 → 묘사를 줄이고 → 그래도
-  안 되면 그 장면을 실사진·카드로 바꾼다(사용자 승인 후 다시 제출).
+- **자막·글자 이야기를 쓰지 않는다.** "No text, no subtitles" 라고 쓰면 오히려 화면에 가짜 한글 자막을 그린다(실측).
+  검증기(`prompt.text_words`)가 막는다. 화면 글자는 `caption` 으로 얹는다.
+- 묘사는 영어로, 시간 순서대로, 눈에 보이는 것만: 촬영 방식 → 장소·빛 → 인물 → 행동 → 소리.
+- 가격·숫자·로고·간판 글씨를 그리게 하지 않는다.
+- 사람은 그 나라·계절의 평범한 옷차림으로, 얼굴은 부위별로 나열하지 않는다.
+- 한 테이크는 같은 장소·같은 순간만. 장소가 바뀌면 테이크를 나눈다.
 
 ## 확인
 
-받은 테이크가 컷 시간표대로 끊겼는지 `node tools/sd.mjs cuts takes/<id>.mp4` 로 장면 전환 시각을 본다.
+`node tools/sd.mjs cuts takes/<id>.mp4` 로 장면 전환 시각을 보고, `node tools/sd.mjs sheet` 의 접촉 시트로 인물이
+테이크마다 같은 사람으로 보이는지, 가짜 글자가 생기지 않았는지 본다. 문제가 있으면 프롬프트를 고쳐 그 테이크만
+다시 만든다(`jobs/` 의 그 테이크 기록은 남기고, 프롬프트가 바뀌면 새 작업이 된다).

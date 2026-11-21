@@ -9,6 +9,7 @@ const ROLES = {
   info: { size: 0.05, anchor: 'center', maxChars: 8 },
   narration: { size: 0.034, anchor: 'bottom', maxChars: 14 },
   dialogue: { size: 0.034, anchor: 'bottom', maxChars: 14 },
+  storyboard: { size: 0.026, anchor: 'center', maxChars: 22, maxLines: 5 },
 }
 const TOP_MARGIN = 0.12
 const BOTTOM_MARGIN = 0.2
@@ -19,8 +20,10 @@ export function layoutNarration(lines, { start = 0, gap = 0.3 } = {}) {
   const timed = []
   let cursor = start
   for (const line of lines) {
+    cursor = Math.max(cursor, Number(line.minStart ?? 0))
     const end = round(cursor + Number(line.seconds))
-    timed.push({ ...line, start: round(cursor), end })
+    const { minStart, ...rest } = line
+    timed.push({ ...rest, start: round(cursor), end })
     cursor = end + gap
   }
   return timed
@@ -50,7 +53,7 @@ export function wrapLine(text, maxChars = 8, maxLines = 3) {
 
 export function captionBox(event, { width, height }) {
   const role = ROLES[event.role] ?? ROLES.narration
-  const lines = wrapLine(event.text, role.maxChars)
+  const lines = String(event.text).split('\n').flatMap((part) => wrapLine(part, role.maxChars, role.maxLines ?? 3)).slice(0, role.maxLines ?? 3)
   const fontSize = Math.round(height * role.size)
   const h = Math.ceil(lines.length * fontSize * LINE_HEIGHT)
   const y = role.anchor === 'top'

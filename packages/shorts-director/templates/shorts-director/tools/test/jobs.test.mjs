@@ -15,7 +15,7 @@ async function withStore(run) {
   }
 }
 
-const take = { momentId: 'm1', prompt: 'a woman runs to the bus', seconds: 8, aspect: '9:16', firstFrame: 'stills/m1.png' }
+const take = { momentId: 'm1', prompt: 'a woman runs to the bus', seconds: 5, width: 576, height: 1024, fps: 24, seed: 7 }
 
 test('a job is recorded before submission and moves through the happy path', () => withStore(async (store) => {
   const job = await store.create(take, 'fake')
@@ -63,6 +63,7 @@ test('an in-flight job for the same prompt blocks a duplicate submission', () =>
 
 test('prompt hash covers everything that changes the generated video', () => {
   assert.equal(promptHash(take), promptHash({ ...take }))
-  assert.notEqual(promptHash(take), promptHash({ ...take, seconds: 6 }))
-  assert.notEqual(promptHash(take), promptHash({ ...take, firstFrame: 'stills/other.png' }))
+  assert.notEqual(promptHash(take), promptHash({ ...take, seconds: 4 }))
+  assert.notEqual(promptHash(take), promptHash({ ...take, seed: 8 }))
+  assert.equal(promptHash(take), promptHash({ ...take, momentId: 'm9' }), 'the same take in another moment is reusable')
 })

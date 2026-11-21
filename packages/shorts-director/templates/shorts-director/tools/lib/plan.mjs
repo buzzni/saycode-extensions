@@ -1,12 +1,14 @@
 // plan.json 검증기. 숏폼 규칙 중 숫자로 잴 수 있는 것만 강제한다 — 나머지(훅의 강도, 장면의 매력)는
 // 기획 점검(시청자 점검 하위 에이전트)이 본다. 규칙의 근거는 references/workflow.md 에 있다.
 
-export const TAKE_SECONDS = { min: 3, max: 15 }
+import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
+
 const MAX_SHOT_SECONDS = 4
 const SECONDS_PER_CUT = 3
 const NARRATION_CHARS_PER_SECOND = 6
 const TARGET_TOLERANCE = 0.2
-const CONTROL_TAG = /<(IMAGE_REF_\d+|VIDEO_REF_\d+|FIRST_FRAME|LAST_FRAME)>/
+// 영상 모델에 자막을 넣지 말라고 쓰면 오히려 가짜 글자를 그린다(LTX 실측 2026-11-21). 그런 단어 자체를 쓰지 않는다.
+const TEXT_WORDS = /subtitle|caption|자막|on-screen text|\bno text\b/i
 const NUMBERS_IN_PROMPT = /(\d[\d,.]*\s*(원|만원|달러|%|퍼센트))|([₩$€]\s*\d)/
 const TAIL_ENDING = /구독|좋아요|팔로우|알림\s*설정|subscribe|like and/i
 
@@ -18,7 +20,7 @@ export function countTakes(plan) {
   return (plan.moments ?? []).filter((moment) => moment.kind === 'take').length
 }
 
-export function validatePlan(plan) {
+export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   const issues = []
   const error = (code, message, where) => issues.push({ level: 'error', code, message, ...(where ? { where } : {}) })
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
@@ -56,7 +58,7 @@ export function validatePlan(plan) {
     for (const id of moment.subjects ?? []) {
       if (!subjects.has(id)) error('subject.unknown', `등록되지 않은 대상 ${id}.`, moment.id)
     }
-    if (moment.kind === 'take') checkTake(moment, subjects, error, warn)
+    if (moment.kind === 'take') checkTake(moment, take, error, warn)
     if (moment.kind === 'photo' && !String(moment.file ?? '').startsWith('materials/')) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
@@ -86,20 +88,16 @@ export function validatePlan(plan) {
   return { ok: !issues.some((issue) => issue.level === 'error'), issues }
 }
 
-function checkTake(moment, subjects, error, warn) {
+function checkTake(moment, limits, error, warn) {
   const seconds = Number(moment.seconds)
-  if (!Number.isInteger(seconds) || seconds < TAKE_SECONDS.min || seconds > TAKE_SECONDS.max) {
-    error('take.seconds', `테이크는 ${TAKE_SECONDS.min}~${TAKE_SECONDS.max}초 정수다.`, moment.id)
+  if (!(seconds >= limits.min && seconds <= limits.max)) {
+    error('take.seconds', `테이크는 한 번 생성에 ${limits.min}~${limits.max}초다.`, moment.id)
   }
   if (!moment.place) error('take.place', '한 테이크는 같은 순간·같은 장소만 묶는다 — place 를 적는다.', moment.id)
   if (!moment.video_prompt) error('take.video_prompt', '영상 프롬프트가 없다.', moment.id)
-  const hasPerson = (moment.subjects ?? []).some((id) => subjects.get(id)?.kind === 'person')
-  if (hasPerson && !moment.first_frame) {
-    error('take.first_frame', '인물 테이크는 캐릭터 시트로 그린 첫 프레임에서 시작한다(정체성 유지).', moment.id)
-  }
-  const prompt = String(moment.video_prompt ?? '')
-  if (CONTROL_TAG.test(prompt)) {
-    error('prompt.control_tag', '<IMAGE_REF_n> 같은 제어 태그는 폐기됐다 — 이미지 역할은 자연어로 쓴다.', moment.id)
+  const prompt = [moment.video_prompt, moment.sound, ...(moment.shots ?? []).map((shot) => `${shot.framing} ${shot.action}`)].join(' ')
+  if (TEXT_WORDS.test(prompt)) {
+    error('prompt.text_words', '영상 프롬프트에 자막·캡션·글자 이야기를 쓰지 않는다 — "넣지 말라"고 써도 가짜 글자를 그린다. 글자는 화면 문구로 얹는다.', moment.id)
   }
   if (NUMBERS_IN_PROMPT.test(prompt)) {
     warn('prompt.numbers', '가격·수치는 영상 모델이 틀리게 그린다 — 자막 오버레이로 옮긴다.', moment.id)

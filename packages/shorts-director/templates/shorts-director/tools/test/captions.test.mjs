@@ -8,6 +8,14 @@ test('narration lines are laid out back to back from measured durations with a b
   assert.deepEqual(timed.map((line) => [line.start, line.end]), [[0.5, 1.7], [2, 2.8]])
 })
 
+test('a narration line pinned to a moment waits for that moment to start', () => {
+  const timed = layoutNarration(
+    [{ text: '하나', seconds: 2 }, { text: '둘', seconds: 1, minStart: 9 }, { text: '셋', seconds: 1, minStart: 1 }],
+    { start: 0.2, gap: 0.3 },
+  )
+  assert.deepEqual(timed.map((line) => [line.start, line.end]), [[0.2, 2.2], [9, 10], [10.3, 11.3]])
+})
+
 test('caption lines wrap at about eight Korean characters per line, at most three lines', () => {
   assert.deepEqual(wrapLine('비 오는 날 퇴근길에 우산 없이', 8), ['비 오는 날', '퇴근길에', '우산 없이'])
   assert.deepEqual(wrapLine('우산 없이 나온 날', 8), ['우산 없이', '나온 날'], 'no orphan word on the last line')

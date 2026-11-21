@@ -17,11 +17,13 @@ function goodPlan() {
     hook: { options: ['A', 'B', 'C'], chosen: 1 },
     subjects: [{ id: 'hero', kind: 'person', look: 'Korean office worker in her 30s, beige trench coat' }],
     moments: [
-      { id: 'm1', kind: 'take', place: 'subway exit', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(4, 2), video_prompt: 'p1' },
-      { id: 'm2', kind: 'take', place: 'bus stop', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(3, 8 / 3), video_prompt: 'p2' },
-      { id: 'm3', kind: 'photo', file: 'materials/umbrella.jpg', seconds: 3, shots: shots(1, 3) },
-      { id: 'm4', kind: 'take', place: 'home door', seconds: 8, subjects: ['hero'], first_frame: { prompt: 'x' }, shots: shots(3, 8 / 3), video_prompt: 'p3' },
-      { id: 'm5', kind: 'card', seconds: 3, shots: shots(1, 3), caption: { text: '오늘 밤 비 90%', role: 'info' } },
+      { id: 'm1', kind: 'take', place: 'subway exit', seconds: 5, subjects: ['hero'], shots: shots(2, 2.5), video_prompt: 'p1' },
+      { id: 'm2', kind: 'take', place: 'stairs', seconds: 5, subjects: ['hero'], shots: shots(2, 2.5), video_prompt: 'p2' },
+      { id: 'm3', kind: 'take', place: 'bus stop', seconds: 5, subjects: ['hero'], shots: shots(2, 2.5), video_prompt: 'p3' },
+      { id: 'm4', kind: 'photo', file: 'materials/umbrella.jpg', seconds: 3, shots: shots(1, 3) },
+      { id: 'm5', kind: 'take', place: 'shop', seconds: 5, subjects: ['hero'], shots: shots(2, 2.5), video_prompt: 'p4' },
+      { id: 'm6', kind: 'take', place: 'home door', seconds: 4, subjects: ['hero'], shots: shots(2, 2), video_prompt: 'p5' },
+      { id: 'm7', kind: 'card', seconds: 3, shots: shots(1, 3), caption: { text: '오늘 밤 비 90%', role: 'info' } },
     ],
     narration: [{ text: '비 오는 날 퇴근길, 우산 없이 나와 본 적 있죠?' }],
   }
@@ -36,7 +38,7 @@ test('a plan that follows the shortform rules has no errors', () => {
   assert.deepEqual(result.issues.filter((issue) => issue.level === 'error'), [])
   assert.equal(result.ok, true)
   assert.equal(planSeconds(goodPlan()), 30)
-  assert.equal(countTakes(goodPlan()), 3)
+  assert.equal(countTakes(goodPlan()), 5)
 })
 
 test('the hook question must offer three or four options and record the choice', () => {
@@ -65,7 +67,7 @@ test('too few cuts for the length reads as a slideshow', () => {
 
 test('a shot longer than four seconds is flagged', () => {
   const plan = goodPlan()
-  plan.moments[0].shots = [{ seconds: 5, framing: 'wide', action: 'a' }, { seconds: 3, framing: 'close', action: 'b' }]
+  plan.moments[0].shots = [{ seconds: 4.5, framing: 'wide', action: 'a' }, { seconds: 0.5, framing: 'close', action: 'b' }]
   assert.ok(codes(plan).includes('pace.shot'))
 })
 
@@ -75,22 +77,17 @@ test('take shots must add up to the take length', () => {
   assert.ok(codes(plan).includes('take.shots_sum'))
 })
 
-test('take length must fit the backend limits', () => {
+test('take length must fit the backend limits (LTX: up to 5 seconds per generation)', () => {
   const plan = goodPlan()
-  plan.moments[0].seconds = 16
-  plan.moments[0].shots = shots(8, 2)
+  plan.moments[0].seconds = 6
+  plan.moments[0].shots = shots(3, 2)
   assert.ok(codes(plan).includes('take.seconds'))
-})
-
-test('a take with a person subject needs a first frame so identity carries across takes', () => {
-  const plan = goodPlan()
-  delete plan.moments[0].first_frame
-  assert.ok(codes(plan).includes('take.first_frame'))
+  assert.ok(!validatePlan(plan, { take: { min: 1, max: 10 } }).issues.some((issue) => issue.code === 'take.seconds'))
 })
 
 test('camera moves over stills are only for real photos from materials/', () => {
   const plan = goodPlan()
-  plan.moments[2].file = 'stills/generated.png'
+  plan.moments[3].file = 'stills/generated.png'
   assert.ok(codes(plan).includes('photo.real'))
 })
 
@@ -100,10 +97,13 @@ test('unknown subjects are rejected', () => {
   assert.ok(codes(plan).includes('subject.unknown'))
 })
 
-test('deprecated Omni control tags in prompts are rejected', () => {
+test('asking the video model for no subtitles makes it draw fake lettering, so those words are rejected', () => {
   const plan = goodPlan()
-  plan.moments[0].video_prompt = '<IMAGE_REF_0> walks in'
-  assert.ok(codes(plan).includes('prompt.control_tag'))
+  plan.moments[0].video_prompt = 'rainy street. No text, no subtitles, no music.'
+  assert.ok(codes(plan).includes('prompt.text_words'))
+  plan.moments[0].video_prompt = 'rainy street'
+  plan.moments[0].shots[0].action = 'a caption appears'
+  assert.ok(codes(plan).includes('prompt.text_words'))
 })
 
 test('prices and numbers inside a video prompt are warned to move to overlays', () => {

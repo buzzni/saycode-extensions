@@ -1,6 +1,6 @@
 // 애니매틱(draft)과 완성본(final) 조립. 장면마다 같은 규격의 조각을 만들고 이어 붙인 뒤,
 // 내레이션을 깔고 글자 PNG 를 시간대별로 겹친다.
-import { access, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { captionBox, captionEvents } from './captions.mjs'
@@ -25,7 +25,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   const base = join(work, 'base.mp4')
   await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', base])
 
-  const events = captionEvents(plan, narration)
+  const events = [...(mode === 'draft' ? storyboardEvents(plan) : []), ...captionEvents(plan, narration)]
   const captions = await renderCaptions(events, join(work, 'captions'), config)
   const total = segmentsSeconds(plan)
 
@@ -79,6 +79,21 @@ export async function contactSheet(input, out, { every = 1.5, columns = 6, tileW
   return out
 }
 
+// 애니매틱에서 아직 만들지 않은 테이크 자리에 장소와 컷 구성을 적어 둔다(콘티 카드).
+function storyboardEvents(plan) {
+  const events = []
+  let cursor = 0
+  for (const moment of plan.moments) {
+    const end = Math.round((cursor + Number(moment.seconds)) * 1000) / 1000
+    if (moment.kind === 'take') {
+      const shots = (moment.shots ?? []).map((shot) => shot.framing).join(' → ')
+      events.push({ text: `[${moment.id}] ${moment.place ?? ''}\n${shots}`, role: 'storyboard', start: cursor, end })
+    }
+    cursor = end
+  }
+  return events
+}
+
 function segmentsSeconds(plan) {
   return Math.round(plan.moments.reduce((sum, moment) => sum + Number(moment.seconds), 0) * 1000) / 1000
 }
@@ -104,12 +119,7 @@ async function renderSegment({ root, moment, mode, config, file }) {
     await ffmpeg(['-i', join(root, moment.file), ...silence, '-map', '0:v', '-map', '1:a', '-vf', zoom, ...encode])
     return
   }
-  const still = moment.kind === 'take' ? join(root, 'stills', `${moment.id}.png`) : undefined
-  if (still && await exists(still)) {
-    await ffmpeg(['-loop', '1', '-framerate', String(fps), '-i', still, ...silence, '-map', '0:v', '-map', '1:a', '-vf', fit, ...encode])
-    return
-  }
-  const color = moment.background ?? (moment.kind === 'card' ? '0x111111' : '0x333333')
+  const color = moment.background ?? (moment.kind === 'card' ? '0x111111' : '0x2a3442')
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', ...encode])
 }
 
@@ -123,8 +133,4 @@ async function renderCaptions(events, directory, config) {
   await writeFile(spec, JSON.stringify({ width: config.width, height: config.height, font: config.font, items }))
   await run('osascript', ['-l', 'JavaScript', JXA, spec])
   return events.map((event, index) => ({ file: items[index].out, start: event.start, end: event.end }))
-}
-
-async function exists(path) {
-  return access(path).then(() => true, () => false)
 }

@@ -1,9 +1,5 @@
 {
   "autopilot": false,
-  "video": {
-    "resolution": "720p",
-    "api": { "enabled": true, "capUsd": 3, "resolution": "720p" },
-    "app": { "enabled": false, "measured": false, "remaining": 0 }
-  },
-  "voice": { "voice": "Kore", "style": "" }
+  "video": { "width": 576, "height": 1024, "fps": 24 },
+  "voice": { "language": "korean", "speaker": "sohee" }
 }

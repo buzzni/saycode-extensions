@@ -1,22 +1,18 @@
-// 프로젝트 설정(config/settings.json)과 .env 읽기. 키는 .env 에만 둔다.
+// 프로젝트 설정(config/settings.json)과 .env 읽기. 서버 주소·토큰은 .env 에만 둔다(템플릿에 싣지 않는다).
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export const DEFAULTS = {
   fake: false,
   autopilot: false,
+  // 완성본 규격. 생성 영상(video.width×height)은 여기에 맞춰 늘린다.
   width: 1080,
   height: 1920,
   fps: 30,
-  aspect: '9:16',
   font: 'AppleSDGothicNeo-Heavy',
-  video: {
-    resolution: '720p',
-    quietLine: 'No subtitles, no captions, no on-screen text. No background music.',
-    app: { enabled: false, measured: false, remaining: 0 },
-    api: { enabled: true, capUsd: 3, resolution: '720p', costPerSecond: { '360p': 0.023, '720p': 0.07, '1080p': 0.104 } },
-  },
-  voice: { voice: 'Kore', style: '', start: 0.2, gap: 0.3 },
+  video: { width: 576, height: 1024, fps: 24 },
+  voice: { language: 'korean', speaker: 'sohee', start: 0.2, gap: 0.3 },
   mix: { underNarration: 0.3 },
 }
 
@@ -40,7 +36,18 @@ export async function loadEnv(root) {
   } catch (error) {
     if (error.code !== 'ENOENT') throw error
   }
-  return { ...env, ...pick(process.env, ['GEMINI_API_KEY']) }
+  const merged = { ...env, ...pick(process.env, ['LTX_URL', 'QWEN_TTS_URL', 'QWEN_TTS_TOKEN']) }
+  if (!merged.QWEN_TTS_TOKEN) merged.QWEN_TTS_TOKEN = await readTokenFile()
+  return merged
+}
+
+// 토큰은 프로젝트 밖 사용자 설정 폴더에 둘 수도 있다(여러 프로젝트에서 같이 쓰고, 프로젝트를 공유해도 새지 않게).
+async function readTokenFile() {
+  try {
+    return (await readFile(join(homedir(), '.config', 'shorts-director', 'tts-token'), 'utf8')).trim() || undefined
+  } catch {
+    return undefined
+  }
 }
 
 function merge(base, override) {

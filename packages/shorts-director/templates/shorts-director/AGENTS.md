@@ -5,5 +5,5 @@
 
 - 도구: `node tools/sd.mjs <command>` (도움말은 인자 없이 실행)
 - 상태: `status.md`, `plan.json`, `jobs/` — 대화가 바뀌어도 여기서 이어 간다
-- 비밀: `.env`(GEMINI_API_KEY)와 `knowledge/`(비공개 원문)는 커밋·출력하지 않는다
+- 비밀: `.env`(서버 주소·QWEN_TTS_TOKEN)와 `knowledge/`(비공개 원문)는 커밋·출력하지 않는다
 - 테스트: `node --test tools/test/`

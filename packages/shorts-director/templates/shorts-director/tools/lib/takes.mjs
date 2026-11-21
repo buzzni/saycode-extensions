@@ -1,32 +1,39 @@
-// plan.json 의 테이크 장면 → 영상 백엔드에 보낼 요청. 한 테이크 안의 컷은 시간 구간으로 적는다.
-// 모델 문법은 실측 전 잠정이다 — references/video-prompting.md 와 함께 고친다.
+// plan.json 의 테이크 장면 → LTX 요청. LTX 는 한 문단의 서술을 잘 따르고, 문단 안의 "Hard cut to" 로 컷을 나눈다.
+// 이미지 입력이 없어 인물 일관성은 같은 외형 묘사를 매 테이크에 그대로 넣는 것으로 지킨다.
+import { createHash } from 'node:crypto'
 
-export function buildTake(moment, config) {
-  const timeline = []
-  let cursor = 0
-  for (const shot of moment.shots ?? []) {
-    const end = cursor + Number(shot.seconds)
-    timeline.push(`[${format(cursor)}-${format(end)}s] ${shot.framing}: ${shot.action}`)
-    cursor = end
-  }
-  const spoken = (moment.dialogue ?? []).map((line) => `${line.speaker} says in Korean: "${line.text}"`)
-  const prompt = [
-    moment.video_prompt,
-    timeline.length ? `Shots (hard cuts between them, same place and moment):\n${timeline.join('\n')}` : '',
-    spoken.length ? `Spoken lines:\n${spoken.join('\n')}` : '',
-    config.video.quietLine,
-  ].filter(Boolean).join('\n\n')
+export function buildTake(moment, plan, config) {
+  const subjects = new Map((plan.subjects ?? []).map((subject) => [subject.id, subject]))
+  const looks = (moment.subjects ?? []).map((id) => subjects.get(id)).filter((subject) => subject?.look)
+  const sentences = [
+    sentence(moment.video_prompt),
+    ...looks.map((subject) => sentence(`The same ${subject.kind === 'person' ? 'person' : subject.kind ?? 'subject'} throughout: ${subject.look}`)),
+    ...(moment.shots ?? []).map((shot, index) => sentence(index === 0 ? capitalize(`${shot.framing}: ${shot.action}`) : `Hard cut to ${shot.framing}: ${shot.action}`)),
+    ...(moment.dialogue ?? []).map((line) => `${line.speaker} says in Korean, "${line.text}"`),
+    sentence(moment.sound),
+  ].filter(Boolean)
 
   return {
     momentId: moment.id,
-    prompt,
+    prompt: sentences.join(' '),
     seconds: Number(moment.seconds),
-    aspect: config.aspect,
-    resolution: config.video.resolution,
-    ...(moment.first_frame ? { firstFrame: `stills/${moment.id}.png` } : {}),
+    width: config.video.width,
+    height: config.video.height,
+    fps: config.video.fps,
+    seed: Number.isInteger(moment.seed) ? moment.seed : stableSeed(`${plan.title ?? ''}/${moment.id}`),
   }
 }
 
-function format(seconds) {
-  return String(Math.round(seconds * 100) / 100)
+function stableSeed(key) {
+  return parseInt(createHash('sha256').update(key).digest('hex').slice(0, 8), 16) % 2147483647
+}
+
+function sentence(text) {
+  const trimmed = String(text ?? '').trim()
+  if (!trimmed) return ''
+  return /[.!?…"]$/.test(trimmed) ? trimmed : `${trimmed}.`
+}
+
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }

@@ -3,37 +3,49 @@ import { test } from 'node:test'
 
 import { buildTake } from '../lib/takes.mjs'
 
-const config = { aspect: '9:16', video: { resolution: '720p', quietLine: 'No subtitles. No background music.' } }
+const config = { video: { width: 576, height: 1024, fps: 24 } }
+const plan = {
+  title: '퇴근길 우산',
+  subjects: [{ id: 'hero', kind: 'person', look: 'a Korean woman in her early thirties, shoulder-length black hair, beige trench coat' }],
+}
 
-test('a take prompt carries the scene, a timed shot list, spoken lines and the quiet line', () => {
+test('an LTX take is one flowing paragraph: scene, the recurring look, shots joined by hard cuts, speech and sound', () => {
   const moment = {
     id: 'm1',
     kind: 'take',
     place: 'subway exit',
-    seconds: 6,
-    first_frame: { prompt: 'x' },
-    video_prompt: 'Rainy evening at a Seoul subway exit, handheld phone camera.',
+    seconds: 5,
+    subjects: ['hero'],
+    video_prompt: 'Handheld phone video, rainy evening at a Seoul subway exit, cool streetlight on wet pavement.',
     shots: [
-      { seconds: 2, framing: 'wide', action: 'she stops at the top of the stairs' },
-      { seconds: 2.5, framing: 'close-up', action: 'rain hits her face' },
-      { seconds: 1.5, framing: 'pov_hands', action: 'she opens an empty bag' },
+      { seconds: 2, framing: 'wide shot', action: 'she stops at the top of the stairs and stares at the rain' },
+      { seconds: 1.5, framing: 'close-up', action: 'her hands dig through an empty tote bag' },
+      { seconds: 1.5, framing: 'over the shoulder', action: 'people with umbrellas hurry past' },
     ],
-    dialogue: [{ speaker: 'the woman', text: '아 진짜…' }],
+    dialogue: [{ speaker: 'She', text: '아 진짜…' }],
+    sound: 'Heavy rain and distant traffic.',
   }
-  const take = buildTake(moment, config)
+  const take = buildTake(moment, plan, config)
   assert.equal(take.momentId, 'm1')
-  assert.equal(take.seconds, 6)
-  assert.equal(take.firstFrame, 'stills/m1.png')
-  assert.equal(take.resolution, '720p')
-  assert.match(take.prompt, /^Rainy evening/)
-  assert.match(take.prompt, /\[0-2s\] wide: she stops/)
-  assert.match(take.prompt, /\[2-4\.5s\] close-up: rain hits/)
-  assert.match(take.prompt, /\[4\.5-6s\] pov_hands/)
-  assert.match(take.prompt, /the woman says in Korean: "아 진짜…"/)
-  assert.match(take.prompt, /No background music\.$/)
+  assert.equal(take.seconds, 5)
+  assert.equal(take.width, 576)
+  assert.equal(take.height, 1024)
+  assert.equal(take.fps, 24)
+  assert.ok(Number.isInteger(take.seed))
+  assert.equal(take.prompt, [
+    'Handheld phone video, rainy evening at a Seoul subway exit, cool streetlight on wet pavement.',
+    'The same person throughout: a Korean woman in her early thirties, shoulder-length black hair, beige trench coat.',
+    'Wide shot: she stops at the top of the stairs and stares at the rain.',
+    'Hard cut to close-up: her hands dig through an empty tote bag.',
+    'Hard cut to over the shoulder: people with umbrellas hurry past.',
+    'She says in Korean, "아 진짜…"',
+    'Heavy rain and distant traffic.',
+  ].join(' '))
 })
 
-test('a take without a first frame is pure text to video', () => {
-  const take = buildTake({ id: 'm2', kind: 'take', seconds: 4, video_prompt: 'p', shots: [{ seconds: 4, framing: 'wide', action: 'a' }] }, config)
-  assert.equal(take.firstFrame, undefined)
+test('the seed is stable per moment so a re-run reproduces the same take, and can be pinned', () => {
+  const moment = { id: 'm2', kind: 'take', seconds: 3, video_prompt: 'p', shots: [{ seconds: 3, framing: 'wide', action: 'a' }] }
+  assert.equal(buildTake(moment, plan, config).seed, buildTake(moment, plan, config).seed)
+  assert.notEqual(buildTake(moment, plan, config).seed, buildTake({ ...moment, id: 'm3' }, plan, config).seed)
+  assert.equal(buildTake({ ...moment, seed: 42 }, plan, config).seed, 42)
 })
