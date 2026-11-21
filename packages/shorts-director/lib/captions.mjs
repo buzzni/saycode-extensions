@@ -29,6 +29,32 @@ export function layoutNarration(lines, { start = 0, gap = 0.3 } = {}) {
   return timed
 }
 
+// 숏폼 내레이션은 초당 6~7.5음절이 보통이다. Qwen TTS 는 초당 5음절 남짓이라 늘어진다 — 목표까지 올리되 1.25배를 넘기지 않는다.
+export function speechTempo(text, seconds, { target = 6.5, max = 1.25 } = {}) {
+  const syllables = (String(text).match(/[가-힣]|[A-Za-z]+|\d/g) ?? []).length
+  const rate = syllables / Number(seconds)
+  if (!rate || rate >= target) return 1
+  return Math.min(target / rate, max)
+}
+
+// 말이 끝난 뒤 장면이 0.4초 넘게 남으면 그 구간은 소리 없는 빈 화면이 된다. 테이크를 만들기 전에 장면을 줄이라고 알린다.
+export function scenesLongerThanSpeech(plan, lines, { tolerance = 0.4 } = {}) {
+  const ends = new Map()
+  let cursor = 0
+  for (const moment of plan.moments ?? []) {
+    cursor = round(cursor + Number(moment.seconds))
+    ends.set(moment.id, cursor)
+  }
+  const lastLine = new Map()
+  for (const line of lines) if (line.moment) lastLine.set(line.moment, line)
+  const idle = []
+  for (const [id, line] of lastLine) {
+    const gap = round(ends.get(id) - line.end)
+    if (gap > tolerance) idle.push({ id, idle: gap })
+  }
+  return idle
+}
+
 export function wrapLine(text, maxChars = 8, maxLines = 3) {
   const lines = []
   let current = ''

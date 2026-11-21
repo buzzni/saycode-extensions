@@ -40,6 +40,11 @@ export async function tightenSpeech(input, output) {
   await ffmpeg(['-i', input, '-af', `${edge},areverse,${edge},areverse,${pauses}`, output])
 }
 
+// 말 빠르기를 바꾼다(atempo 는 음높이를 유지한다). 1 이면 그대로 옮긴다.
+export async function changeTempo(input, output, tempo) {
+  await ffmpeg(['-i', input, '-af', tempo === 1 ? 'anull' : `atempo=${tempo.toFixed(3)}`, output])
+}
+
 // 영상에서 한 프레임을 PNG 로 뽑는다. at 이 'end' 면 마지막 프레임.
 // 끝에서 1초를 디코딩해 같은 파일을 덮어쓰게 해 마지막 프레임이 남게 한다 — 오디오가 영상보다 조금 길면
 // 컨테이너 끝 기준 짧은 seek 은 프레임 없이 성공해 버린다(실측). 결과 파일이 없으면 실패로 본다.

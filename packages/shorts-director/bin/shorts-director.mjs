@@ -9,10 +9,10 @@ import { fileURLToPath } from 'node:url'
 import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
-import { layoutNarration } from '../lib/captions.mjs'
+import { layoutNarration, scenesLongerThanSpeech, speechTempo } from '../lib/captions.mjs'
 import { loadConfig, loadEnv, loadTts, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
-import { detectCuts, extractFrame, probe, run, tightenSpeech } from '../lib/media.mjs'
+import { changeTempo, detectCuts, extractFrame, probe, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
@@ -156,16 +156,30 @@ async function voice() {
     const raw = join(root, 'audio', 'narration', `${name}.raw.wav`)
     const file = join('audio', 'narration', `${name}.wav`)
     await speak(raw, { text: line.text, language: config.voice.language, speaker: line.speaker ?? config.voice.speaker })
-    await tightenSpeech(raw, join(root, file))
+    const tight = join(root, 'audio', 'narration', `${name}.tight.wav`)
+    await tightenSpeech(raw, tight)
+    const tempo = speechTempo(line.text, (await probe(tight)).duration, { target: config.voice.syllablesPerSecond, max: config.voice.maxTempo })
+    await changeTempo(tight, join(root, file), tempo)
+    await rm(tight, { force: true })
     const minStart = line.moment ? momentStart(plan, line.moment) + config.voice.start : undefined
-    measured.push({ text: line.text, file, seconds: Math.round((await probe(join(root, file))).duration * 1000) / 1000, ...(minStart === undefined ? {} : { minStart }) })
-    console.log(`✓ ${name} ${measured.at(-1).seconds}초 — ${line.text}`)
+    measured.push({
+      text: line.text,
+      file,
+      seconds: Math.round((await probe(join(root, file))).duration * 1000) / 1000,
+      tempo: Math.round(tempo * 100) / 100,
+      ...(line.moment ? { moment: line.moment } : {}),
+      ...(minStart === undefined ? {} : { minStart }),
+    })
+    console.log(`✓ ${name} ${measured.at(-1).seconds}초${tempo > 1 ? ` (${measured.at(-1).tempo}배속)` : ''} — ${line.text}`)
   }
   const lines = layoutNarration(measured, { start: config.voice.start, gap: config.voice.gap })
   const total = planSeconds(plan)
   const end = lines.at(-1)?.end ?? 0
   await writeFile(join(root, 'audio', 'narration.json'), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
   console.log(`✓ 내레이션 ${lines.length}줄 · 끝 ${end}초 / 영상 ${total}초`)
+  for (const scene of scenesLongerThanSpeech(plan, lines)) {
+    console.log(`! ${scene.id} 장면이 말보다 ${scene.idle}초 길다 — 빈 소리 구간이 된다. 테이크를 만들기 전에 장면을 줄이거나 말을 늘린다.`)
+  }
   if (end > total - 0.2) console.log(`! 내레이션이 영상보다 ${Math.round((end - total + 0.2) * 10) / 10}초 길다 — 문장을 줄이거나 장면을 늘린다.`)
 }
 

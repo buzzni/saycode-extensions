@@ -63,6 +63,8 @@ test('the full pipeline renders a draft and a final short with fake backends', {
     const narration = JSON.parse(await readFile(join(root, 'audio/narration.json'), 'utf8'))
     assert.equal(narration.lines.length, 2)
     assert.ok(narration.lines[1].start > narration.lines[0].end)
+    assert.ok(narration.lines[0].tempo > 1, 'slow speech is sped up')
+    assert.ok(narration.lines[1].start - narration.lines[0].end <= 0.11, 'lines follow each other with a short breath')
 
     await run(root, 'animatic')
     const draft = await probe(join(root, 'out/draft.mp4'))

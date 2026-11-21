@@ -13,7 +13,7 @@ export const DEFAULTS = {
   fps: 30,
   font: 'AppleSDGothicNeo-Heavy',
   video: { width: 576, height: 1024, fps: 24 },
-  voice: { language: 'korean', speaker: 'sohee', start: 0.2, gap: 0.3 },
+  voice: { language: 'korean', speaker: 'sohee', start: 0.2, gap: 0.1, syllablesPerSecond: 6.5, maxTempo: 1.25 },
   mix: { underNarration: 0.3 },
 }
 
