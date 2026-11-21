@@ -9,6 +9,8 @@ const MAX_SHOT_SECONDS = 4
 const SECONDS_PER_CUT = 3
 const NARRATION_CHARS_PER_SECOND = 6
 const TARGET_TOLERANCE = 0.2
+// 30초 기준 8~12초 — 이탈이 가장 많은 구간. 이보다 이른 반전은 훅의 첫 보상이라 리훅을 대신하지 못한다.
+const REHOOK_WINDOW = [0.25, 0.45]
 // 영상 모델에 자막을 넣지 말라고 쓰면 오히려 가짜 글자를 그린다(LTX 실측 2026-11-21). 그런 단어 자체를 쓰지 않는다.
 const TEXT_WORDS = /subtitle|caption|자막|on-screen text|\bno text\b/i
 // 간판·포스터가 많은 장소. LTX 는 장면 속 글자를 그리면 한글이 깨진다(실측 2026-11-21) — 배경을 흐리게 찍으면 사라진다.
@@ -140,8 +142,9 @@ function checkStructure(plan, moments, total, error, warn) {
       if (moment.beat === 'rehook') rehookAt.push(cursor)
       cursor += Number(moment.seconds)
     }
-    if (!rehookAt.some((start) => start >= total * 0.2 && start <= total * 0.5)) {
-      warn('pace.rehook', `중반 리훅(반전·예외·시각 전환)을 ${Math.round(total * 0.25)}~${Math.round(total * 0.45)}초 무렵 장면에 둔다(beat: "rehook").`)
+    const [from, to] = REHOOK_WINDOW.map((ratio) => total * ratio)
+    if (!rehookAt.some((start) => start >= from && start <= to)) {
+      warn('pace.rehook', `중반 리훅(반전·예외·시각 전환)은 ${from.toFixed(1)}~${to.toFixed(1)}초(전체의 25~45%)에 시작하는 장면에 둔다(beat: "rehook"). 그보다 이른 반전은 훅의 첫 보상이고, 리훅은 따로 둔다.`)
     }
   }
 

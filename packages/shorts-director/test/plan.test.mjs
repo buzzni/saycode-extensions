@@ -88,6 +88,10 @@ test('a re-hook lands around a third of the way in', () => {
   delete late.moments[2].beat
   late.moments[5].beat = 'rehook'
   assert.ok(codes(late).includes('pace.rehook'))
+  const halfway = goodPlan()
+  delete halfway.moments[2].beat
+  halfway.moments[3].beat = 'rehook'
+  assert.ok(codes(halfway).includes('pace.rehook'), 'the window is 25–45%, so a scene starting at 50% is too late')
 })
 
 test('narration and captions avoid AI-script filler', () => {

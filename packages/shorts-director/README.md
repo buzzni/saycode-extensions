@@ -39,7 +39,7 @@ npx -y @buzzni/shorts-director status     # status.md
   proof), each with the single question it plants; a cut every ~3 seconds; no title-card opening; takes of 1–5
   seconds; no subtitle or caption words in video prompts (they make LTX draw fake lettering).
 - Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
-  `beat: "rehook"` scene lands 20–50% of the way in; the ending is a peak, a loop or exactly one CTA; the length
+  `beat: "rehook"` scene lands 25–45% of the way in; the ending is a peak, a loop or exactly one CTA; the length
   suits the `platform` (shorts / reels / tiktok).
 - Script warnings: AI-script filler (greetings, "today we'll…", list connectives) and numbers (%, prices,
   multiples, head counts) that have no `facts` entry with a source.
