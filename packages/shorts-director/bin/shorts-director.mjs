@@ -66,7 +66,7 @@ async function init() {
   }
   if (!await exists(join(root, '.env.example'))) {
     await writeFile(join(root, '.env.example'), ENV_EXAMPLE)
-    console.log('✓ .env.example — .env 로 복사해 서버 주소를 채운다')
+    console.log('✓ .env.example — 이 프로젝트만 다른 서버를 쓸 때 .env 로 복사한다')
   }
   await mkdir(join(root, 'materials'), { recursive: true })
   const ltx = optionValue('--ltx-url')
