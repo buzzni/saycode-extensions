@@ -96,6 +96,33 @@ test('the full pipeline renders a draft and a final short with fake backends', {
   }
 })
 
+// 카드 배경(어두운 단색) 위 가장 밝은 화소 — 글자가 있으면 흰색에 가깝다.
+async function brightestAt(file, seconds) {
+  const { stdout } = await exec('ffmpeg', ['-v', 'error', '-ss', String(seconds), '-i', file, '-frames:v', '1', '-vf', 'format=gray', '-f', 'rawvideo', '-'], { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 })
+  return stdout.reduce((max, value) => Math.max(max, value), 0)
+}
+
+test('captions after a JPEG photo still show: a phone photo does not drop the later captions', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 240_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-jpeg-'))
+  try {
+    await mkdir(join(root, 'materials'), { recursive: true })
+    await mkdir(join(root, 'config'), { recursive: true })
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=orange:s=640x960', '-frames:v', '1', join(root, 'materials/photo.jpg')])
+    const withJpeg = plan()
+    withJpeg.moments[1].file = 'materials/photo.jpg'
+    await writeFile(join(root, 'plan.json'), JSON.stringify(withJpeg, null, 2))
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+
+    await run(root, 'voice')
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    await run(root, 'render')
+    assert.ok(await brightestAt(join(root, 'out/final.mp4'), 11) > 200, 'the card caption after the photo is drawn')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('check exits non-zero when the plan breaks a rule', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sd-check-'))
   try {

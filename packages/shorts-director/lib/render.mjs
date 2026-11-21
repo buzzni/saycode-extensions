@@ -104,8 +104,12 @@ function segmentsSeconds(plan) {
 async function renderSegment({ root, moment, mode, config, file }) {
   const { width: W, height: H, fps } = config
   const seconds = String(moment.seconds)
-  const fit = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps}`
+  // 장면마다 색 형식이 다르면(휴대폰 JPEG 는 full range) 이어 붙인 영상 중간에 형식이 바뀌고, ffmpeg 가 필터를 다시 만들면서
+  // 한 장짜리 글자 이미지가 사라진다. 모든 장면을 같은 형식으로 맞춘다.
+  const sameFormat = 'scale=out_range=tv:out_color_matrix=bt709,format=yuv420p'
+  const fit = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${fps},${sameFormat}`
   const encode = ['-t', seconds, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps),
+    '-color_range', 'tv', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
     '-c:a', 'aac', '-ar', '48000', '-ac', '2', file]
   const silence = ['-f', 'lavfi', '-t', seconds, '-i', 'anullsrc=r=48000:cl=stereo']
 
@@ -118,13 +122,13 @@ async function renderSegment({ root, moment, mode, config, file }) {
   }
   if (moment.kind === 'photo') {
     const frames = Math.round(Number(moment.seconds) * fps)
-    const zoom = `scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps},setsar=1`
+    const zoom = `scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps},setsar=1,${sameFormat}`
     await ffmpeg(['-i', materialPath(root, moment.file), ...silence, '-map', '0:v', '-map', '1:a', '-vf', zoom, ...encode])
     return
   }
   const fallback = moment.kind === 'card' ? '0x111111' : '0x2a3442'
   const color = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/.test(String(moment.background ?? '')) ? moment.background : fallback
-  await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', ...encode])
+  await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
 }
 
 async function renderCaptions(events, directory, config) {
