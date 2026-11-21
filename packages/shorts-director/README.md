@@ -58,6 +58,11 @@ npx -y @buzzni/shorts-director status     # status.md
   narration subtitles change in one-line pieces of about fifteen characters timed to the speech. Fonts are Korean
   SIL OFL fonts (Pretendard and Google Fonts `ofl/`, pinned by checksum) downloaded to `~/.config/shorts-director/fonts/`;
   without them the system font is used. Every look keeps text-on-box contrast at 4.5:1 or more.
+- One caption can differ from its look: `caption.look` overrides font, colours, box, outline, size or entrance, and
+  `caption.position` moves it (`y` from the top, `x` left/center/right); `check` refuses unknown fonts and unreadable
+  colours. After `render`, each on-screen caption's drawn box is compared with the faces and the main subject that
+  macOS Vision finds in the caption-free frame; covering more than 15% of a face or 25% of the subject's middle, or
+  touching the side edges, is reported (also in `out/text-check.json`) so the caption can be moved and re-rendered.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of
   your own works too: `plan.music: { file: "materials/…" }`.
