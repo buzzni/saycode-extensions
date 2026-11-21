@@ -34,6 +34,10 @@ jobs:
       - run: npm run package:moai
       - run: node --test packages/react-source-locator/tests/*.test.mjs
       - run: npm run package:react-source-locator
+      - run: npm run package:spatial-content
+      - name: Create Spatial Content checksum
+        working-directory: packages/spatial-content
+        run: sha256sum *.saycode-extension > buzzni.spatial-content-0.1.2.saycode-extension.sha256
       - name: Create checksum
         working-directory: examples/hello-world
         run: sha256sum *.saycode-extension > buzzni.hello-world-1.0.1.saycode-extension.sha256
@@ -99,6 +103,8 @@ jobs:
           packages/media-preview/buzzni.media-preview-1.0.0.saycode-extension.sha256
           packages/react-source-locator/buzzni.react-source-locator-1.0.0.saycode-extension
           packages/react-source-locator/buzzni.react-source-locator-1.0.0.saycode-extension.sha256
+          packages/spatial-content/buzzni.spatial-content-0.1.2.saycode-extension
+          packages/spatial-content/buzzni.spatial-content-0.1.2.saycode-extension.sha256
           --generate-notes
           --title "$GITHUB_REF_NAME"
 
