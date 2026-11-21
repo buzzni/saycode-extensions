@@ -48,7 +48,15 @@ npx -y @buzzni/shorts-director status     # status.md
 - Takes are recorded before they are submitted and reused when the same request was already downloaded, so a lost
   connection never generates the same take twice.
 - `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.
-- Narration is trimmed of leading, trailing and long inner silences and measured before it is laid out.
+- Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
+  1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
+  narration, so they can be shortened before any take is generated.
+- The mix ducks the scene sound (and `plan.music`, a track from `materials/`) only while narration plays, adds short
+  sound effects synthesized by ffmpeg on the hook, cuts, the re-hook and titles (no audio files ship with the package),
+  fades out the last half second and limits peaks.
+- The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
+  between 1.0x and 1.15x framing at every planned shot (punch-in), and `render` reports the real cut count and the
+  longest unbroken stretch.
 
 ## Private knowledge
 
