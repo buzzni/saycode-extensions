@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { captionBox, captionEvents } from './captions.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
+import { SFX_KINDS, sfxEvents } from './sfx.mjs'
 import { materialPath } from './takeState.mjs'
 
 // pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
@@ -40,6 +41,8 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   addInput('-i', base)
   const narrationIndex = narration.map((line) => addInput('-i', join(root, line.file)))
   const musicIndex = plan.music?.file ? addInput('-stream_loop', '-1', '-i', materialPath(root, plan.music.file)) : undefined
+  const sounds = sfxEvents(plan).filter((sound) => sound.at < total)
+  const sfxIndex = sounds.map((sound) => addInput('-f', 'lavfi', '-i', SFX_KINDS[sound.kind]))
   const captionIndex = captions.map((caption) => addInput('-i', caption.file))
 
   const filters = []
@@ -49,7 +52,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     filters.push(`[${video}][${captionIndex[position]}:v]overlay=0:0:enable='between(t,${caption.start},${caption.end})'[${label}]`)
     video = label
   })
-  filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: plan.music, total, mix: config.mix }))
+  filters.push(...audioFilters({ narration, narrationIndex, musicIndex, music: plan.music, sounds, sfxIndex, total, mix: config.mix }))
 
   await mkdir(join(root, 'out'), { recursive: true })
   await ffmpeg([
@@ -62,7 +65,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     out,
   ])
-  return { out, seconds: total, captions: captions.length }
+  return { out, seconds: total, captions: captions.length, sounds: sounds.length }
 }
 
 export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240 } = {}) {
@@ -74,7 +77,7 @@ export async function contactSheet(input, out, { every = 1.5, columns = 6, tileW
 
 // 소리 바닥: 장면 소리와 배경음은 말할 때만 내려가고(덕킹) 말이 없으면 원래 크기로 들린다. 끝은 페이드아웃한다.
 // 전체를 한 번에 줄이면 말 사이가 빈 소리가 된다 — 숏폼에서 가장 크게 체감되는 차이였다.
-function audioFilters({ narration, narrationIndex, musicIndex, music, total, mix }) {
+function audioFilters({ narration, narrationIndex, musicIndex, music, sounds, sfxIndex, total, mix }) {
   const stereo = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo'
   const filters = [`[0:a]${stereo}[scene]`]
   const under = ['[scene]']
@@ -95,6 +98,15 @@ function audioFilters({ narration, narrationIndex, musicIndex, music, total, mix
     filters.push(`[bed][key]sidechaincompress=threshold=${mix.duck.threshold}:ratio=${mix.duck.ratio}:attack=${mix.duck.attack}:release=${mix.duck.release}[ducked]`)
     filters.push('[ducked][voice]amix=inputs=2:duration=first:normalize=0[front]')
     front = '[front]'
+  }
+  if (sounds.length) {
+    // 효과음은 덕킹하지 않는다 — 말과 같은 층에서 말보다 조금 작게.
+    sounds.forEach((sound, position) => {
+      const delay = Math.round(sound.at * 1000)
+      filters.push(`[${sfxIndex[position]}:a]${stereo},volume=${mix.sfx},adelay=${delay}|${delay}[s${position}]`)
+    })
+    filters.push(`${front}${sounds.map((_, position) => `[s${position}]`).join('')}amix=inputs=${sounds.length + 1}:duration=first:normalize=0[withsfx]`)
+    front = '[withsfx]'
   }
   filters.push(`${front}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,alimiter=limit=0.89,afade=t=out:st=${Math.max(0, total - mix.fadeOut)}:d=${mix.fadeOut}[aout]`)
   return filters

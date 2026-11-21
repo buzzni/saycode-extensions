@@ -213,6 +213,9 @@ test('moment ids and file paths cannot leave the project folder', () => {
   const fifth = goodPlan()
   fifth.music = { file: '../../Music/song.mp3' }
   assert.ok(codes(fifth).includes('music.file'))
+  const sixth = goodPlan()
+  sixth.moments[0].sfx = [{ kind: 'boom', at: 1 }]
+  assert.ok(codes(sixth).includes('sfx.kind'), 'only the sounds the renderer can make')
 })
 
 test('camera moves over stills are only for real photos from materials/', () => {

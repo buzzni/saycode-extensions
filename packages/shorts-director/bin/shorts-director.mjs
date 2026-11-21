@@ -199,7 +199,7 @@ async function render() {
   for (const entry of entries.values()) await placeTake(entry.moment.id, entry.done)
   const out = join(root, 'out', 'final.mp4')
   const result = await renderVideo({ root, plan, config, mode: 'final', narration: await loadNarration(), out })
-  console.log(`✓ 완성본 ${result.seconds}초 → out/final.mp4 (검수 대기)`)
+  console.log(`✓ 완성본 ${result.seconds}초 → out/final.mp4 (검수 대기) · 효과음 ${result.sounds}개${plan.music ? '' : ' · 배경음 없음(plan.music)'}`)
 }
 
 async function takes() {

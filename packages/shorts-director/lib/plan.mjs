@@ -4,6 +4,7 @@
 import { posix } from 'node:path'
 
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
+import { SFX_KINDS } from './sfx.mjs'
 
 const MAX_SHOT_SECONDS = 4
 const SECONDS_PER_CUT = 3
@@ -48,6 +49,12 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
 
   if (plan.music && !inMaterials(plan.music.file)) {
     error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
+  }
+
+  for (const moment of plan.moments ?? []) {
+    if (Array.isArray(moment.sfx) && moment.sfx.some((sound) => !SFX_KINDS[sound?.kind])) {
+      error('sfx.kind', `효과음은 ${Object.keys(SFX_KINDS).join(', ')} 중에서 고른다.`, moment.id)
+    }
   }
 
   const options = plan.hook?.options

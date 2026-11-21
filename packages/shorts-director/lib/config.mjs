@@ -15,7 +15,7 @@ export const DEFAULTS = {
   video: { width: 576, height: 1024, fps: 24 },
   voice: { language: 'korean', speaker: 'sohee', start: 0.2, gap: 0.1, syllablesPerSecond: 6.5, maxTempo: 1.25 },
   // 덕킹: 내레이션이 들리는 동안만 장면 소리·배경음을 누른다. music 은 plan.music 의 기본 크기.
-  mix: { duck: { threshold: 0.02, ratio: 8, attack: 20, release: 300 }, music: 0.12, fadeOut: 0.5 },
+  mix: { duck: { threshold: 0.02, ratio: 8, attack: 20, release: 300 }, music: 0.12, sfx: 0.5, fadeOut: 0.5 },
 }
 
 export async function loadConfig(root) {
