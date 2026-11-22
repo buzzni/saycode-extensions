@@ -344,3 +344,7 @@ The `examples/session-env-sample` (static env, secret env, a fixed `npx` stdio s
 The `content.generate` grant requires Extension API 4 and Desktop extension engine 1.4.1. Call `availability` with `{ version: 1 }` to check which of `room`, `person` and `story` the current organization has provisioned. `start` takes a kind and prompt and returns an opaque job ID. Use `status` to read text or model size and chunk size, then `read` with the ID and byte offset for each model chunk. Always `release` the job after use or cancellation. A release stops Desktop from collecting the result. The provider handles processing and any credits already spent.
 
 Spatial Content presents the AI generation form alongside local uploads and its packaged sample. The panel uses the existing command port. Keep provider credentials and download URLs in Desktop.
+
+## Spatial Content sample
+
+Version 0.1.4 includes a new fictional lobby and employee. Their reference images were generated with ImageGen. Depth Anything V2 supplied a depth map for the lobby mesh. TripoSR reconstructed the employee, and the GLB adds a skeleton with idle, walking and greeting clips. The room uses projected photography and a bounded walking area. The bundled sample opens when provider credentials are absent.
