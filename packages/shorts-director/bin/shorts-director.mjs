@@ -136,11 +136,11 @@ async function doctor() {
 }
 
 async function checkServer(name, url, path, headers, describe) {
-  if (!url) return [false, `${name}: 주소가 없다 — shorts-director init --ltx-url <주소> --tts-url <주소> 로 이 PC 에 한 번 저장하거나 프로젝트 .env 에 ${name.startsWith('LTX') ? 'LTX_URL' : 'QWEN_TTS_URL'} 를 넣는다`]
+  if (!url) return [false, `${name}: 주소가 없다 — shorts-director init --ltx-url <주소> --tts-url <주소> 로 이 PC 에 한 번 저장하거나 프로젝트 .env(작업 폴더나 저장소 루트)에 ${name.startsWith('LTX') ? 'LTX_URL' : 'QWEN_TTS_URL'} 를 넣는다`]
   try {
     const response = await fetch(`${url.replace(/\/+$/, '')}${path}`, { headers, signal: AbortSignal.timeout(10_000) })
     const json = await response.json().catch(() => ({}))
-    if (response.status === 401) return [false, `${name}: 토큰이 없거나 틀렸다 — ~/.config/shorts-director/tts-token 에 한 줄로 넣는다`]
+    if (response.status === 401) return [false, `${name}: 토큰이 없거나 틀렸다 — 저장소 루트 .env 의 QWEN_TTS_TOKEN 이나 ~/.config/shorts-director/tts-token(한 줄)을 확인한다`]
     if (!response.ok) return [false, `${name}: HTTP ${response.status}`]
     return [true, `${name}: ${describe(json)}`]
   } catch (error) {

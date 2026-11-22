@@ -1,8 +1,8 @@
 // 프로젝트 설정(config/settings.json)과 서버 주소·토큰 읽기. 주소·토큰은 패키지에 싣지 않는다.
-// 우선순위: 셸 환경 변수 > 프로젝트 .env > 이 PC 의 ~/.config/shorts-director/.env > (토큰만) ~/.config/shorts-director/tts-token
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+// 우선순위: 셸 환경 변수 > 프로젝트 .env > 저장소 루트 .env > 이 PC 의 ~/.config/shorts-director/.env > (토큰만) ~/.config/shorts-director/tts-token
+import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 export const DEFAULTS = {
   fake: false,
@@ -31,6 +31,8 @@ export async function loadConfig(root) {
 }
 
 const KEYS = ['LTX_URL', 'QWEN_TTS_URL', 'QWEN_TTS_TOKEN']
+// 프로젝트 쪽 파일. 여기서 바꾼 음성 서버 주소에는 PC 쪽 토큰을 보내지 않는다.
+const PROJECT_LAYERS = ['project', 'repository']
 
 export function userConfigDir(home = homedir()) {
   return join(home, '.config', 'shorts-director')
@@ -38,7 +40,7 @@ export function userConfigDir(home = homedir()) {
 
 export async function loadEnv(root, { home = homedir() } = {}) {
   const layers = await readLayers(root, home)
-  const merged = { ...layers.user, ...layers.project, ...layers.shell }
+  const merged = { ...layers.user, ...layers.repository, ...layers.project, ...layers.shell }
   if (!merged.QWEN_TTS_TOKEN && layers.tokenFile) merged.QWEN_TTS_TOKEN = layers.tokenFile
   return merged
 }
@@ -47,10 +49,10 @@ export async function loadEnv(root, { home = homedir() } = {}) {
 // 토큰을 보내지 않는다 — 남이 만든 프로젝트를 열었을 때 토큰이 그 프로젝트가 정한 서버로 가지 않게.
 export async function loadTts(root, { home = homedir() } = {}) {
   const layers = await readLayers(root, home)
-  const source = (key) => ['shell', 'project', 'user'].find((layer) => layers[layer][key])
+  const source = (key) => ['shell', 'project', 'repository', 'user'].find((layer) => layers[layer][key])
   const urlSource = source('QWEN_TTS_URL')
   const tokenSource = source('QWEN_TTS_TOKEN') ?? (layers.tokenFile ? 'tokenFile' : undefined)
-  if (urlSource === 'project' && tokenSource && tokenSource !== 'project') {
+  if (PROJECT_LAYERS.includes(urlSource) && tokenSource && !PROJECT_LAYERS.includes(tokenSource)) {
     throw new Error('프로젝트 .env 가 음성 서버 주소를 바꿨다 — 이 PC 의 토큰을 그 주소로 보내지 않는다. 그 서버를 쓰려면 프로젝트 .env 에 QWEN_TTS_TOKEN 도 둔다.')
   }
   const env = await loadEnv(root, { home })
@@ -61,6 +63,7 @@ async function readLayers(root, home) {
   return {
     shell: pick(process.env, KEYS),
     project: await readEnvFile(join(root, '.env')),
+    repository: await readRepositoryEnv(root),
     user: await readEnvFile(join(userConfigDir(home), '.env')),
     tokenFile: await readTokenFile(home),
   }
@@ -87,6 +90,25 @@ export async function saveUserEnv(values, { home = homedir() } = {}) {
   await writeFile(file, `${text}${prefix}${added.map(([key, value]) => `${key}=${value}`).join('\n')}\n`, { mode: 0o600 })
   await chmod(file, 0o600)
   return added.map(([key]) => key)
+}
+
+// 작업 폴더를 품은 저장소 루트(.git 이 있는 가장 가까운 상위 폴더)의 .env. 작업 환경이 서버 주소·토큰을 여기에 써 준다.
+// 작업 폴더가 곧 루트면 프로젝트 .env 와 같은 파일이라 읽지 않고, 저장소 밖이면 상위 폴더의 .env 를 읽지 않는다.
+async function readRepositoryEnv(root) {
+  const start = resolve(root)
+  for (let directory = start; ; directory = dirname(directory)) {
+    if (await exists(join(directory, '.git'))) return directory === start ? {} : readEnvFile(join(directory, '.env'))
+    if (dirname(directory) === directory) return {}
+  }
+}
+
+async function exists(path) {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function readEnvFile(file) {
