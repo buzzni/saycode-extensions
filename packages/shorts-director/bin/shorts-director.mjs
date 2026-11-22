@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // 숏폼 총감독 도구(npx @buzzni/shorts-director). 현재 작업 폴더(프로젝트 루트)를 상태 저장소로 쓴다.
 // 영상은 LTX 로컬 서버, 음성은 Qwen3-TTS 서버(주소·토큰은 .env). config/settings.json 의 fake: true 면 서버 없이 리허설한다.
-import { spawnSync } from 'node:child_process'
 import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import { FONTS, MUSIC, ensureAsset } from '../lib/assets.mjs'
 import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
@@ -19,7 +17,7 @@ import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { contactSheet, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
 
-const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render|sheet [--draft]|cuts <file>|status|music|looks|import-knowledge --from <shorts_maker>|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render|sheet [--draft]|cuts <file>|status|music|looks|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
@@ -34,7 +32,7 @@ const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, music, looks, 'import-knowledge': importKnowledge }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, music, looks }
 
 try {
   if (command === '--version' || command === '-v') {
@@ -107,15 +105,6 @@ async function music() {
 function optionValue(name) {
   const index = rest.indexOf(name)
   return index >= 0 ? rest[index + 1] : undefined
-}
-
-async function importKnowledge() {
-  const from = rest[rest.indexOf('--from') + 1]
-  if (!rest.includes('--from') || !from) throw new Error('usage: shorts-director import-knowledge --from <shorts_maker 경로>')
-  const script = fileURLToPath(new URL('../lib/import-viskit-knowledge.py', import.meta.url))
-  const result = spawnSync('python3', ['-I', script, '--from', from, '--out', join(root, 'knowledge')], { stdio: 'inherit' })
-  if (result.error) throw new Error(`python3 를 실행하지 못했다: ${result.error.message}`)
-  if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
 async function doctor() {
