@@ -328,7 +328,7 @@ async function checkPlacement({ root, base, work, captions, config }) {
   const faces = (scene) => {
     const detected = [...scene.faces.map((face) => fromTop(face)), ...(scene.mirrored ?? [])]
     const hands = (scene.hands ?? []).map((hand) => fromTop(hand))
-    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands })]
+    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands, skin: scene.skin })]
   }
   let next = 0
   const found = sampled.map((count) => {

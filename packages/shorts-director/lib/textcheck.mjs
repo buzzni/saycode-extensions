@@ -41,7 +41,11 @@ const HAND_COVER = 0.3
 const HAND_TOP = 0.1
 const MAX_HAND_HEIGHT = 0.5
 
-export function croppedHeads(person, faces = [], { aspect, hands = [] }) {
+// 윤곽으로 어림한 머리에는 머리카락·모자·후드도 들어간다. 피부색 격자(사람 영역 중 피부색 칸)가 있으면 그 안의 피부 칸
+// 범위로 좁히고, 피부가 없으면(머리카락·모자 조각뿐) 얼굴로 보지 않는다. 피부색 천(베이지 후드)은 피부와 구별하지 못한다.
+const MIN_SKIN_CELLS = 2
+
+export function croppedHeads(person, faces = [], { aspect, hands = [], skin }) {
   if (!person?.lines?.length) return []
   const top = person.lines[0]
   const runs = [...top.matchAll(/#+/g)].map((run) => ({ x: run.index / person.cols, w: run[0].length / person.cols }))
@@ -59,6 +63,43 @@ export function croppedHeads(person, faces = [], { aspect, hands = [] }) {
   return heads
     .filter((head) => !faces.some((face) => overlap(head, face) > 0))
     .filter((head) => !raised.some((hand) => overlap(head, hand) / area(head) > HAND_COVER))
+    .map((head) => (skin ? skinWithin(head, skin) : head))
+    .filter(Boolean)
+}
+
+// 머리 자리 안에서 서로 붙은(상하좌우) 피부 칸 덩어리 중 가장 큰 것을 얼굴로 본다 — 모자의 빛 반사 같은 흩어진 피부색 칸이
+// 얼굴 범위를 모자 쪽으로 늘리지 않게.
+function skinWithin(head, skin) {
+  const [top, bottom] = [Math.floor(head.y * skin.rows), Math.min(skin.rows, Math.ceil((head.y + head.h) * skin.rows))]
+  const [left, right] = [Math.floor(head.x * skin.cols), Math.min(skin.cols, Math.ceil((head.x + head.w) * skin.cols))]
+  const inside = (row, col) => row >= top && row < bottom && col >= left && col < right && skin.lines[row][col] === 's'
+  const seen = new Set()
+  let largest = []
+  for (let row = top; row < bottom; row += 1) {
+    for (let col = left; col < right; col += 1) {
+      if (!inside(row, col) || seen.has(`${row},${col}`)) continue
+      const patch = []
+      const queue = [[row, col]]
+      seen.add(`${row},${col}`)
+      while (queue.length) {
+        const [r, c] = queue.pop()
+        patch.push([r, c])
+        for (const [nr, nc] of [[r + 1, c], [r - 1, c], [r, c + 1], [r, c - 1]]) {
+          if (inside(nr, nc) && !seen.has(`${nr},${nc}`)) {
+            seen.add(`${nr},${nc}`)
+            queue.push([nr, nc])
+          }
+        }
+      }
+      if (patch.length > largest.length) largest = patch
+    }
+  }
+  if (largest.length < MIN_SKIN_CELLS) return undefined
+  const rows = largest.map(([row]) => row)
+  const cols = largest.map(([, col]) => col)
+  const y = Math.min(...rows) / skin.rows
+  const x = Math.min(...cols) / skin.cols
+  return { x, y, w: (Math.max(...cols) + 1) / skin.cols - x, h: (Math.max(...rows) + 1) / skin.rows - y }
 }
 
 // 옆으로 잘린 얼굴: 사람이 그쪽 가장자리에 처음 닿는 높이가 그쪽에서 사람이 시작되는 맨 위와 거의 같으면(화면 높이 6% 이내)

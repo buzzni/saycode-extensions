@@ -64,7 +64,8 @@ npx -y @buzzni/shorts-director status     # status.md
   macOS Vision finds in caption-free frames sampled about every 0.8 seconds while it shows (a face cut off by the top
   of the frame is estimated from the person outline, ignoring raised hands; a face cut off by a side, even under a hat
   or hood, is found again in a copy with the showing half mirrored onto that side, and when only an ear or a cheek
-  shows, the sliver of person at that edge is followed down to where it ends); covering more than 15% of a face or 25% of the subject's middle, or
+  shows, the sliver of person at that edge is followed down to where it ends; estimated heads are narrowed to the
+  largest patch of skin colour inside them, so hair and hats are not counted as face); covering more than 15% of a face or 25% of the subject's middle, or
   touching the side edges, is reported (also in `out/text-check.json`) so the caption can be moved and re-rendered.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of

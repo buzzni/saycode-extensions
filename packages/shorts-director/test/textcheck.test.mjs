@@ -174,3 +174,38 @@ test('a hand found low in the picture (hood folds can look like one) does not er
   const folds = { x: 0.19, y: 0.29, w: 0.26, h: 0.67 }
   assert.equal(croppedHeads(hood, [], { aspect: 0.5625, hands: [folds] }).length, 1)
 })
+
+// 피부색 격자: 사람 영역 중 피부색인 칸만 's'.
+function skinFrame(rows) {
+  return { rows: 24, cols: 27, lines: Array.from({ length: 24 }, (_, index) => rows[index] ?? '.'.repeat(27)) }
+}
+
+test('a hat or hair at the edge is not a face: the cut-off head is narrowed to the skin inside it', () => {
+  const widths = [1, 2, 3, 3, 4, 5, 5, 5, 5, 5, 5, 4, 3, 3, 2, 2, 1]
+  const sliver = frame(Object.fromEntries(widths.map((width, index) => [index + 2, '#'.repeat(width).padEnd(27, '.')])))
+  // 비니가 2~9줄, 볼이 10~17줄
+  const skin = skinFrame(Object.fromEntries([10, 11, 12, 13, 14, 15, 16, 17].map((row) => [row, 'sss'.padEnd(27, '.')])))
+  const [face] = croppedHeads(sliver, [], { aspect: 0.5625, skin })
+  assert.ok(Math.abs(face.y - 10 / 24) < 0.01, `starts below the hat (${face.y})`)
+  assert.ok(Math.abs(face.y + face.h - 18 / 24) < 0.01, `ends with the cheek (${face.y + face.h})`)
+  assert.ok(Math.abs(face.w - 3 / 27) < 0.01, `as wide as the skin (${face.w})`)
+})
+
+test('a sliver of only hair or hat, with no skin in it, is not a face', () => {
+  const widths = [1, 2, 3, 3, 4, 5, 5, 5, 4, 3, 2, 1]
+  const hairOnly = frame(Object.fromEntries(widths.map((width, index) => [index + 2, '#'.repeat(width).padEnd(27, '.')])))
+  assert.equal(croppedHeads(hairOnly, [], { aspect: 0.5625 }).length, 1, 'without colour it is assumed to be a head')
+  assert.deepEqual(croppedHeads(hairOnly, [], { aspect: 0.5625, skin: skinFrame({}) }), [])
+})
+
+test('a few skin-coloured specks in a hat (highlights) do not stretch the face up into the hat', () => {
+  const widths = [1, 2, 3, 3, 4, 5, 5, 5, 5, 5, 5, 4, 3, 3, 2, 2, 1]
+  const sliver = frame(Object.fromEntries(widths.map((width, index) => [index + 2, '#'.repeat(width).padEnd(27, '.')])))
+  const skin = skinFrame({
+    3: '.s'.padEnd(27, '.'),
+    5: '..s'.padEnd(27, '.'),
+    ...Object.fromEntries([10, 11, 12, 13, 14, 15, 16, 17].map((row) => [row, 'sss'.padEnd(27, '.')])),
+  })
+  const [face] = croppedHeads(sliver, [], { aspect: 0.5625, skin })
+  assert.ok(Math.abs(face.y - 10 / 24) < 0.01, `the largest patch of skin, not the specks (${face.y})`)
+})

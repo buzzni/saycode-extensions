@@ -1,6 +1,6 @@
 // 장면 사진에서 얼굴, 눈에 띄는 대상(제품·음식 같은 주인공 사물), 사람 영역을 찾는다(macOS Vision).
-// 사용: osascript -l JavaScript vision.jxa.js [--faces] <image>... — 결과는 이미지마다 { faces, subjects, person, hands } 이다. faces·subjects·hands 는
-// 화면 비율이고 아래에서 잰 값(Vision 좌표), person 은 사람 영역을 위에서부터 줄마다 '#'(사람)·'.' 로 적은 27×48 격자다
+// 사용: osascript -l JavaScript vision.jxa.js [--faces] <image>... — 결과는 이미지마다 { faces, subjects, person, skin, hands } 이다. faces·subjects·hands 는
+// 화면 비율이고 아래에서 잰 값(Vision 좌표), person 은 사람 영역을 위에서부터 줄마다 '#'(사람)·'.' 로 적은 27×48 격자, skin 은 같은 격자의 피부색 칸('s')이다
 // — 위로 잘린 얼굴을 찾는 데 쓴다. 화면 문구가 얼굴·대상을 가리는지 재는 데 쓴다(textcheck.mjs).
 ObjC.import('AppKit')
 ObjC.import('CoreImage')
@@ -34,7 +34,7 @@ function detect(path) {
   return {
     faces: list(faces.results).map((face) => rect(face.boundingBox)),
     subjects: list(subjects.results).flatMap((result) => list(result.salientObjects).map((object) => rect(object.boundingBox))),
-    person: personGrid(person),
+    ...personGrids(person, path),
     hands: list(hands.results).map(handBox).filter(Boolean),
   }
 }
@@ -54,22 +54,35 @@ function handBox(observation) {
   return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
 }
 
-// 사람 영역 마스크를 거친 격자로 줄인다. 마스크 그림은 위가 0번 줄이다.
-function personGrid(request) {
-  if (!request.results || request.results.count === 0) return undefined
+// 사람 영역 마스크를 거친 격자로 줄인다(person). 같은 격자로 사람 영역 중 피부색 칸도 적는다(skin, 's') — 잘린 머리
+// 어림에서 머리카락·모자를 빼는 데 쓴다. 피부색은 YCbCr(밝기 60 넘음, Cb 77~127, Cr 137~173). 그림은 위가 0번 줄이다.
+function personGrids(request, path) {
+  if (!request.results || request.results.count === 0) return {}
   const mask = $.NSBitmapImageRep.alloc.initWithCIImage($.CIImage.imageWithCVPixelBuffer(request.results.objectAtIndex(0).pixelBuffer))
-  const width = mask.pixelsWide
-  const height = mask.pixelsHigh
+  const image = $.NSBitmapImageRep.imageRepWithContentsOfFile(path).bitmapImageRepByConvertingToColorSpaceRenderingIntent($.NSColorSpace.sRGBColorSpace, 0)
+  const at = (rep, col, row) => rep.colorAtXY(Math.floor(((col + 0.5) * rep.pixelsWide) / GRID.cols), Math.floor(((row + 0.5) * rep.pixelsHigh) / GRID.rows))
   const lines = []
+  const skin = []
   for (let row = 0; row < GRID.rows; row += 1) {
     let line = ''
+    let skinLine = ''
     for (let col = 0; col < GRID.cols; col += 1) {
-      const value = mask.colorAtXY(Math.floor(((col + 0.5) * width) / GRID.cols), Math.floor(((row + 0.5) * height) / GRID.rows))
-      line += value.redComponent > 0.5 ? '#' : '.'
+      const inPerson = at(mask, col, row).redComponent > 0.5
+      line += inPerson ? '#' : '.'
+      skinLine += inPerson && isSkin(at(image, col, row)) ? 's' : '.'
     }
     lines.push(line)
+    skin.push(skinLine)
   }
-  return { ...GRID, lines }
+  return { person: { ...GRID, lines }, skin: { ...GRID, lines: skin } }
+}
+
+function isSkin(color) {
+  const [r, g, b] = [color.redComponent * 255, color.greenComponent * 255, color.blueComponent * 255]
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b
+  const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b
+  return luma > 60 && cb >= 77 && cb <= 127 && cr >= 137 && cr <= 173
 }
 
 function list(array) {
