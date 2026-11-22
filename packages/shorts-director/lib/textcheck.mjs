@@ -45,18 +45,25 @@ export function croppedHeads(person, faces = [], { aspect, hands = [] }) {
   const fromTop = runs
     .filter((run) => run.w >= MIN_HEAD_SPAN && run.w <= MAX_HEAD_SPAN)
     .map((run) => ({ x: run.x, y: 0, w: run.w, h: Math.min(1, HEAD_HEIGHT_PER_WIDTH * run.w * aspect) }))
-  const fromSides = ['left', 'right'].map((side) => sideHead(person, side, aspect))
-    .filter((head) => head && !fromTop.some((other) => overlap(head, other) > 0))
-  return [...fromTop, ...fromSides]
+  // 위와 옆으로 함께 잘린 머리는 두 어림을 합친다(옆 어림이 목까지 내려가 더 정확하다).
+  const heads = [...fromTop]
+  for (const head of ['left', 'right'].map((side) => sideHead(person, side, aspect)).filter(Boolean)) {
+    const same = heads.findIndex((other) => overlap(head, other) > 0)
+    if (same < 0) heads.push(head)
+    else heads[same] = union(heads[same], head)
+  }
+  return heads
     .filter((head) => !faces.some((face) => overlap(head, face) > 0))
     .filter((head) => !hands.some((hand) => overlap(head, hand) / area(head) > HAND_COVER))
 }
 
 // 옆으로 잘린 얼굴: 사람이 그쪽 가장자리에 처음 닿는 높이가 그쪽에서 사람이 시작되는 맨 위와 거의 같으면(화면 높이 6% 이내)
-// 머리가 잘린 것이다. 그보다 아래에서만 닿으면 팔·어깨다. 폭은 닿은 곳부터 화면 높이 15% 안에서 가장자리에서 보이는
-// 가장 넓은 폭(맨 윗줄은 머리카락이라 좁다), 높이는 그 폭의 1.25배.
+// 머리가 잘린 것이다. 그보다 아래에서만 닿으면 팔·어깨다. 잘린 머리는 보이는 폭이 실제보다 좁아 폭으로 높이를 어림하면
+// 이마까지만 잡혔다 — 그래서 윤곽에서 목을 찾는다: 가장자리에서 보이는 폭은 볼까지 넓어지고, 목에서 좁아졌다가, 어깨에서
+// 다시 30% 넘게 넓어진다. 머리는 시작 줄부터 목까지, 폭은 가장 넓은 볼. 목을 못 찾으면 화면 높이 45% 에서 끊는다.
 const SIDE_HEAD_SLACK = 0.06
-const SIDE_HEAD_WINDOW = 0.15
+const MAX_HEAD_HEIGHT = 0.45
+const SHOULDER_GROWTH = 1.3
 
 function sideHead(person, side, aspect) {
   const edge = side === 'left' ? 0 : person.cols - 1
@@ -65,19 +72,43 @@ function sideHead(person, side, aspect) {
   const start = person.lines.findIndex((line) => near(line).includes('#'))
   const touch = person.lines.findIndex((line) => line[edge] === '#')
   if (start < 0 || touch < 0 || touch - start > person.rows * SIDE_HEAD_SLACK) return undefined
-  const last = Math.min(person.rows - 1, touch + Math.floor(person.rows * SIDE_HEAD_WINDOW))
-  const widest = Math.max(1, ...person.lines.slice(touch, last + 1)
-    .map((row) => ((side === 'left' ? row.match(/^#+/) : row.match(/#+$/))?.[0] ?? '').length))
+  const showing = (row) => ((side === 'left' ? person.lines[row].match(/^#+/) : person.lines[row].match(/#+$/))?.[0] ?? '').length
+  const limit = Math.min(person.rows, start + Math.ceil(person.rows * MAX_HEAD_HEIGHT))
+  let widest = 0
+  let narrowest = Infinity
+  let neck = limit
+  for (let row = touch; row < limit; row += 1) {
+    const width = showing(row)
+    if (width === 0) {
+      neck = row
+      break
+    }
+    if (narrowest === Infinity && width >= widest) {
+      widest = width
+    } else if (width <= narrowest) {
+      narrowest = width
+      neck = row + 1
+    } else if (width > narrowest * SHOULDER_GROWTH) {
+      break
+    }
+  }
   const w = widest / person.cols
   if (w < MIN_HEAD_SPAN || w > MAX_HEAD_SPAN) return undefined
   const y = start / person.rows
-  return { x: side === 'left' ? 0 : 1 - w, y, w, h: Math.min(1 - y, HEAD_HEIGHT_PER_WIDTH * w * aspect) }
+  const h = Math.max(neck - start, Math.round(HEAD_HEIGHT_PER_WIDTH * w * aspect * person.rows)) / person.rows
+  return { x: side === 'left' ? 0 : 1 - w, y, w, h: Math.min(1 - y, h) }
 }
 
 function overlap(left, right) {
   const w = Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x)
   const h = Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y)
   return w > 0 && h > 0 ? w * h : 0
+}
+
+function union(left, right) {
+  const x = Math.min(left.x, right.x)
+  const y = Math.min(left.y, right.y)
+  return { x, y, w: Math.max(left.x + left.w, right.x + right.w) - x, h: Math.max(left.y + left.h, right.y + right.h) - y }
 }
 
 function area(rect) {

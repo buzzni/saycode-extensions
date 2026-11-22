@@ -106,3 +106,25 @@ test('a head cut by the side is as wide as the widest part showing near its top,
   const [head] = croppedHeads(narrowHair, [], { aspect: 0.5625 })
   assert.ok(Math.abs(head.w - 10 / 27) < 0.01, `widest of the first rows (${head.w})`)
 })
+
+test('a head cut by the side reaches down to the neck, where the outline narrows before the shoulders', () => {
+  const profile = frame({
+    2: '#######....................',
+    3: '#########..................',
+    4: '##########.................',
+    5: '###########................',
+    6: '###########................',
+    7: '###########................',
+    8: '##########.................',
+    9: '##########.................',
+    10: '#########..................',
+    11: '#########..................',
+    12: '########...................',
+    13: '#############..............',
+    14: '#################..........',
+  })
+  const [head] = croppedHeads(profile, [], { aspect: 0.5625 })
+  assert.ok(Math.abs(head.y - 2 / 24) < 0.01)
+  assert.ok(Math.abs(head.y + head.h - 13 / 24) < 0.01, `down to the neck at row 12 (${head.y + head.h})`)
+  assert.ok(Math.abs(head.w - 11 / 27) < 0.01, `as wide as the cheeks (${head.w})`)
+})
