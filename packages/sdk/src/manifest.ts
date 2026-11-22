@@ -10,7 +10,7 @@ export { LAUNCH_HOOKS_MINIMUM_ENGINE, SESSION_HOOK_ACTIVATION_PREFIX } from './l
 export const EXTENSION_PERMISSIONS = [
   'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
-  'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
+  'network.fetch', 'content.generate', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
   'artifacts.publishPublic', 'filePreviews.read', 'browserPicks.inspect',
   // One permission per channel wire method, deliberately not a single `channels.adapter`.
@@ -524,7 +524,7 @@ export function parseExtensionManifest(
   const engines = record(raw.engines, 'manifest.engines')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('filePreviews.read')) throw new Error('filePreviews.read requires API 4')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('browserPicks.inspect')) throw new Error('browserPicks.inspect requires API 4')
-  for (const gated of ['sessions.launchEnvironment', 'worktrees.prepare']) {
+  for (const gated of ['sessions.launchEnvironment', 'worktrees.prepare', 'content.generate']) {
     if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes(gated)) throw new Error(`manifest.permissions: ${gated} requires Extension API version 4`)
   }
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {

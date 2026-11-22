@@ -25,6 +25,9 @@ button, summary { cursor: pointer; }
 button:disabled { opacity: .55; cursor: wait; }
 button:focus-visible, summary:focus-visible { background: var(--focus); }
 .primary:focus-visible, .experience button:focus-visible { background: color-mix(in srgb, var(--primary) 82%, var(--text)); }
+@media (forced-colors: none) and (prefers-contrast: no-preference) {
+  #spatial-studio :is(button, summary):focus-visible { outline: none; }
+}
 .studio { max-width: 1080px; margin: 0 auto; padding: 20px; }
 .studio-header, .source-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 7px 12px; }
 .studio-header { margin-bottom: 16px; align-items: start; }
@@ -80,3 +83,35 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   .studio-grid { grid-template-columns: 1fr; }
   .sample-menu { inset-inline-start: 0; inset-inline-end: auto; }
 }
+
+h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.source-grid .source { align-content: start; }
+.source-grid .source button { justify-self: start; }
+#spatial-studio-status:not(:empty) { margin-top: 9px; }
+.spatial-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 8px 0; }
+.spatial-tabs [aria-pressed=true], .spatial-fields [aria-pressed=true] {
+  background: var(--focus);
+  color: var(--text);
+}
+.spatial-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(206px, 26%); gap: 12px; align-items: start; }
+.spatial-preview { min-width: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.spatial-view { position: relative; }
+#spatial-staff-tag { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; }
+.spatial-view-footer { padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; background: var(--surface); }
+.spatial-view-footer p { font-size: 12px; }
+.spatial-inspector { background: var(--surface); }
+.spatial-fields, .spatial-choices { display: grid; gap: 8px; }
+.spatial-fields details { border-top: 1px solid var(--border); padding-block-start: 8px; }
+.spatial-fields details label { margin-block-start: 8px; }
+.spatial-fields label { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; }
+.spatial-fields input[type=range] { display: block; width: 100%; margin: 3px 0; accent-color: var(--primary); }
+.spatial-fields select { min-height: 36px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 12px; color: inherit; background: var(--background); font: inherit; }
+#spatial-speech { margin: 8px 0; color: var(--text); }
+.pilot-tools button { min-width: 32px; }
+@media (max-width: 620px) {
+  .spatial-layout, .source-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.generation-source[open] { display: grid; gap: 7px; }
+.generation-source > :is(textarea, p, div) { margin-top: 7px; }
+.generation-source p { font-size: 12px; }

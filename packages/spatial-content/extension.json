@@ -1,15 +1,16 @@
 {
   "id": "buzzni.spatial-content",
-  "version": "0.1.3",
-  "apiVersion": 3,
-  "engines": { "saycode": "^1.2.0" },
+  "version": "0.1.4",
+  "apiVersion": 4,
+  "engines": { "saycode": "^1.4.1" },
   "entrypoint": "index.js",
-  "permissions": [],
-  "activationEvents": ["onCommand:buzzni.spatial-content.open", "onCommand:buzzni.spatial-content.read-sample"],
+  "permissions": ["content.generate"],
+  "activationEvents": ["onCommand:buzzni.spatial-content.open", "onCommand:buzzni.spatial-content.read-sample", "onCommand:buzzni.spatial-content.generate"],
   "contributes": {
     "commands": [
       { "id": "buzzni.spatial-content.open", "title": "공간컨텐츠", "panelId": "buzzni.spatial-content.studio" },
-      { "id": "buzzni.spatial-content.read-sample", "title": "공간컨텐츠 샘플 읽기" }
+      { "id": "buzzni.spatial-content.read-sample", "title": "공간컨텐츠 샘플 읽기" },
+      { "id": "buzzni.spatial-content.generate", "title": "공간컨텐츠 AI 생성" }
     ],
     "panels": [
       { "id": "buzzni.spatial-content.studio", "title": "공간컨텐츠", "entrypoint": "dist/panel.html", "surfaceSize": "wide" }

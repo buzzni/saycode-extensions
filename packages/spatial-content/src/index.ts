@@ -13,6 +13,12 @@ async function openSample() {
 export default defineExtension({
   activate(context) {
     context.commands.register('buzzni.spatial-content.open', () => null)
+    context.commands.register('buzzni.spatial-content.generate', (action, args) => {
+      if (typeof action !== 'string' || !['availability', 'start', 'status', 'read', 'release'].includes(action)) {
+        throw new Error('INVALID_REQUEST')
+      }
+      return context.invokeCapability('content.generate', action, args)
+    })
     let sample: Promise<Uint8Array> | undefined
     context.commands.register('buzzni.spatial-content.read-sample', async index => {
       if (index !== null && (typeof index !== 'number' || !Number.isInteger(index) || index < 0)) {
