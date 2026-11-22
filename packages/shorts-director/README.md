@@ -76,8 +76,3 @@ npx -y @buzzni/shorts-director status     # status.md
 - The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
   between 1.0x and 1.15x framing at every planned shot (punch-in), and `render` reports the real cut count and the
   longest unbroken stretch.
-
-## Private knowledge
-
-`import-knowledge --from <shorts_maker>` copies internal viskit planning prompts from a local checkout into the
-project's git-ignored `knowledge/` folder. Nothing private ships in this package.
