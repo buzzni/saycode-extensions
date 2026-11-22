@@ -35,13 +35,17 @@ const MAX_HEAD_SPAN = 0.9
 // 이보다 좁은 조각(머리카락 몇 가닥, 멀리 있는 사람)은 머리로 보지 않는다.
 const MIN_HEAD_SPAN = 0.08
 
-// 들어 올린 손이 가장자리에 닿으면 사람 영역만으로는 머리와 구별이 안 된다 — 감지된 손이 머리 자리의 30% 넘게 덮으면 손이다.
+// 들어 올린 손이 윗변에 닿으면 사람 영역만으로는 머리와 구별이 안 된다 — 윗변(위 10%)에 닿은 손 크기의 감지가 윗변 머리
+// 자리의 30% 넘게 덮으면 손이다. 손 감지는 후드 주름도 손으로 잡아(화면 높이 67%, 윗변에서 먼 곳) 윗변에 닿고 손 크기인 것만 쓴다.
 const HAND_COVER = 0.3
+const HAND_TOP = 0.1
+const MAX_HAND_HEIGHT = 0.5
 
 export function croppedHeads(person, faces = [], { aspect, hands = [] }) {
   if (!person?.lines?.length) return []
   const top = person.lines[0]
   const runs = [...top.matchAll(/#+/g)].map((run) => ({ x: run.index / person.cols, w: run[0].length / person.cols }))
+  const raised = hands.filter((hand) => hand.y < HAND_TOP && hand.h <= MAX_HAND_HEIGHT)
   const fromTop = runs
     .filter((run) => run.w >= MIN_HEAD_SPAN && run.w <= MAX_HEAD_SPAN)
     .map((run) => ({ x: run.x, y: 0, w: run.w, h: Math.min(1, HEAD_HEIGHT_PER_WIDTH * run.w * aspect) }))
@@ -54,15 +58,19 @@ export function croppedHeads(person, faces = [], { aspect, hands = [] }) {
   }
   return heads
     .filter((head) => !faces.some((face) => overlap(head, face) > 0))
-    .filter((head) => !hands.some((hand) => overlap(head, hand) / area(head) > HAND_COVER))
+    .filter((head) => !raised.some((hand) => overlap(head, hand) / area(head) > HAND_COVER))
 }
 
 // 옆으로 잘린 얼굴: 사람이 그쪽 가장자리에 처음 닿는 높이가 그쪽에서 사람이 시작되는 맨 위와 거의 같으면(화면 높이 6% 이내)
 // 머리가 잘린 것이다. 그보다 아래에서만 닿으면 팔·어깨다. 잘린 머리는 보이는 폭이 실제보다 좁아 폭으로 높이를 어림하면
 // 이마까지만 잡혔다 — 그래서 윤곽에서 목을 찾는다: 가장자리에서 보이는 폭은 볼까지 넓어지고, 목에서 좁아졌다가, 어깨에서
-// 다시 30% 넘게 넓어진다. 머리는 시작 줄부터 목까지, 폭은 가장 넓은 볼. 목을 못 찾으면 화면 높이 45% 에서 끊는다.
+// 다시 30% 넘게 넓어진다. 머리는 시작 줄부터 목까지, 폭은 가장 넓은 볼. 귀·볼 끝만 걸친 조각은 렌즈 모양으로 좁아지다
+// 끝나므로 끝나는 줄까지 따라간다(가까운 클로즈업은 화면 75% 까지). 좁아지는 곳이 없으면(모자·후드가 어깨로 이어짐) 45% 에서 끊는다.
+// 그쪽 머리는 사람 전체의 맨 위(15% 이내)에서 시작해야 한다 — 아래에서 들어온 팔은 그쪽에서 처음 보이는 부분이라도 머리가 아니다.
 const SIDE_HEAD_SLACK = 0.06
-const MAX_HEAD_HEIGHT = 0.45
+const SIDE_HEAD_FROM_TOP = 0.15
+const MAX_HEAD_HEIGHT = 0.75
+const UNSHAPED_HEAD_HEIGHT = 0.45
 const SHOULDER_GROWTH = 1.3
 
 function sideHead(person, side, aspect) {
@@ -71,12 +79,14 @@ function sideHead(person, side, aspect) {
   const near = (line) => (side === 'left' ? line.slice(0, third) : line.slice(person.cols - third))
   const start = person.lines.findIndex((line) => near(line).includes('#'))
   const touch = person.lines.findIndex((line) => line[edge] === '#')
+  const top = person.lines.findIndex((line) => line.includes('#'))
   if (start < 0 || touch < 0 || touch - start > person.rows * SIDE_HEAD_SLACK) return undefined
+  if (start - top > person.rows * SIDE_HEAD_FROM_TOP) return undefined
   const showing = (row) => ((side === 'left' ? person.lines[row].match(/^#+/) : person.lines[row].match(/#+$/))?.[0] ?? '').length
   const limit = Math.min(person.rows, start + Math.ceil(person.rows * MAX_HEAD_HEIGHT))
   let widest = 0
   let narrowest = Infinity
-  let neck = limit
+  let neck
   for (let row = touch; row < limit; row += 1) {
     const width = showing(row)
     if (width === 0) {
@@ -92,6 +102,7 @@ function sideHead(person, side, aspect) {
       break
     }
   }
+  if (neck === undefined) neck = Math.min(person.rows, start + Math.ceil(person.rows * UNSHAPED_HEAD_HEIGHT))
   const w = widest / person.cols
   if (w < MIN_HEAD_SPAN || w > MAX_HEAD_SPAN) return undefined
   const y = start / person.rows

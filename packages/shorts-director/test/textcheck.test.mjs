@@ -145,3 +145,32 @@ test('the sides worth mirroring are those the person touches in the upper part o
   const armOnly = frame({ 3: '..........#####............', 20: '#######....................' })
   assert.deepEqual(cutSides(armOnly), [], 'touching the side only low down is an arm or a lap')
 })
+
+test('an arm entering from the side low in the frame is not a head, even when that side has nothing above it', () => {
+  const capAndArm = frame({
+    0: '.........................##',
+    1: '.......................####',
+    2: '......................#####',
+    3: '.......................####',
+    5: '......................#####',
+    8: '.................##########',
+    17: '###.........###########....',
+    18: '########..#########....###.',
+  })
+  const heads = croppedHeads(capAndArm, [], { aspect: 0.5625 })
+  assert.ok(heads.every((head) => head.x > 0.5), `only the head on the right: ${JSON.stringify(heads)}`)
+})
+
+test('a sliver of cheek at the side is followed down to where it ends, past the usual head height', () => {
+  const widths = [1, 2, 3, 3, 4, 5, 5, 5, 5, 5, 5, 4, 3, 3, 2, 2, 1]
+  const sliver = frame(Object.fromEntries(widths.map((width, index) => [index + 2, '#'.repeat(width).padEnd(27, '.')])))
+  const [head] = croppedHeads(sliver, [], { aspect: 0.5625 })
+  assert.ok(head, 'the ear-and-cheek sliver is a head')
+  assert.ok(Math.abs(head.y + head.h - 19 / 24) < 0.01, `down to the end of the sliver at row 18 (${head.y + head.h})`)
+})
+
+test('a hand found low in the picture (hood folds can look like one) does not erase a head cut by the side', () => {
+  const hood = frame(Object.fromEntries([1, 3, 5, 7, 9, 10, 11, 12, 13, 13, 14, 14, 14].map((width, index) => [index + 3, '#'.repeat(width).padEnd(27, '.')])))
+  const folds = { x: 0.19, y: 0.29, w: 0.26, h: 0.67 }
+  assert.equal(croppedHeads(hood, [], { aspect: 0.5625, hands: [folds] }).length, 1)
+})
