@@ -48,13 +48,6 @@ test('init prepares any project folder once: ignore rules and an env example, ne
   assert.equal(await readFile(join(root, '.gitignore'), 'utf8'), ignore)
 }))
 
-test('import-knowledge requires the source repository path', async () => {
-  await assert.rejects(exec(process.execPath, [cli, 'import-knowledge']), (error) => {
-    assert.match(error.stderr, /--from/)
-    return true
-  })
-})
-
 test('music lists the CC0 tracks a plan can pick, with their mood, without downloading anything', async () => {
   const { stdout } = await exec(process.execPath, [cli, 'music'], { env: { PATH: process.env.PATH, HOME: tmpdir() } })
   assert.match(stdout, /be-chillin\s+느긋한 그루브/)

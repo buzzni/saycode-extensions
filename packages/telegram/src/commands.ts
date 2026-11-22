@@ -17,6 +17,8 @@ const SLASH_COMMAND = /^\/([a-zA-Z][a-zA-Z0-9_]*)(?:@[a-zA-Z0-9_]+)?(?:\s+([\s\S
 
 export function parseTelegramCommand(rawText: string): TelegramCommand {
   const trimmed = rawText.trim()
+  // No `text` at all rather than `""`, which Core's wire parser refuses outright.
+  if (trimmed.length === 0) return { operation: 'prompt' }
   const match = SLASH_COMMAND.exec(trimmed)
   if (!match) return { operation: 'prompt', text: rawText }
 
