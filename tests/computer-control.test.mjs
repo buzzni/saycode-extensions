@@ -11,95 +11,143 @@ import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
 test('CUA package declares exact pinned artifacts and cannot request control without managed metadata', async () => {
   const raw = JSON.parse(await readFile(new URL('../packages/computer-control/extension.json', import.meta.url)))
   const parsed = parseExtensionManifest(raw, { supportedApiVersion: 3 })
-  assert.equal(parsed.managedLocalTool.toolVersion, '0.32.0')
+  assert.equal(parsed.managedLocalTool.toolVersion, '0.38.0')
+  // 0.38 returns only the markdown tree by default; the Chrome recipe and agents read `elements` too.
+  assert.equal(parsed.managedLocalTool.operations.snapshot.payload.tree_format, 'both')
   assert.equal(parsed.managedLocalTool.operations.click.payload.session, '{{session}}')
   assert.deepEqual(parsed.managedLocalTool.operations.status.argv, ['status'])
-  assert.deepEqual(parsed.managedLocalTool.operations.autostartEnable.argv, ['autostart', 'enable'])
   assert.deepEqual(parsed.managedLocalTool.operations.autostartKick.argv, ['autostart', 'kick'])
   assert.throws(() => parseExtensionManifest({ ...raw, managedLocalTool: undefined }, { supportedApiVersion: 3 }), /metadata required/)
   assert.throws(() => parseExtensionManifest({ ...raw, apiVersion: 2 }, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /API version 3/)
 })
 
-test('Windows doctor starts the CuaDriver autostart daemon before checking the driver', async () => {
+// A fake Desktop broker for the Windows doctor: records every capability call and refuses unknown request keys
+// the way Desktop's managedLocalToolBroker does (specs/windows-computer-control-no-uac).
+function windowsBroker({ background = { state: 'not-registered', legacyElevated: 0 }, removeLegacy = 'removed', ensure = 'registered', runningAfter = ['ensure'], status } = {}) {
   const calls = []
-  const provider = await loadProvider(async (permission, action, input) => {
-    calls.push({ permission, action, operation: input?.operation })
-    if (action !== 'run') return { version: 1, state: 'cancelled' }
-    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
-    if (input.operation === 'status') {
-      const started = calls.some(call => call.operation === 'autostartKick')
-      return started ? { state: 'succeeded', output: 'running\n' } : { state: 'failed', output: 'not running\n' }
+  const handler = async (permission, action, input) => {
+    const keys = Object.keys(input ?? {}).sort().join(',')
+    const allowed = action === 'run' ? 'machineId,operation,parameters,version' : action === 'background' ? 'machineId,mode,version' : 'machineId,version'
+    if (keys !== allowed) throw new Error('INVALID_REQUEST')
+    calls.push({ permission, action, step: action === 'background' ? 'background:' + input.mode : input.operation })
+    if (action === 'background') {
+      if (input.mode === 'status') return { version: 1, ...background }
+      if (input.mode === 'removeLegacy') { if (removeLegacy instanceof Error) throw removeLegacy; return { version: 1, state: removeLegacy } }
+      if (input.mode === 'ensure') { if (ensure instanceof Error) throw ensure; return { version: 1, state: ensure } }
     }
-    if (input.operation === 'autostartEnable' || input.operation === 'autostartKick') return { state: 'succeeded', output: '' }
-    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
+    if (action !== 'run') return { version: 1, state: 'cancelled' }
+    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.38.0' }
+    if (input.operation === 'status') {
+      if (status) return status(calls)
+      const up = calls.some(call => runningAfter.some(step => call.step === step || call.step === 'background:' + step))
+      if (!up) throw new Error('TOOL_EXECUTION_FAILED')
+      return { state: 'succeeded', output: 'running\n' }
+    }
+    if (['autostartKick', 'stop'].includes(input.operation)) return { state: 'succeeded', output: 'ok\n' }
     if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
     throw new Error(`unexpected operation ${input.operation}`)
-  })
+  }
+  return { calls, handler }
+}
+const windowsDoctor = provider => provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' })
+
+test('Windows doctor registers the standard-privilege background task without any administrator approval', async () => {
+  const broker = windowsBroker()
+  const provider = await loadProvider(broker.handler)
   try {
-    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), { version: 1, state: 'ready' })
-    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'doctor'])
-    assert.equal(calls.find(call => call.operation === 'autostartEnable').permission, 'localTools.control')
+    assert.deepEqual(await windowsDoctor(provider), { version: 1, state: 'ready' })
+    assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'background:ensure', 'status', 'doctor'])
+    assert.equal(broker.calls.find(call => call.step === 'background:ensure').permission, 'localTools.control')
+    assert.equal(broker.calls.some(call => /autostart(Enable)?$/.test(call.step ?? '') && call.step !== 'autostartKick'), false)
+  } finally { await provider.cleanup() }
+})
+
+test('doctor refuses a 0.32.0 Driver left over from an older install', async () => {
+  const broker = windowsBroker()
+  const handler = broker.handler
+  const provider = await loadProvider(async (permission, action, input) => action === 'run' && input?.operation === 'version'
+    ? { state: 'succeeded', output: 'cua-driver 0.32.0' } : handler(permission, action, input))
+  try {
+    await assert.rejects(windowsDoctor(provider), /DRIVER_VERSION_MISMATCH/)
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor never forwards the platform field to Desktop’s broker', async () => {
+  const broker = windowsBroker()
+  const provider = await loadProvider(broker.handler)
+  try {
+    await windowsDoctor(provider)
+    assert.ok(broker.calls.length > 0)
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor leaves a registered, current and running task alone', async () => {
+  const broker = windowsBroker({ background: { state: 'registered', runLevel: 'Limited', executableMatches: true, legacyElevated: 0 }, runningAfter: ['version'] })
+  const provider = await loadProvider(broker.handler)
+  try {
+    assert.deepEqual(await windowsDoctor(provider), { version: 1, state: 'ready' })
+    assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'status', 'status', 'doctor'])
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor re-registers a task that points at an older Driver path', async () => {
+  const broker = windowsBroker({ background: { state: 'registered', runLevel: 'Limited', executableMatches: false, legacyElevated: 0 }, runningAfter: ['version'] })
+  const provider = await loadProvider(broker.handler)
+  try {
+    await windowsDoctor(provider)
+    assert.ok(broker.calls.some(call => call.step === 'background:ensure'))
   } finally { await provider.cleanup() }
 })
 
 test('Windows doctor does not treat a negative daemon status as running', async () => {
-  const calls = []
-  const provider = await loadProvider(async (permission, action, input) => {
-    calls.push({ permission, action, operation: input?.operation })
-    if (action !== 'run') return { version: 1, state: 'cancelled' }
-    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
-    if (input.operation === 'status') return { state: 'succeeded', output: 'daemon is not running\n' }
-    if (input.operation === 'autostartEnable' || input.operation === 'autostartKick') return { state: 'succeeded', output: '' }
-    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
-    if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
-    throw new Error(`unexpected operation ${input.operation}`)
-  })
+  const broker = windowsBroker({ status: () => ({ state: 'succeeded', output: 'daemon is not running\n' }) })
+  const provider = await loadProvider(broker.handler)
   try {
-    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), /LOCAL_DAEMON_REQUIRED/)
-    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'status', 'status', 'status', 'status', 'status'])
-  } finally { await provider.cleanup() }
-})
-// Desktop's managed-tool broker rejects instead of returning a state when the driver exits non-zero
-// (`status` exits 1 while the daemon is stopped) or prints only to stderr (TOOL_NO_OUTPUT).
-test('Windows doctor starts the daemon when the real broker rejects a stopped status', async () => {
-  const calls = []
-  let statusPolls = 0
-  const provider = await loadProvider(async (permission, action, input) => {
-    calls.push({ permission, action, operation: input?.operation })
-    if (action !== 'run') return { version: 1, state: 'cancelled' }
-    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
-    if (input.operation === 'status') {
-      const kicked = calls.some(call => call.operation === 'autostartKick')
-      if (!kicked || statusPolls++ < 1) throw new Error('TOOL_EXECUTION_FAILED')
-      return { state: 'succeeded', output: 'running\n' }
-    }
-    if (input.operation === 'autostartEnable') throw new Error('TOOL_NO_OUTPUT')
-    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'registered\n' }
-    if (input.operation === 'autostartKick') return { state: 'succeeded', output: 'kicked\n' }
-    if (input.operation === 'doctor') return { state: 'succeeded', output: JSON.stringify({ ok: true }) }
-    throw new Error(`unexpected operation ${input.operation}`)
-  })
-  try {
-    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), { version: 1, state: 'ready' })
-    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus', 'autostartKick', 'status', 'status', 'doctor'])
+    await assert.rejects(windowsDoctor(provider), /LOCAL_DAEMON_REQUIRED/)
+    assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'background:ensure', 'status', 'status', 'status', 'status', 'status', 'status', 'status'])
   } finally { await provider.cleanup() }
 })
 
-test('Windows doctor reports a declined administrator approval instead of a stopped runtime', async () => {
-  const calls = []
-  const provider = await loadProvider(async (permission, action, input) => {
-    calls.push({ permission, action, operation: input?.operation })
-    if (action !== 'run') return { version: 1, state: 'cancelled' }
-    if (input.operation === 'version') return { state: 'succeeded', output: 'cua-driver 0.32.0' }
-    if (input.operation === 'status') throw new Error('TOOL_EXECUTION_FAILED')
-    if (input.operation === 'autostartEnable') throw new Error('TOOL_EXECUTION_FAILED')
-    if (input.operation === 'autostartStatus') return { state: 'succeeded', output: 'not-registered\n' }
-    throw new Error(`unexpected operation ${input.operation}`)
-  })
+test('Windows doctor maps a failed registration to DRIVER_AUTOSTART_REQUIRED', async () => {
+  const broker = windowsBroker({ ensure: new Error('LOGON_TASK_SCRIPT_FAILED') })
+  const provider = await loadProvider(broker.handler)
   try {
-    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1', platform: 'win32' }), /DRIVER_AUTOSTART_REQUIRED/)
-    assert.deepEqual(calls.map(call => call.operation), ['version', 'status', 'autostartEnable', 'autostartStatus'])
+    await assert.rejects(windowsDoctor(provider), /DRIVER_AUTOSTART_REQUIRED/)
   } finally { await provider.cleanup() }
+})
+
+test('Windows doctor removes the 0.2.1 elevated task with one approval and moves to the standard task', async () => {
+  const broker = windowsBroker({ background: { state: 'not-registered', legacyElevated: 1 } })
+  const provider = await loadProvider(broker.handler)
+  try {
+    assert.deepEqual(await windowsDoctor(provider), { version: 1, state: 'ready' })
+    assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'background:removeLegacy', 'stop', 'background:ensure', 'status', 'doctor'])
+    assert.equal(broker.calls.find(call => call.step === 'background:removeLegacy').permission, 'localTools.control')
+  } finally { await provider.cleanup() }
+})
+
+test('Windows doctor keeps the legacy elevated task working when the approval is declined', async () => {
+  const broker = windowsBroker({ background: { state: 'not-registered', legacyElevated: 1 }, removeLegacy: 'declined', runningAfter: ['autostartKick'] })
+  const provider = await loadProvider(broker.handler)
+  try {
+    assert.deepEqual(await windowsDoctor(provider), { version: 1, state: 'ready', legacyElevated: true })
+    assert.deepEqual(broker.calls.map(call => call.step), ['version', 'background:status', 'background:removeLegacy', 'status', 'autostartKick', 'status', 'doctor'])
+  } finally { await provider.cleanup() }
+})
+
+test('CUA package declares a literal background argv and no longer registers the elevated task', async () => {
+  const { parseManagedLocalTool } = await import('../packages/sdk/dist/managedLocalTool.js')
+  const raw = JSON.parse(await readFile(new URL('../packages/computer-control/extension.json', import.meta.url)))
+  const parsed = parseManagedLocalTool(raw.managedLocalTool, raw.id)
+  assert.deepEqual(parsed.background, { argv: ['serve'], stopOperation: 'stop' })
+  assert.equal(parsed.operations.autostartEnable, undefined)
+  assert.equal(raw.engines.saycode, '^1.3.0')
+  for (const background of [{ argv: ['serve', '{{session}}'] }, { argv: ['serve'], stopOperation: 'snapshot' }, { argv: ['serve'], stopOperation: 'missing' }, { argv: [] }]) {
+    assert.throws(() => parseManagedLocalTool({ ...raw.managedLocalTool, background }, raw.id), /INVALID_TOOL_DESCRIPTOR/)
+  }
+  const macOnly = structuredClone(raw.managedLocalTool)
+  delete macOnly.platforms['win32-x64']
+  assert.throws(() => parseManagedLocalTool(macOnly, raw.id), /INVALID_TOOL_DESCRIPTOR/)
 })
 
 test('Chrome recipe hands off ambiguity, verifies developer mode after action and never guesses file-picker targets', async t => {
@@ -361,14 +409,21 @@ test('managed tool metadata requires API 3 and rejects malformed URLs, values an
 })
 
 const runResult = output => ({ version: 1, state: 'succeeded', output: typeof output === 'string' ? output : JSON.stringify(output) })
+// Desktop's answer to the macOS background (LaunchAgent) requests; `registered` is an agent for the current Driver.
+const macBackground = (input, { registered = false, ensure = 'registered' } = {}) => input.mode === 'status'
+  ? { version: 1, ...(registered ? { state: 'registered', executableMatches: true } : { state: 'not-registered' }), legacyElevated: 0 }
+  : { version: 1, state: ensure }
+const step = (action, input) => action === 'background' ? 'background:' + input.mode : input.operation
 test('OS permission check starts the CuaDriver daemon and requests grants when it is not running', async () => {
   const operations = []
   let granted = false
   const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input)
     if (action !== 'run') return { version: 1, state: 'installed' }
-    operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') { granted = true; return runResult('Accessibility and Screen Recording are granted.') }
+    if (input.operation === 'stop') throw new Error('TOOL_EXECUTION_FAILED') // no daemon left over from an earlier grant
     if (input.operation === 'permissionStatus') return runResult(granted
       ? { accessibility: true, screen_recording: true, source: { attribution: 'driver-daemon' } }
       : { daemon_running: false, status: 'unknown' })
@@ -376,24 +431,129 @@ test('OS permission check starts the CuaDriver daemon and requests grants when i
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant', 'permissionStatus'])
+    assert.deepEqual(operations, ['version', 'background:status', 'stop', 'background:ensure', 'permissionStatus', 'grant', 'permissionStatus'])
+  } finally { await provider.cleanup() }
+})
+test('OS permission check registers the LaunchAgent with control permission and only restarts a current one', async () => {
+  const calls = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    calls.push({ permission, step: step(action, input) })
+    if (action === 'background') return macBackground(input, { registered: true })
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(calls.map(call => call.step), ['version', 'background:status', 'background:ensure', 'permissionStatus'])
+    assert.equal(calls.find(call => call.step === 'background:status').permission, 'localTools.inspect')
+  } finally { await provider.cleanup() }
+  const ensured = []
+  const second = await loadProvider(async (permission, action, input) => {
+    ensured.push({ permission, step: step(action, input) })
+    if (action === 'background') return macBackground(input)
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    await second.command('doctor')({ version: 1, machineId: 'M1' })
+    assert.equal(ensured.find(call => call.step === 'background:ensure').permission, 'localTools.control')
+  } finally { await second.cleanup() }
+})
+test('OS permission check keeps working on a Desktop without the macOS background task', async () => {
+  const operations = []
+  const provider = await loadProvider(async (permission, action, input) => {
+    operations.push(step(action, input))
+    if (action === 'background') return { version: 1, state: 'unsupported-platform', platform: 'darwin-arm64' }
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ accessibility: true, screen_recording: true })
+  })
+  try {
+    assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+    assert.deepEqual(operations, ['version', 'background:status', 'permissionStatus'])
+  } finally { await provider.cleanup() }
+})
+test('OS permission check stops a daemon left by an earlier grant before registering the LaunchAgent', async () => {
+  // cua-driver serve exits 1 while another daemon owns the socket, so launchd would retry it every 10s.
+  for (const status of [{ state: 'not-registered' }, { state: 'registered', executableMatches: false }]) {
+    const calls = []
+    const provider = await loadProvider(async (permission, action, input) => {
+      calls.push({ permission, step: step(action, input) })
+      if (action === 'background') return input.mode === 'status' ? { version: 1, ...status, legacyElevated: 0 } : { version: 1, state: 'registered' }
+      if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+      if (input.operation === 'stop') return runResult('stopped')
+      return runResult({ accessibility: true, screen_recording: true })
+    })
+    try {
+      assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+      assert.deepEqual(calls.map(call => call.step), ['version', 'background:status', 'stop', 'background:ensure', 'permissionStatus'])
+      assert.equal(calls.find(call => call.step === 'stop').permission, 'localTools.control')
+    } finally { await provider.cleanup() }
+  }
+})
+test('OS permission check reports a LaunchAgent that could not be registered instead of ready', async () => {
+  for (const ensure of [new Error('LOGON_TASK_NOT_REGISTERED'), { version: 1, state: 'not-registered' }]) {
+    const provider = await loadProvider(async (permission, action, input) => {
+      if (action === 'background') {
+        if (input.mode === 'status') return macBackground(input)
+        if (ensure instanceof Error) throw ensure
+        return ensure
+      }
+      if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+      if (input.operation === 'stop') return runResult('stopped')
+      return runResult({ accessibility: true, screen_recording: true })
+    })
+    try {
+      await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /DRIVER_AUTOSTART_REQUIRED/)
+    } finally { await provider.cleanup() }
+  }
+})
+test('OS permission check still asks for grants when an older host does not know the LaunchAgent', async () => {
+  for (const refusal of [{ status: new Error('INVALID_REQUEST') }]) {
+    const operations = []
+    const provider = await loadProvider(async (permission, action, input) => {
+      operations.push(step(action, input))
+      if (action === 'background') {
+        const error = input.mode === 'status' ? refusal.status : refusal.ensure
+        if (error) throw error
+        return macBackground(input)
+      }
+      if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+      if (input.operation === 'stop') throw new Error('TOOL_EXECUTION_FAILED')
+      return runResult({ accessibility: true, screen_recording: true })
+    })
+    try {
+      assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
+      assert.equal(operations.at(-1), 'permissionStatus')
+    } finally { await provider.cleanup() }
+  }
+})
+test('Stop while registering the LaunchAgent ends the OS permission check', async () => {
+  const provider = await loadProvider(async (permission, action, input) => {
+    if (action === 'background') return input.mode === 'ensure' ? { version: 1, state: 'cancelled', remoteMayContinue: false } : macBackground(input)
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
+    return runResult({ daemon_running: false, status: 'unknown' })
+  })
+  try {
+    await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /cancelled/)
   } finally { await provider.cleanup() }
 })
 test('OS permission check does not prompt again when the daemon already has both grants', async () => {
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     return runResult({ accessibility: true, screen_recording: true })
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus'])
+    assert.deepEqual(operations, ['version', 'background:status', 'background:ensure', 'permissionStatus'])
   } finally { await provider.cleanup() }
 })
 test('OS permission check reports pending grants when macOS approval is still outstanding', async () => {
   const provider = await loadProvider(async (permission, action, input) => {
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    if (action === 'background') return macBackground(input)
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') throw new Error('TOOL_EXECUTION_FAILED')
     return runResult({ accessibility: false, screen_recording: true })
   })
@@ -410,8 +570,9 @@ test('CUA package declares the grant and permission status operations it needs o
 test('OS permission check falls back to doctor when permission status is not JSON (no macOS permissions command)', async () => {
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'permissionStatus') return runResult('permissions options (macOS):\n  cua-driver permissions status ...')
     if (input.operation === 'doctor') return runResult({ ok: true })
     if (input.operation === 'permissions') return runResult({ accessibility: true, screen_recording: true })
@@ -419,19 +580,20 @@ test('OS permission check falls back to doctor when permission status is not JSO
   })
   try {
     assert.deepEqual(await provider.command('doctor')({ version: 1, machineId: 'M1' }), { version: 1, state: 'ready' })
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'doctor', 'permissions'])
+    assert.deepEqual(operations, ['version', 'background:status', 'background:ensure', 'permissionStatus', 'doctor', 'permissions'])
   } finally { await provider.cleanup() }
 })
 test('Stop during the macOS grant ends the OS permission check instead of carrying on', async () => {
   const operations = []
   const provider = await loadProvider(async (permission, action, input) => {
-    operations.push(input.operation)
-    if (input.operation === 'version') return runResult('cua-driver 0.32.0\n')
+    operations.push(step(action, input))
+    if (action === 'background') return macBackground(input, { registered: true })
+    if (input.operation === 'version') return runResult('cua-driver 0.38.0\n')
     if (input.operation === 'grant') return { version: 1, state: 'cancelled', remoteMayContinue: false }
     return runResult({ daemon_running: false, status: 'unknown' })
   })
   try {
     await assert.rejects(provider.command('doctor')({ version: 1, machineId: 'M1' }), /cancelled/)
-    assert.deepEqual(operations, ['version', 'permissionStatus', 'grant'])
+    assert.deepEqual(operations, ['version', 'background:status', 'background:ensure', 'permissionStatus', 'grant'])
   } finally { await provider.cleanup() }
 })

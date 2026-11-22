@@ -348,6 +348,24 @@ async function readSkills(): Promise<void> {
   if (loaded.ok) store.dispatch({ type: 'skills', report: loaded.value })
 }
 
+/**
+ * The init banner's button where the project has no `.moai/` (se-s1e8): `moai init`, a write Desktop asks for, then the
+ * board read again and the skills, which the skills banner offers next (init plants none: PROFILE.init). Like the skills
+ * install it shares no run with another request, and it is not handed to the compatibility probe: a catalog without it
+ * keeps every read, and its refusal is told on the banner.
+ */
+async function initProject(): Promise<void> {
+  if (store.getState().init.running) return
+  store.dispatch({ type: 'init-running' })
+  const outcome = await client.request(PROFILE.init, undefined, { priority: PRIORITY.detail, share: false })
+  // A write that ended non-zero did not do what it said, whatever JSON it printed on the way.
+  if (outcome.kind !== 'passed') return void store.dispatch({ type: 'init-failed', problem: outcome })
+  // The button stays busy until the board read answers, so it is not offered again over a project init just filled.
+  await refresher.refresh()
+  store.dispatch({ type: 'init-done' })
+  await readSkills()
+}
+
 /** The skills banner's button: plant `moai-saycode`, then read what is planted now. */
 async function installSkills(): Promise<void> {
   if (store.getState().skills.installing) return
@@ -403,6 +421,7 @@ const shell = mountShell(root, {
     },
     installSkills: () => void installSkills(),
     dismissSkills: () => store.dispatch({ type: 'skills-dismissed' }),
+    initProject: () => void initProject(),
   },
 })
 client.subscribe(() => shell.activity(activity()))

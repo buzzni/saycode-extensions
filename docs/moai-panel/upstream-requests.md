@@ -410,9 +410,37 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 - `--worktree`는 `git worktree list`와 옆 워크트리의 스냅샷을 읽는다. `descendantAllowlist`의 `git`으로 충분하다(샌드박스에서 실측).
 - 행의 `⎇` 표시는 moai가 `--worktree`일 때 내는 `working`(그 이슈를 쥔 워크트리, 2절 14번)을 쓰고, 없으면 `branch`(그 행이 온 워크트리)를 쓴다.
 
+### 1.9 init 프로필 — 패널에서 `moai init` (`se-s1e8`)
+
+2026-10-20 사용자 요청: init 안 된 프로젝트의 패널은 터미널에서 `moai init`을 돌리라는 안내만 보였다. 이제 그 안내 아래 "여기서 Moai 시작" 버튼으로 init을 돌린다. 확장이 쓰기 프로필 하나를 더 선언한다. 1.1과 같은 규칙(선언 전체 해시)으로 카탈로그에 더해 달라.
+
+```json
+{
+  "id": "buzzni.moai.init",
+  "executable": "moai",
+  "argv": ["--json", "-C", "{{workspaceRoot}}", "init", "--no-skill", "--no-register"],
+  "parameters": {},
+  "cwd": "workspaceRoot",
+  "envAllowlist": ["HOME"],
+  "timeoutMs": 120000,
+  "outputLimitBytes": 1048576,
+  "stdin": "none",
+  "writeScope": "project",
+  "descendantAllowlist": ["git"]
+}
+```
+
+- 쓰기다(`writeScope: project`). Desktop은 쓰기마다 묻는다. init이 쓰는 곳은 `.moai/`, `.gitattributes`, `.gitignore`, `AGENTS.md`(안내 블록), `.git/config`(merge driver)이다. `--json`이면 묻지 않고 `--yes`와 같이 심는다(git 추적, 안내 블록). 2026-10-20에 관리 경로의 moai(그때 `develop` 빌드)를 데몬처럼 좁은 PATH(`/usr/bin:/bin`)로 돌려 실측했다.
+- **관리 moai 고정은 그대로 둬도 된다.** `--no-skill`·`--no-register`는 공개 0.17.0에 이미 있다(`src/init_choice.rs`).
+- `--no-skill`: 스킬은 init 뒤 보드가 뜨면 스킬 배너(1.7)가 `--hook-exe moai`로 심는다. init에는 그 옵션이 없어서, init이 스킬까지 심으면 훅에 관리 moai의 절대 경로가 박힌다.
+- `--no-register`: 사람의 프로젝트 목록(`~/.config/moai`)은 패널이 바꿀 것이 아니다.
+- **merge driver 경로.** 데몬에서 돌린 init은 `.git/config`의 merge driver에 관리 moai의 절대 경로(`~/.happy/managed-tools/buzzni.moai/0.17.0/moai`)를 적는다. PATH의 `moai`가 자기와 같은 파일이 아니기 때문이다(1.7의 훅과 같은 이유). 고정 판이 바뀌어 그 경로가 죽으면 driver는 `git merge-file`로 떨어져 병합은 되지만, 이슈 단위 3-way 병합은 잃는다. 터미널에서 `moai init`을 다시 돌리면 살아 있는 경로로 바뀐다. 철자를 명시하는 moai 옵션은 2절 15번에 요청한다.
+- 카탈로그에 없으면 `unsupported-daemon`으로 거부되고, 패널은 그 이유를 init 배너에 쓴다. 호환성 배너는 이것을 세지 않는다(읽기는 모두 그대로 된다). 손으로 하는 안내(`moai init`)는 그 위에 남는다.
+- **데몬의 `project` 쓰기 정책(aplus.342, `createManagedProjectWriteScopePolicy`)은 경로를 가두지 않는다.** `.moai`가 작업 폴더 밖을 가리키거나 `.git`·`.claude`·`.aplus`·`AGENTS.md`·`CLAUDE.md`가 심볼릭 링크면 거부하고, 작업 폴더 하나에 쓰기 하나만 동시에 허용한다. 그래서 연결된 워크트리에서도 init은 메인 체크아웃의 git 공용 폴더에 있는 `.git/config`에 driver를 쓴다. 쓰기를 폴더 안에 가두는 정책으로 바뀌면 이 프로필은 워크트리에서 git 오류로 끝나고, 패널은 그 이유를 배너에 보인다.
+
 ## 2. moai CLI 상류
 
-패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 10~14번은 2026-10-15에 moai `develop`에 들어갔고 다음 릴리스를 기다린다. 1.7·1.8절의 프로필과 머리가 이것들을 쓰므로, 관리 moai 고정(1.6)은 이것들이 든 판으로 올려야 한다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
+패널은 아래 개선이 `moai`에 **이미 있다고 가정하고** 짰고, moai **0.17.0**에서 1~7번이 확인됐다(2026-10-14 실측, `se-0g4a` 노트). 8번은 0.17.0에도 없고, 9번은 2026-10-15 실기에서 나온 제안이다. 10~14번은 2026-10-15에 moai `develop`에 들어갔고 다음 릴리스를 기다린다. 15번은 2026-10-20 제안이다. 1.7·1.8절의 프로필과 머리가 이것들을 쓰므로, 관리 moai 고정(1.6)은 이것들이 든 판으로 올려야 한다. 옛 moai에서도 패널이 죽지는 않는다. 아래 표의 "없으면"이 `compat.ts`·`source.ts`·`index.ts`가 하는 일이다.
 
 | # | 개선 | 패널이 기대하는 모양 | 없으면 (패널의 대체 동작) |
 |---|---|---|---|
@@ -430,6 +458,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 12 | `status --json`의 **`user`·`version`** (`se-qkga`) | `user: {name, email, label}`(TUI 머리의 User 줄, `naming` 적용) 또는 `null`, `version: {current, latest}`(`latest`는 캐시만 읽은 `{state, tag?, heard_at?, why?}` 또는 `null`, 네트워크 안 씀). **develop에 있음**(moai-9ve2 `ee07bee7`). `git config` 실행이 `status`마다 2번 는다 | 머리의 User·Version이 `—`로 나온다 |
 | 13 | **`skill install --hook-exe <철자>`** (`se-gowr.fk2`) | 훅에 적을 moai 철자를 명시한다. `--hook-exe moai`면 데몬의 임시 래퍼 PATH에서도 훅이 `command -v -- "moai"`로 적힌다. 기억되지 않으므로 설치마다 넘긴다. **develop에 있음**(moai-r5lf `f5880ed6`) | 데몬에서 설치하면 훅에 관리 moai의 절대 경로가 박혀, 고정 판이 바뀌면 훅이 조용히 꺼진다 |
 | 14 | `--worktree` 행의 **`working`** (`se-etwu`) | `show --all --worktree --json`·`show <id> --worktree --json` 등의 행에 그 이슈를 쥔 옆 워크트리 이름(TUI `Origin::working`). 없으면 키가 없다. `status --json --worktree`에 `working` 지도. 끝난 행도 낸다(가리는 것은 그리는 쪽). **develop에 있음**(moai-0n9u `3ee34d25`) | 행의 `⎇`는 `branch`(그 행이 온 워크트리)로만 선다. 이름이나 집은 표식으로 쥔 행에는 표시가 없다 |
+| 15 | **`init --driver-exe <철자>`** (`se-s1e8`) | merge driver 명령에 적을 moai 철자를 명시한다(13번 `--hook-exe`와 같은 꼴). `--driver-exe moai`면 데몬의 임시 래퍼 PATH에서도 `.git/config`에 `moai merge-driver …`로 적힌다. **제안, 아직 없음**(0.17.0·develop 모두) | 패널의 init(1.9)이 driver에 관리 moai의 절대 경로를 적는다. 고정 판이 바뀌면 병합이 `git merge-file`로 떨어지고, 터미널에서 `moai init`을 다시 돌릴 때까지 이슈 단위 병합을 잃는다 |
 
 ### 2.1 판별 방식
 
@@ -446,7 +475,7 @@ Moai 확장 2.0(`packages/moai`, `milestone/se-9inv`)이 돌려면 이 저장소
 | 없으면 기능이 꺼짐 | 1(NEW 칩·뱃지, 배너 없음), 6(아카이브) |
 | 없으면 값이 어긋나거나 순서를 잃음 | 2, 7 |
 | 없어도 같은 결과를 클라이언트가 낸다 | 3, 4, 5 |
-| 릴리스와 따로 | 8, 9 |
+| 릴리스와 따로 | 8, 9, 15 |
 
 ## 3. 릴리스 순서
 
@@ -610,5 +639,5 @@ moai는 **1번**으로 시작한다. 2번은 이 요청의 필수 조건이 아�
 3. `release-notes/unreleased/moai-official-extension.md`의 "buzzni.moai 1.1.1" 문구를 바꾼다.
 4. 서명된 원격 카탈로그로 기존 사용자에게 2.0.0을 보낸다면 그 설명자(`id`, `version`, `releaseUrl`, `archiveUrl`, `sha256`)에도 새 항목이 필요하다. 번들 카탈로그는 부트스트랩용이다.
 5. 1.1.1 → 2.0.0은 자동 교체가 아니라 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동). 실행 중에는 거부된다.
-6. 매니페스트는 `apiVersion 3`, `engines ^1.2.0`이라 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. 이 뱃지를 피하려면 API 4 기능을 쓰는 확장 버전이 따로 필요하다.
+6. 매니페스트는 `apiVersion 3`, `engines ^1.2.0`이라 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. 2026-10-20부터 Moai는 `apiVersion 4`다(`se-ya5e`). API 4는 Desktop 0.1.69부터 현재 판이고 API 3의 상위 집합이라, 매니페스트에서 바뀐 것은 숫자 하나다.
 7. 열어 둘 요청(선택): 패널에 가시성·포커스 신호를 주는 포트 메시지, `allow-same-origin` 또는 패널용 저장 API(요청서는 [4절](#4-sdkdesktop-설정-저장-api-se-dnas)). 지금은 iframe이 `sandbox="allow-scripts"`뿐이라 `localStorage`가 세션 한정이고, 숨은 탭은 0×0 뷰포트로만 짐작한다.

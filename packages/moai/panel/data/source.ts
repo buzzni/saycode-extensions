@@ -48,6 +48,12 @@ export const PROFILE = {
   skillStatus: 'buzzni.moai.skill-status',
   /** Plants `moai-saycode` (and moai's skills when there are none): a write, Desktop asks every time. */
   skillInstall: 'buzzni.moai.skill-install-saycode',
+  /**
+   * `init --no-skill --no-register`: a `.moai/` where the project has none, a write Desktop asks for every time. The
+   * skills come after, from the skills banner, whose install keeps the hooks' `moai` (`--hook-exe`); init has no such
+   * option, and its merge driver names the managed binary (upstream request).
+   */
+  init: 'buzzni.moai.init',
   /** `show --all --worktree`: the whole list with the other worktrees' rows over it, each marked with its `branch`. */
   showAllWorktree: 'buzzni.moai.show-all-worktree',
   /** `show <id> --worktree`: the row as the worktree that moved it has it, beside the overlaid list. */

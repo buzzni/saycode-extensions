@@ -1,0 +1,87 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2",
+  "id": "i02-table",
+  "scenario": "I02",
+  "description": "Block Kit table — 행마다 셀을 \" | \"로 잇고 행은 줄바꿈, rich_text 셀은 텍스트로",
+  "request": {
+    "apiVersion": 2,
+    "channelId": "slack",
+    "connectionId": "conn-fixture",
+    "provider": "slack",
+    "connectionRevision": 1,
+    "requestId": "req-fixture",
+    "purpose": "threadHistory",
+    "userLabels": {},
+    "items": [
+      {
+        "itemRef": "i0",
+        "primaryText": "서버 현황",
+        "maxAdditionsBytes": 6000,
+        "projection": {
+          "blocks": [
+            {
+              "type": "table",
+              "rows": [
+                [
+                  {
+                    "type": "raw_text",
+                    "text": "서버"
+                  },
+                  {
+                    "type": "raw_text",
+                    "text": "상태"
+                  }
+                ],
+                [
+                  {
+                    "type": "raw_text",
+                    "text": "api-1"
+                  },
+                  {
+                    "type": "raw_text",
+                    "text": "정상"
+                  }
+                ],
+                [
+                  {
+                    "type": "raw_text",
+                    "text": "api-2"
+                  },
+                  {
+                    "type": "rich_text",
+                    "elements": [
+                      {
+                        "type": "rich_text_section",
+                        "elements": [
+                          {
+                            "type": "text",
+                            "text": "점검 중"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedResult": {
+    "items": [
+      {
+        "itemRef": "i0",
+        "additions": [
+          {
+            "source": "table",
+            "text": "서버 | 상태\napi-1 | 정상\napi-2 | 점검 중"
+          }
+        ],
+        "truncated": false
+      }
+    ]
+  }
+}

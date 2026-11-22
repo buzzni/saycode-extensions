@@ -74,7 +74,7 @@
 .m-shell-notes > * { margin: 8px 8px 0; }
 .m-shell-notes > :last-child { margin-bottom: 8px; }
 .moai-hint, .moai-more { color: var(--muted); font-size: 12px; }
-.moai-skills:empty, .moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-backlog-problem:empty, .moai-compat:empty, .moai-held:empty, .moai-more:empty, .moai-result:empty { display: none; }
+.moai-skills:empty, .moai-init:empty, .moai-notice:empty, .moai-error:empty, .moai-truncated:empty, .moai-archive-problem:empty, .moai-backlog-problem:empty, .moai-compat:empty, .moai-held:empty, .moai-more:empty, .moai-result:empty { display: none; }
 /* moai's skills for the repository's agents (data/skills.ts): what is missing, then a button or the command. */
 .moai-skills { flex-direction: column; gap: 6px; }
 .moai-skills > p { margin: 0; }
@@ -85,6 +85,11 @@
 }
 .moai-skills-actions { display: flex; align-items: center; gap: 6px; }
 .moai-skills-problem { color: var(--danger); }
+/* Running `moai init` from the not-initialized screen (se-s1e8): what it writes, then the button. */
+.moai-init { flex-direction: column; gap: 6px; }
+.moai-init > p { margin: 0; }
+.moai-init-actions { display: flex; align-items: center; gap: 6px; }
+.moai-init-problem { color: var(--danger); }
 /* The compatibility banner: one sentence per line, one per thing to fix on that machine. */
 .moai-compat { flex-direction: column; gap: 2px; }
 .moai-compat > p { margin: 0; }

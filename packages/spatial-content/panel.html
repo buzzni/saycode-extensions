@@ -1,0 +1,117 @@
+<main class="studio" lang="ko" id="spatial-editor">
+  <header class="studio-header">
+    <div>
+      <h1>공간컨텐츠 만들기</h1>
+      <p>예시를 먼저 체험하거나 환경 이미지, 인물, 스토리를 넣어 직접 만들어 보세요.</p>
+    </div>
+    <div class="sample-actions">
+      <button class="primary" id="quick-start" type="button">예시로 시작</button>
+      <button class="secondary" id="open-spatial-pilot" type="button">실사 3D 샘플 열기</button>
+      <details class="samples" hidden>
+        <summary>예시 불러오기</summary>
+        <div class="sample-menu">
+          <button type="button" data-sample="security">사업장 출입 보안</button>
+          <button type="button" data-sample="tour">오피스 투어</button>
+          <button type="button" data-sample="showroom">스피커 쇼룸</button>
+        </div>
+      </details>
+      <button class="secondary" id="undo-sample" type="button" hidden>예시 불러오기 취소</button>
+    </div>
+  </header>
+
+  <div class="studio-grid">
+    <div id="studio-form">
+      <div class="title-field">
+        <label for="title">콘텐츠 제목</label>
+        <input id="title" type="text" maxlength="80" placeholder="예: 우리 사무실 둘러보기" aria-required="true">
+      </div>
+      <section class="source" aria-labelledby="environment-heading">
+        <div class="source-header">
+          <h2 id="environment-heading">환경소스</h2>
+          <button class="secondary" type="button" data-pick="environment" aria-label="환경 이미지 올리기">이미지 올리기</button>
+        </div>
+        <p id="environment-name">체험할 공간 사진을 올려 주세요.</p>
+        <input id="environment-file" type="file" accept=".jpg,.jpeg,.png,.webp" aria-label="환경 이미지 파일" hidden>
+        <p id="environment-error" class="error" role="status" hidden></p>
+      </section>
+      <section class="source" aria-labelledby="character-heading">
+        <div class="source-header">
+          <h2 id="character-heading">인물소스</h2>
+          <button class="secondary" type="button" data-pick="character" aria-label="인물 이미지 올리기">이미지 올리기</button>
+        </div>
+        <label class="sr-only" for="character-name">인물 이름</label>
+        <input id="character-name" type="text" maxlength="100" placeholder="인물 이름 또는 역할">
+        <p id="character-file-name" hidden></p>
+        <input id="character-file" type="file" accept=".jpg,.jpeg,.png,.webp" aria-label="인물 이미지 파일" hidden>
+        <p id="character-error" class="error" role="status" hidden></p>
+      </section>
+      <section class="source" aria-labelledby="story-heading">
+        <div class="source-header">
+          <h2 id="story-heading">스토리</h2>
+          <button class="secondary" type="button" data-pick="story" aria-label="스토리 파일 올리기">TXT·MD 올리기</button>
+        </div>
+        <label class="sr-only" for="story">스토리 직접 입력</label>
+        <textarea id="story" rows="3" maxlength="4800" placeholder="체험할 순서대로 한 줄씩 적어 주세요." aria-describedby="story-limit story-error"></textarea>
+        <p id="story-limit">한 줄에 한 단계 · 최대 12단계</p>
+        <input id="story-file" type="file" accept=".txt,.md,text/plain,text/markdown" aria-label="스토리 파일" hidden>
+        <p id="story-error" class="error" role="status" hidden></p>
+      </section>
+      <button type="button" id="build" class="primary">콘텐츠 만들기</button>
+      <p id="build-status" role="status"></p>
+    </div>
+
+    <section class="preview" aria-labelledby="preview-heading">
+      <div class="source-header">
+        <h2 id="preview-heading">체험 미리보기</h2>
+        <button type="button" id="export" class="secondary" hidden>HTML 저장</button>
+      </div>
+      <div id="draft-preview">
+        <div class="preview-image" id="preview-image">
+          <p id="image-hint">환경 이미지를 올리면 여기에 표시돼요.</p>
+        </div>
+        <p>콘텐츠를 만들면 이곳에서 바로 체험할 수 있어요.</p>
+      </div>
+      <div id="experience"></div>
+    </section>
+  </div>
+</main>
+<main class="studio" lang="ko" id="spatial-pilot" hidden>
+  <header class="studio-header">
+    <div><h1>3D 로비 검증</h1></div>
+    <div class="sample-actions">
+      <button class="secondary" id="close-spatial-pilot" type="button">편집기로 돌아가기</button>
+      <button class="primary" id="pick-spatial-pilot" type="button">3D 로비 불러오기</button>
+      <input type="file" accept=".glb" aria-label="3D 로비 파일" hidden>
+    </div>
+  </header>
+  <div class="pilot-scene" hidden>
+    <div class="pilot-tools" role="group" aria-label="3D 보기 방식">
+      <button type="button" class="secondary" data-pilot-mode="visit" aria-pressed="true">직접 걸어보기</button>
+      <button type="button" class="secondary" data-pilot-mode="place" aria-pressed="false">인물 배치</button>
+    </div>
+    <div class="pilot-viewport"></div>
+    <div class="pilot-tools" data-pilot-controls="visit" role="group" aria-label="이동과 시점">
+      <button class="secondary" aria-label="앞으로 이동" type="button" data-pilot-move="w">↑</button>
+      <button class="secondary" aria-label="뒤로 이동" type="button" data-pilot-move="s">↓</button>
+      <button class="secondary" aria-label="왼쪽으로 이동" type="button" data-pilot-move="a">←</button>
+      <button class="secondary" aria-label="오른쪽으로 이동" type="button" data-pilot-move="d">→</button>
+      <button class="secondary" aria-label="왼쪽 보기" type="button" data-pilot-turn="-1">↶</button>
+      <button class="secondary" aria-label="오른쪽 보기" type="button" data-pilot-turn="1">↷</button>
+      <button class="primary" id="greet-spatial-staff" type="button">직원에게 말 걸기</button>
+    </div>
+    <div class="pilot-tools" data-pilot-controls="place" role="group" aria-label="인물 배치와 동작" hidden>
+      <button class="secondary" type="button" data-pilot-place="desk" aria-pressed="true">접수대 옆</button>
+      <button class="secondary" type="button" data-pilot-place="aisle" aria-pressed="false">통로 쪽</button>
+      <button class="secondary" id="rotate-spatial-staff" type="button">방향 바꾸기</button>
+      <label for="spatial-motion">인물 동작</label>
+      <select id="spatial-motion">
+        <option value="Idle">대기</option>
+        <option value="Walk">걷기</option>
+        <option value="Greet">안내</option>
+      </select>
+    </div>
+  </div>
+  <p id="spatial-pilot-status" role="status">환경과 직원이 담긴 검증용 GLB 파일을 불러오세요.</p>
+</main>
+<!-- studio-styles -->
+<!-- studio-script -->

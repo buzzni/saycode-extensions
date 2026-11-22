@@ -229,3 +229,112 @@ Originals are limited to 10 MiB each and 20 MiB per extension/principal scope. C
 The panel must use `window.saycodePanel.ready` and `invokeCommand`, not install a competing MessagePort listener. It has no network or Node access. Renderer migration is outside this release: the document template package uses retained public previews and authenticated existing Web previews.
 
 Panels run in an opaque-origin iframe framed with `sandbox="allow-scripts"`: forms never submit and `crypto.subtle` is unavailable. Save from button click handlers and hash in plain JavaScript; test panels in a harness that removes both.
+
+## Session and worktree hooks (API 4 / engine 1.4.0, SDK 0.10.0)
+
+Two declarative contribution points let an extension prepare the environment Saycode starts an agent in. Both need
+`apiVersion: 4` and an `engines.saycode` range whose lower bound is at least `1.4.0` (for example `^1.4.0`);
+`saycode-extension validate` refuses a lower range because older Desktop builds do not know these contributions.
+
+| Contribution | Permission (declared together, both ways) | What Saycode does |
+|---|---|---|
+| `sessionHooks[]` | `sessions.launchEnvironment` | Adds env variables and MCP servers to every conversation session it creates or resumes |
+| `worktreeHooks[]` | `worktrees.prepare` | Copies Git-ignored files from the original checkout into each new worktree |
+
+```json
+{
+  "apiVersion": 4,
+  "engines": { "saycode": "^1.4.0" },
+  "permissions": ["sessions.launchEnvironment", "worktrees.prepare"],
+  "activationEvents": ["onSessionOpenBefore:com.example.tools.company"],
+  "contributes": {
+    "sessionHooks": [
+      {
+        "id": "com.example.tools.docs",
+        "event": "session.open.before",
+        "env": [{ "name": "EXAMPLE_DOCS_URL" }, { "name": "EXAMPLE_DOCS_TOKEN", "secret": true }],
+        "mcpServers": [
+          { "name": "example-docs", "transport": "stdio", "command": "npx", "args": ["-y", "@example/docs-mcp@1.2.3"], "envNames": ["EXAMPLE_DOCS_TOKEN"] },
+          { "name": "example-remote", "transport": "http", "url": "https://mcp.example.com/v1", "headerEnvNames": { "Authorization": "EXAMPLE_DOCS_TOKEN" } }
+        ]
+      },
+      { "id": "com.example.tools.company", "event": "session.open.before", "scope": "company", "dynamic": true, "env": [{ "name": "EXAMPLE_WORKSPACE" }] }
+    ],
+    "worktreeHooks": [
+      { "id": "com.example.tools.prepare", "event": "worktree.create.after", "copyIgnored": [".env.local"] }
+    ]
+  }
+}
+```
+
+Session hook rules (the parser mirrors Desktop and rejects anything else, including unknown fields):
+
+- At most 4 hooks per contribution point. Hook ids start with the extension id and are unique among all contributions.
+  `scope` is `all` (default) or `company` (only projects that belong to a company).
+- `env`: at most 32 names matching `^[A-Z][A-Z0-9_]{0,63}$`. Names the agent, Saycode, a shell, an interpreter or
+  a loader reads are refused: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `PWD`, `TMPDIR`, `TERM`, `PORT`,
+  `SSH_AUTH_SOCK`, `IFS`, `PS4`, `PROMPT_COMMAND`, `ENV`, `BASH_ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS`, `COMSPEC`,
+  `PATHEXT`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `PERL5LIB`, `PERL5OPT`, `PERLLIB`, `RUBYOPT`, `RUBYLIB`,
+  `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, `GCONV_PATH`, and anything starting with `HAPPY_`,
+  `SAYCODE_`, `APLUS_`, `LD_`, `DYLD_`, `GIT_`, `ANTHROPIC_`, `CLAUDE_`, `OPENAI_`, `CODEX_`, `NODE_`, `NPM_CONFIG_`
+  or `BASH_FUNC_`.
+- `mcpServers`: at most 8, names matching `^[a-z][a-z0-9_-]{0,31}$`, not starting with `happy`, `saycode` or `aplus`,
+  and not `cua-driver` (the daemon adds `happy` and `cua-driver` itself).
+  A `stdio` server has a bare `command` (no path) that is not a shell or indirection (`sh`, `bash`, `env`, `xargs`,
+  `ssh`, `sudo`, `wsl`, `cscript`, `osascript`, …; `bash.exe`, `cmd.exe` and similar Windows suffixes count as the bare
+  name), at most 32 fixed `args` of up to 512 characters, and `envNames` from the same hook. An interpreter such as
+  `node`, `python3.11` or `py` may not run inline code or loaders (`-e`, `-ex()`, `-c`, `-p`, `--eval`, `--import`,
+  `--require`, `--loader`, …), and a package runner (`npx`, `pnpm`, `uvx`, …) may not take a shell line (`-c`, `--call`,
+  `--shell`, `exec`). An `http` server
+  has an `https:` URL without credentials, and each `headerEnvNames` entry must name a **secret** env of the same hook.
+- A hook injects at least one env name or server. Env and server names are unique across one extension's hooks.
+- `dynamic: true` requires the activation event `onSessionOpenBefore:<hookId>` and a handler registered during
+  `activate`:
+
+```ts
+import { defineExtension } from '@buzzni/saycode-extension-sdk'
+
+export default defineExtension({
+  activate(context) {
+    context.sessionHooks?.onOpenBefore('com.example.tools.company', (input) =>
+      input.project.companyId ? { env: { EXAMPLE_WORKSPACE: `company-${input.project.companyId}` } } : {})
+  },
+})
+```
+
+The handler receives `SessionOpenBeforeInput` — `{ reason: 'create' | 'resume', sessionKind, agent, project: { id,
+companyId?, repository?: { name, remoteHost? } } }`, with no local path, token or conversation text — and returns
+`SessionOpenBeforeResult`: `env` with values (strings up to 8192 characters, no NUL) for the hook's declared
+**non-secret** names, and optionally `mcpServers`, the declared server names to start this time (omitted means all).
+Any other result drops the extension's whole injection for that session.
+
+Trust model:
+
+- Secret env values are entered by the person in Saycode and kept in its secret store. They never reach the extension
+  host, and a handler can never return one. A value stored as secret stays secret: if a later version redeclares the
+  same name as a plain env, Saycode does not send the stored value as plain text.
+- MCP commands, arguments and URLs are fixed in the manifest and shown to the person when they approve the permission.
+  A handler only fills declared values and picks declared servers; it cannot add or change a launch line. Approval is
+  tied to the extension version and its hook declarations, so an update that changes them asks again. Disabling the
+  extension also ends the approval; after enabling it again the person approves the hooks again (entered values stay).
+- A hook never blocks a session or a worktree; the session still starts and a failed copy leaves the worktree in place.
+  Two kinds of failure are handled differently:
+  - **A missing value** (no secret entered, or no value for a plain env) leaves out only that env name and the MCP
+    servers that need it through `envNames` or `headerEnvNames`. Everything else the extension declared still applies.
+  - **A timeout (5 seconds per extension), host crash, invalid handler result or name conflict** drops that extension's
+    whole injection for the session — never part of it. When two extensions declare the same env or server name, both
+    are dropped; a name the person set on the project wins and the extension's injection is dropped.
+- A `scope: "company"` hook applies only to projects that belong to a company. For any other project its dynamic
+  handler is not called at all.
+- Values are recomputed at every session open and are not stored in project settings or session metadata.
+
+Worktree hooks in v1 support only `copyIgnored`: 1 to 32 safe relative paths (no absolute path, `..`, or `.git`
+segment). Saycode copies only regular files that Git ignores, never follows symlinks, and does not overwrite a file
+that already exists in the new worktree. There is no command step in v1; a `machineCommand` field is rejected.
+
+`@buzzni/saycode-extension-test-host` accepts the parsed `manifest` option, registers only declared dynamic hooks, and
+`host.openSessionBefore(hookId, input)` rejects a result Desktop would drop.
+
+The `examples/session-env-sample` (static env, secret env, a fixed `npx` stdio server and a dynamic hook) and
+`examples/worktree-prepare-sample` (`.env.local`) packages are packed and run in the test host by
+`tests/launch-hooks.test.mjs`.

@@ -15,6 +15,8 @@ const withoutValue = new Set([
   'buzzni.moai.show-all-worktree',
   // A write: plants the optional `moai-saycode` skill in the project (writeScope `project`); Desktop asks each time.
   'buzzni.moai.skill-install-saycode',
+  // A write: puts a `.moai/` into a project that has none (writeScope `project`); Desktop asks each time.
+  'buzzni.moai.init',
 ])
 
 /**

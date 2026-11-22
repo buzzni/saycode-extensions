@@ -1,0 +1,57 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2",
+  "id": "i02-same-text-blocks",
+  "scenario": "I02",
+  "description": "text와 rich_text가 같은 글 — user 요소를 Core 템플릿(@표시명)으로 쓰면 primary와 같아 additions 0개",
+  "request": {
+    "apiVersion": 2,
+    "channelId": "slack",
+    "connectionId": "conn-fixture",
+    "provider": "slack",
+    "connectionRevision": 1,
+    "requestId": "req-fixture",
+    "purpose": "threadHistory",
+    "userLabels": {
+      "U1": "kim"
+    },
+    "items": [
+      {
+        "itemRef": "i0",
+        "primaryText": "배포 끝났어요 @kim",
+        "maxAdditionsBytes": 6000,
+        "projection": {
+          "blocks": [
+            {
+              "type": "rich_text",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "배포 끝났어요 "
+                    },
+                    {
+                      "type": "user",
+                      "user_id": "U1"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expectedResult": {
+    "items": [
+      {
+        "itemRef": "i0",
+        "additions": [],
+        "truncated": false
+      }
+    ]
+  }
+}

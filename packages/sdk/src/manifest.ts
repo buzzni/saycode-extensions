@@ -1,18 +1,31 @@
 import { parseManagedLocalTool, type ManagedLocalTool } from './managedLocalTool.js'
+import {
+  assertExtensionLaunchHooks, parseExtensionSessionHooks, parseExtensionWorktreeHooks,
+  type ExtensionSessionHookContribution, type ExtensionWorktreeHookContribution,
+} from './launchHooks.js'
+export type {
+  ExtensionSessionHookContribution, ExtensionSessionHookEnv, ExtensionSessionHookMcpServer, ExtensionWorktreeHookContribution,
+} from './launchHooks.js'
+export { LAUNCH_HOOKS_MINIMUM_ENGINE, SESSION_HOOK_ACTIVATION_PREFIX } from './launchHooks.js'
 export const EXTENSION_PERMISSIONS = [
   'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
   'network.fetch', 'notifications.show', 'storage.read', 'storage.write',
   'browserViewer.open', 'browserViewer.install', 'browserViewer.installChrome',
-  'artifacts.publishPublic', 'filePreviews.read',
+  'artifacts.publishPublic', 'filePreviews.read', 'browserPicks.inspect',
   // One permission per channel wire method, deliberately not a single `channels.adapter`.
   // A transport adapter needs to receive and ack; being able to *control a session* or to
   // *approve a tool call once* is a different and much larger authority, and a blanket grant
   // would hand both to anything that could merely read messages. The host still enforces each
   // one against the live grant at call time — declaring it here only makes it askable.
   'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  // Not a wire method the adapter calls: Core calls the adapter's normalizer with thread history
+  // (other people's messages included), so receiving that is an authority of its own (channel API 2).
+  'channels.normalize',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
   'localTools.inspect', 'localTools.install', 'localTools.control', 'localBrowser.setup',
+  // API 4, engine 1.4.0: env and MCP servers added at session open, and ignored files copied into a new worktree.
+  'sessions.launchEnvironment', 'worktrees.prepare',
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
@@ -89,8 +102,11 @@ export interface ExtensionProjectToolContribution {
   command: string
 }
 export interface ExtensionFileViewer { id: string; title: string; extensions: string[]; panelId: string }
+/** A static script (one function expression `(element) => result`) Desktop runs in the page for an element the user picked; API 4. */
+export interface ExtensionElementPickInspector { id: string; title: string; script: string }
 export interface ExtensionContributions {
   fileViewers?: ExtensionFileViewer[]
+  elementPickInspectors?: ExtensionElementPickInspector[]
   commands?: ExtensionCommandContribution[]
   settings?: ExtensionSettingContribution[]
   panels?: ExtensionPanelContribution[]
@@ -99,6 +115,10 @@ export interface ExtensionContributions {
   projectTools?: ExtensionProjectToolContribution[]
   artifactActions?: ExtensionArtifactActionContribution[]
   channels?: ExtensionChannelContribution[]
+  /** API 4, engine 1.4.0; paired with `sessions.launchEnvironment`. */
+  sessionHooks?: ExtensionSessionHookContribution[]
+  /** API 4, engine 1.4.0; paired with `worktrees.prepare`. v1 copies Git-ignored files only. */
+  worktreeHooks?: ExtensionWorktreeHookContribution[]
 }
 export type MachineCommandParameter = { type: 'string'; maxLength: number; values?: string[] }
   | { type: 'integer'; min: number; max: number }
@@ -221,7 +241,7 @@ function uniqueStrings(value: unknown, path: string, parse: (item: unknown, item
 const CHANNEL_PROVIDERS = new Set(['telegram', 'slack', 'discord'])
 /** Channel-scoped permissions, in the order the wire contract defines them. */
 const CHANNEL_PERMISSIONS = new Set<string>([
-  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport',
+  'channels.receive', 'channels.ack', 'channels.send', 'channels.transport', 'channels.normalize',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
 ])
 
@@ -447,6 +467,9 @@ function parseMachineCommands(value: unknown, extensionId: string, apiVersion: n
   return { version: 1, profiles }
 }
 
+const CHANNEL_API_VERSION = 2
+const MINIMUM_CHANNEL_API_VERSION = 1
+
 /**
  * Parsed on its own axis, with the same one-version window `apiVersion` uses: a host may accept at
  * most the current channel contract and the one before it, so a manifest can never be written
@@ -457,8 +480,11 @@ function parseChannelApiVersion(
   apiVersion: number,
   options: { supportedChannelApiVersion?: number; minimumSupportedChannelApiVersion?: number },
 ): number | undefined {
-  const supported = options.supportedChannelApiVersion ?? 1
-  const minimum = options.minimumSupportedChannelApiVersion ?? supported
+  const supported = options.supportedChannelApiVersion ?? CHANNEL_API_VERSION
+  // The default window keeps channel API 1 adapters (Telegram, Discord) packable next to v2 ones;
+  // an explicit `supportedChannelApiVersion` keeps meaning "exactly that version" unless widened.
+  const minimum = options.minimumSupportedChannelApiVersion
+    ?? (options.supportedChannelApiVersion === undefined ? MINIMUM_CHANNEL_API_VERSION : supported)
   if (supported - minimum > 1) throw new Error('manifest.channelApiVersion: unsupported host window')
   if (value === undefined) return undefined
   // Gated on the declaration itself, not only on what it unlocks: accepting it under API 2 while
@@ -497,6 +523,10 @@ export function parseExtensionManifest(
   if (!SEMVER.test(version)) throw new Error('manifest.version: expected semantic version')
   const engines = record(raw.engines, 'manifest.engines')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('filePreviews.read')) throw new Error('filePreviews.read requires API 4')
+  if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('browserPicks.inspect')) throw new Error('browserPicks.inspect requires API 4')
+  for (const gated of ['sessions.launchEnvironment', 'worktrees.prepare']) {
+    if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes(gated)) throw new Error(`manifest.permissions: ${gated} requires Extension API version 4`)
+  }
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {
     const permission = text(item, `manifest.permissions[${index}]`)
     if (!PERMISSIONS.has(permission)) throw new Error(`manifest.permissions: unknown ${permission}`)
@@ -514,6 +544,9 @@ export function parseExtensionManifest(
       // manifest that never declared which channel contract it speaks cannot hold one of these.
       if (channelApiVersion === undefined) {
         throw new Error(`manifest.permissions: ${permission} requires manifest.channelApiVersion`)
+      }
+      if (permission === 'channels.normalize' && channelApiVersion < 2) {
+        throw new Error('manifest.permissions: channels.normalize requires manifest.channelApiVersion 2')
       }
     }
     return permission as ExtensionPermission
@@ -536,6 +569,22 @@ export function parseExtensionManifest(
     if (Object.keys(source).sort().join() !== 'extensions,id,panelId,title' || !Array.isArray(source.extensions) || !source.extensions.length || source.extensions.length > 30 || source.extensions.some(extension => typeof extension !== 'string' || !/^[a-z0-9]{1,12}$/.test(extension)) || new Set(source.extensions).size !== source.extensions.length) throw new Error('invalid fileViewers')
     return { ...contributionBase(item, `fileViewers[${index}]`), extensions: source.extensions as string[], panelId: text(source.panelId, 'fileViewers.panelId') }
   })
+  // Mirrors Desktop src/domain/extensionElementPickInspectors.ts: the permission and the contribution come together.
+  if (apiVersion < 4 && contributions.elementPickInspectors !== undefined) throw new Error('elementPickInspectors requires API 4')
+  const elementPickInspectors = contributions.elementPickInspectors === undefined ? undefined : list(contributions.elementPickInspectors, 'elementPickInspectors').map((item, index) => {
+    const path = `elementPickInspectors[${index}]`
+    const source = record(item, path)
+    if (Object.keys(source).sort().join() !== 'id,script,title') throw new Error(`${path}: expected id, title and script`)
+    const script = safePath(source.script, `${path}.script`)
+    if (!/\.(?:cjs|mjs|js)$/.test(script)) throw new Error(`${path}.script: expected a .js file`)
+    return { ...contributionBase(item, path), script }
+  })
+  if ((elementPickInspectors?.length ?? 0) > 0 !== permissions.includes('browserPicks.inspect')) {
+    throw new Error('elementPickInspectors: requires browserPicks.inspect permission and an inspector that uses it')
+  }
+  // Mirrors Desktop src/domain/extensionLaunchHooks.ts; pairing, ownership and activation are checked after the ids below.
+  const sessionHooks = contributions.sessionHooks === undefined ? undefined : parseExtensionSessionHooks(contributions.sessionHooks, apiVersion)
+  const worktreeHooks = contributions.worktreeHooks === undefined ? undefined : parseExtensionWorktreeHooks(contributions.worktreeHooks, apiVersion)
 
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
@@ -638,6 +687,7 @@ export function parseExtensionManifest(
       || !commands?.some((command) => command.id === action.command)
     ) throw new Error(`machineActions[${index}].id/command: expected ids declared by the same extension`)
   }
+  for (const inspector of elementPickInspectors ?? []) if (!inspector.id.startsWith(`${String(raw.id)}.`)) throw new Error('elementPickInspectors: expected an id declared by the same extension')
   for (const viewer of fileViewers ?? []) if (!viewer.id.startsWith(`${String(raw.id)}.`) || !viewer.panelId.startsWith(`${String(raw.id)}.`) || !panels?.some(panel => panel.id === viewer.panelId)) throw new Error('fileViewers must reference an owned panel')
   for (const [index, tool] of (projectTools ?? []).entries()) {
     const extensionPrefix = `${text(raw.id, 'manifest.id')}.`
@@ -703,11 +753,20 @@ export function parseExtensionManifest(
     ...(projectTools ?? []),
     ...(artifactActions ?? []),
     ...(fileViewers ?? []),
+    ...(elementPickInspectors ?? []),
     ...(channels ?? []),
+    ...(sessionHooks ?? []),
+    ...(worktreeHooks ?? []),
   ].map((contribution) => contribution.id)
   if (new Set(contributionIds).size !== contributionIds.length) {
     throw new Error('manifest.contributes: duplicate contribution id')
   }
+  const activationEvents = list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`))
+  const engine = text(engines.saycode, 'manifest.engines.saycode')
+  assertExtensionLaunchHooks({
+    extensionId, engine, permissions, activationEvents,
+    sessionHooks: sessionHooks ?? [], worktreeHooks: worktreeHooks ?? [],
+  })
   return {
     id: extensionId,
     version,
@@ -715,10 +774,15 @@ export function parseExtensionManifest(
     ...(channelApiVersion === undefined ? {} : { channelApiVersion }),
     ...(managedLocalTool ? { managedLocalTool } : {}),
     ...(machineCommands ? { machineCommands } : {}),
-    engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
+    engines: { saycode: engine },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
-    activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers },
+    activationEvents,
+    contributes: {
+      commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers, elementPickInspectors,
+      // Only present when declared, so manifests without hooks parse to exactly the shape they did before.
+      ...(sessionHooks === undefined ? {} : { sessionHooks }),
+      ...(worktreeHooks === undefined ? {} : { worktreeHooks }),
+    },
   }
 }

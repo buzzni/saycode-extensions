@@ -50,7 +50,7 @@ test('Moai fixture covers install, approval, and rollback lifecycle expectations
 })
 
 test('Moai manifest declares only bounded v0.8.0 managed profiles', () => {
-  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 4, minimumSupportedApiVersion: 2 })
   assert.deepEqual(parsed.machineCommands.profiles.map((profile) => profile.id), lifecycle.run.profiles)
   for (const profile of parsed.machineCommands.profiles) {
     assert.equal(profile.executable, 'moai')
@@ -62,7 +62,9 @@ test('Moai manifest declares only bounded v0.8.0 managed profiles', () => {
     assert.equal(profile.outputLimitBytes, 1048576)
     assert.equal(profile.stdin, 'none')
     assert.ok(profile.argv.includes('--json'))
-    assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
+    // `init` runs only as the not-initialized screen's button, with its skills and project list left out (se-s1e8).
+    if (profile.id === 'buzzni.moai.init') assert.deepEqual(profile.argv.slice(3), ['init', '--no-skill', '--no-register'])
+    else assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
   }
 })
 
@@ -227,7 +229,7 @@ const BOOT_READS = [...LIST_READS, ['buzzni.moai.skill-status']]
 const cut = { state: 'passed', stdout: '[{"id":"mgd-', stderr: '', exitCode: 0, truncated: true }
 
 test('a project tool opens the Moai board panel in the work area instead of a machine settings button', async () => {
-  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 })
+  const parsed = parseExtensionManifest(manifest, { supportedApiVersion: 4, minimumSupportedApiVersion: 2 })
   const open = parsed.contributes.commands.find((command) => command.id === 'buzzni.moai.open')
   assert.equal(open?.panelId, 'buzzni.moai.panel')
   // The host owns the panel title; compact asks for the small modal preset where a host still opens a modal.
@@ -237,6 +239,10 @@ test('a project tool opens the Moai board panel in the work area instead of a ma
   assert.equal(parsed.contributes.machineActions, undefined)
   // Project tools need a Desktop with engine 1.2.0; an older one refuses the manifest instead of misreading it.
   assert.equal(parsed.engines.saycode, '^1.2.0')
+  // Extension API 4, the current one since Desktop 0.1.69: no "previous extension API" notice on its card (se-ya5e).
+  // A host that stops at API 3 refuses the manifest rather than running it.
+  assert.equal(parsed.apiVersion, 4)
+  assert.throws(() => parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2 }), /manifest\.apiVersion: unsupported 4/)
   assert.ok(parsed.activationEvents.includes('onCommand:buzzni.moai.open'))
   const host = createTestHost('buzzni.moai', { async invokeCapability() { throw new Error('not expected') } })
   await host.activate(extension)
@@ -363,6 +369,77 @@ test('a project without a Moai board says how to start one, from a failed run or
     assert.match(notice.textContent, /^This project has no Moai board yet\./)
     assert.equal(panel.$('.moai-error').textContent, '')
   }
+})
+
+// ── moai init from the not-initialized screen (se-s1e8) ──
+const initBanner = (panel) => panel.$('.moai-init')
+const initButton = (panel, label) => [...initBanner(panel).querySelectorAll('button')].find((node) => node.textContent === label)
+const NOT_INITIALIZED = { state: 'failed', stdout: '', stderr: NOT_A_REPOSITORY, exitCode: 1 }
+const INITIALIZED = JSON.stringify({ created: true, prefix: 'mgd', tracking: 'commit', guide: 'block', driver: 'planted', skill: false, project: false })
+
+test('init: a project without a board offers Start Moai here; init runs, then the board and the skills banner come', async () => {
+  let initialized = false
+  const panel = await runPanel(board({
+    'buzzni.moai.show-all': () => (initialized ? SHOW_ALL : NOT_INITIALIZED),
+    'buzzni.moai.skill-status': JSON.stringify({ written: false, installs: [] }),
+    'buzzni.moai.init': () => { initialized = true; return INITIALIZED },
+  }))
+  await until(() => initBanner(panel).textContent !== '')
+  // The instruction to run it by hand stays; the banner under it says what init writes and that Saycode asks first.
+  assert.equal(panel.$('.moai-notice code')?.textContent, 'moai init')
+  assert.match(initBanner(panel).textContent, /^Or start it here: this creates \.moai\/ in the project folder/)
+  // The skills come after the board: nothing reads them where there is none yet.
+  assert.ok(!panel.starts().some(([profile]) => profile.startsWith('buzzni.moai.skill')))
+  const before = panel.starts().length
+  initButton(panel, 'Start Moai here').click()
+  await until(() => panel.rows().length > 0 && panel.$('.moai-skills').textContent !== '')
+  const after = panel.starts().slice(before).map(([profile]) => profile)
+  assert.equal(after[0], 'buzzni.moai.init')
+  assert.ok(after.indexOf('buzzni.moai.show-all') > 0 && after.indexOf('buzzni.moai.skill-status') > after.indexOf('buzzni.moai.show-all'), after.join(' '))
+  assert.deepEqual(panel.rows(), ['mgd-89af', 'mgd-hmcr', 'mgd-ogym'])
+  assert.equal(initBanner(panel).textContent, '')
+  assert.equal(panel.$('.moai-notice').textContent, '')
+  assert.match(panel.$('.moai-skills').textContent, /no moai skills for its agents/)
+})
+
+test('init: a declined confirmation says why and keeps the button; the board is not read again for it', async () => {
+  const answer = board({ 'buzzni.moai.show-all': NOT_INITIALIZED })
+  answer.start = (args) => (args[0] === 'buzzni.moai.init' ? { action: 'start', state: 'refused', code: 'declined' } : null)
+  const panel = await runPanel(answer, 'ko')
+  await until(() => initBanner(panel).textContent !== '')
+  const before = panel.starts().length
+  initButton(panel, '여기서 Moai 시작').click()
+  await until(() => initBanner(panel).textContent.includes('시작하지 못했습니다'))
+  assert.ok(initButton(panel, '여기서 Moai 시작'))
+  assert.deepEqual(panel.starts().slice(before), [['buzzni.moai.init']])
+})
+
+test('init: a catalog without it, or moai refusing it, is told on the banner, not as a catalog the reads lack', async () => {
+  const refusing = board({ 'buzzni.moai.show-all': NOT_INITIALIZED })
+  refusing.start = (args) => (args[0] === 'buzzni.moai.init' ? { action: 'start', state: 'refused', code: 'unsupported-daemon' } : null)
+  const failing = board({
+    'buzzni.moai.show-all': NOT_INITIALIZED,
+    'buzzni.moai.init': { state: 'failed', stdout: '', stderr: JSON.stringify({ error: 'git: not a work tree' }), exitCode: 1 },
+  })
+  // The catalog's refusal is not blamed on an old runtime, as the shared refusal words are: init is what that daemon does
+  // not offer yet, and the command above still does it (se-x8t1).
+  for (const [answer, told] of [[refusing, /^Or start it here: .*This machine's Saycode daemon cannot start Moai from the panel yet\. As above, run moai init in the project folder on that machine\.Start Moai here$/], [failing, /could not be started here: Moai reported an error: git: not a work tree/]]) {
+    const panel = await runPanel(answer)
+    await until(() => initBanner(panel).textContent !== '')
+    initButton(panel, 'Start Moai here').click()
+    await until(() => panel.$('.moai-init-problem') !== null)
+    assert.match(initBanner(panel).textContent, told)
+    if (answer === refusing) assert.equal(panel.$('.moai-init-problem code')?.textContent, 'moai init')
+    assert.equal(panel.$('.moai-compat').textContent, '')
+    assert.ok(initButton(panel, 'Start Moai here'))
+  }
+})
+
+test('init: a project with a board has no init banner', async () => {
+  const panel = await runPanel(board())
+  await until(() => panel.rows().length > 0)
+  assert.equal(initBanner(panel).textContent, '')
+  assert.ok(!panel.starts().some(([profile]) => profile === 'buzzni.moai.init'))
 })
 
 test('a failed run shows the reason Moai printed on stderr', async () => {

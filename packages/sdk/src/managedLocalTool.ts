@@ -9,9 +9,12 @@ export type ManagedToolInput = { type: 'integer'; min: number; max: number }
 export interface ManagedToolOperation {
   permission: 'inspect' | 'control'; argv: string[]; payload?: JsonValue; inputs?: Record<string, ManagedToolInput>
 }
+/** A fixed argv the host keeps running at standard privilege on Windows (requires engine ^1.3.0). */
+export interface ManagedToolBackground { argv: string[]; stopOperation?: string }
 export interface ManagedLocalTool {
   version: 1; id: string; toolVersion: string; platforms: Record<string, ManagedToolArtifact>
   operations: Record<string, ManagedToolOperation>
+  background?: ManagedToolBackground
 }
 const ID = /^[a-z][a-z0-9.-]{0,127}$/
 const HASH = /^[a-f0-9]{64}$/
@@ -39,7 +42,7 @@ function boundedPayload(value: unknown, depth: number): boolean {
 }
 export function parseManagedLocalTool(value: unknown, extensionId: string): ManagedLocalTool {
   const root = row(value)
-  keys(root, ['version', 'id', 'toolVersion', 'platforms', 'operations'])
+  keys(root, ['version', 'id', 'toolVersion', 'platforms', 'operations', 'background'])
   if (root.version !== 1 || !ID.test(text(root.id)) || !String(root.id).startsWith(extensionId + '.')
     || !/^\d+\.\d+\.\d+$/.test(text(root.toolVersion))) fail()
   const platforms: Record<string, ManagedToolArtifact> = {}
@@ -96,7 +99,20 @@ export function parseManagedLocalTool(value: unknown, extensionId: string): Mana
     operations[name] = operation
   }
   if (!Object.keys(platforms).length || !Object.keys(operations).length || Object.keys(operations).length > 32) fail()
-  return { version: 1, id: String(root.id), toolVersion: String(root.toolVersion), platforms, operations }
+  const background = root.background === undefined ? undefined : parseBackground(root.background, platforms, operations)
+  return { version: 1, id: String(root.id), toolVersion: String(root.toolVersion), platforms, operations, ...(background ? { background } : {}) }
+}
+function parseBackground(value: unknown, platforms: Record<string, ManagedToolArtifact>, operations: Record<string, ManagedToolOperation>): ManagedToolBackground {
+  const source = row(value)
+  keys(source, ['argv', 'stopOperation'])
+  if (!Object.keys(platforms).some(platform => platform.startsWith('win32-'))) fail()
+  if (!Array.isArray(source.argv) || !source.argv.length || source.argv.length > 8) fail()
+  // Literal only: no session or caller input ever reaches a task that outlives the call.
+  const argv = source.argv.map(arg => { const value = text(arg); if (value.includes('{{')) fail(); return value })
+  if (source.stopOperation === undefined) return { argv }
+  const stop = operations[text(source.stopOperation)]
+  if (!stop || Object.keys(stop.inputs ?? {}).length || stop.payload !== undefined) fail()
+  return { argv, stopOperation: String(source.stopOperation) }
 }
 export function managedToolArguments(operation: ManagedToolOperation, parameters: Record<string, unknown>, session: string): string[] {
   const inputs = operation.inputs ?? {}

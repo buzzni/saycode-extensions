@@ -1,0 +1,152 @@
+{
+  "fixtureVersion": 1,
+  "contract": "specs/slack-bot-improvements/contracts.md §5.2 Core 토큰 렌더링",
+  "vectors": [
+    {
+      "id": "i03-input-tokens",
+      "scenario": "I03",
+      "text": "<@U1|kim> <#C1|dev> <https://a.b|문서> <!here>",
+      "userLabels": {},
+      "expected": "@kim #dev 문서 (https://a.b) @here"
+    },
+    {
+      "id": "user-label-wins",
+      "scenario": "I03",
+      "text": "<@U1|kim> 확인",
+      "userLabels": {
+        "U1": "Kim Minsu"
+      },
+      "expected": "@Kim Minsu 확인"
+    },
+    {
+      "id": "user-label-with-space",
+      "scenario": "I03",
+      "text": "<@U2> 님",
+      "userLabels": {
+        "U2": "Justin Kim"
+      },
+      "expected": "@Justin Kim 님"
+    },
+    {
+      "id": "user-id-fallback",
+      "scenario": "I03",
+      "text": "<@U9>",
+      "userLabels": {},
+      "expected": "@U9"
+    },
+    {
+      "id": "channel-without-name",
+      "scenario": "I03",
+      "text": "<#C1>",
+      "userLabels": {},
+      "expected": "#C1"
+    },
+    {
+      "id": "broadcasts",
+      "scenario": "I03",
+      "text": "<!here> <!channel> <!everyone>",
+      "userLabels": {},
+      "expected": "@here @channel @everyone"
+    },
+    {
+      "id": "subteam-label",
+      "scenario": "I03",
+      "text": "<!subteam^S1|@devs> 확인",
+      "userLabels": {},
+      "expected": "@devs 확인"
+    },
+    {
+      "id": "subteam-no-label",
+      "scenario": "I03",
+      "text": "<!subteam^S1>",
+      "userLabels": {},
+      "expected": "@usergroup"
+    },
+    {
+      "id": "date-fallback",
+      "scenario": "I03",
+      "text": "<!date^1793000000^{date}|어제> 회의",
+      "userLabels": {},
+      "expected": "어제 회의"
+    },
+    {
+      "id": "date-without-fallback-raw",
+      "scenario": "I03",
+      "text": "<!date^1793000000^{date}>",
+      "userLabels": {},
+      "expected": "<!date^1793000000^{date}>"
+    },
+    {
+      "id": "link-with-label",
+      "scenario": "I03",
+      "text": "<https://x|ok>",
+      "userLabels": {},
+      "expected": "ok (https://x)"
+    },
+    {
+      "id": "link-bare",
+      "scenario": "I03",
+      "text": "<https://x.example/a>",
+      "userLabels": {},
+      "expected": "https://x.example/a"
+    },
+    {
+      "id": "mailto-with-label",
+      "scenario": "I03",
+      "text": "<mailto:ops@example.com|메일>",
+      "userLabels": {},
+      "expected": "메일 (mailto:ops@example.com)"
+    },
+    {
+      "id": "unknown-token-raw",
+      "scenario": "I03",
+      "text": "<!foo> 그대로",
+      "userLabels": {},
+      "expected": "<!foo> 그대로"
+    },
+    {
+      "id": "non-url-token-raw",
+      "scenario": "I03",
+      "text": "문자 <b> 보존 <a|b>",
+      "userLabels": {},
+      "expected": "문자 <b> 보존 <a|b>"
+    },
+    {
+      "id": "link-other-scheme",
+      "scenario": "I03",
+      "text": "<tel:+821012345678|전화> <slack://open>",
+      "userLabels": {},
+      "expected": "전화 (tel:+821012345678) slack://open"
+    },
+    {
+      "id": "literal-entities-once",
+      "scenario": "I03",
+      "text": "a &amp;&amp; b &lt;c&gt; &amp;lt;",
+      "userLabels": {},
+      "expected": "a && b <c> &lt;"
+    },
+    {
+      "id": "label-control-chars-removed",
+      "scenario": "I03",
+      "text": "<@U3|kim\u0007>",
+      "userLabels": {},
+      "expected": "@kim"
+    },
+    {
+      "id": "label-truncated-64",
+      "scenario": "I03",
+      "text": "<@U4|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa>",
+      "userLabels": {},
+      "expected": "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "instruction-literal-unchanged",
+      "scenario": "I03",
+      "text": "이 파일은 삭제하지 마 <@U1>",
+      "userLabels": {
+        "U1": "kim"
+      },
+      "expected": "이 파일은 삭제하지 마 @kim"
+    }
+  ]
+}

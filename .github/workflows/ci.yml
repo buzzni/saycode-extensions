@@ -36,7 +36,7 @@ jobs:
       - run: npm run typecheck -w @buzzni/saycode-extension-test-host
       - run: npm run typecheck -w @buzzni/saycode-extension-telegram -w @buzzni/saycode-extension-slack -w @buzzni/saycode-extension-discord -w @buzzni/saycode-extension-document-templates -w @buzzni/saycode-extension-moai
       # Packaged adapters exercise the SDK contract inside the test host.
-      - run: node --test tests/test-host.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs tests/document-templates.test.mjs tests/moai.test.mjs
+      - run: node --test tests/test-host.test.mjs tests/launch-hooks.test.mjs tests/plugin-manager.test.mjs tests/telegram.test.mjs tests/slack.test.mjs tests/discord.test.mjs tests/document-templates.test.mjs tests/moai.test.mjs
       # The Moai panel's modules (index, store, request queue, refresh, shell) and their tests.
       - run: node --test tests/moai-index.test.mjs tests/moai-store.test.mjs tests/moai-client.test.mjs tests/moai-refresh.test.mjs tests/moai-shell.test.mjs tests/moai-e3-shell.test.mjs tests/moai-e3-board.test.mjs tests/moai-e3-detail.test.mjs tests/moai-e3-list.test.mjs tests/moai-keys.test.mjs tests/moai-query.test.mjs tests/moai-toolbar.test.mjs tests/moai-markdown.test.mjs tests/moai-wiki.test.mjs tests/moai-wiring.test.mjs tests/moai-keys-wiring.test.mjs tests/moai-source.test.mjs tests/moai-read.test.mjs tests/moai-compat.test.mjs tests/moai-skills.test.mjs tests/moai-about.test.mjs tests/moai-panel-size.test.mjs
 
@@ -55,6 +55,14 @@ jobs:
       - run: npm run package:fixture
       - run: node --test packages/media-preview/tests/*.test.mjs
       - run: npm run package:media-preview
+      - run: node --test packages/react-source-locator/tests/*.test.mjs
+      - run: npm run package:react-source-locator
+      - run: node --test tests/spatial-content.test.mjs
+      - run: npm run typecheck -w @buzzni/saycode-extension-spatial-content
+      - run: npm run package:spatial-content
+      # Rendering tests skip on Linux (they need macOS osascript); the rest run everywhere.
+      - run: node scripts/publish-shorts-director.mjs --dry-run
+      - run: node --test tests/shorts-director.test.mjs packages/shorts-director/test/*.test.mjs
 
   publish-contract:
     # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first

@@ -3,4 +3,5 @@ dist/
 *.tgz
 *.saycode-extension
 *.saycode-extension.sha256
+packages/spatial-content/assets/photoreal-lobby-pilot.mjs
 .DS_Store

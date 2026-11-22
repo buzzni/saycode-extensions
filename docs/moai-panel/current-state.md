@@ -145,7 +145,7 @@
 
 - **`catalog.v1.json` 고정.** `build/official-extensions/catalog.v1.json`이 `buzzni.moai` 1.1.1, 릴리스 태그(이 저장소의 `v0.11.8`), 번들된 `buzzni.moai-1.1.1.saycode-extension.base64`, sha256을 박아 둔다. 태그는 확장 버전에서 나오지 않고 이 저장소의 릴리스 태그다. 번들은 부트스트랩용이고 서명된 원격 카탈로그에 같은 id가 있으면 그쪽이 이긴다.
 - **설치기 테스트.** `tests/officialExtensionInstaller.test.ts`가 버전·태그·sha와 프로필 4개(`status`·`prime`·`show`·`add`)의 다이제스트 `toEqual` 표를 가진다. 2.0.0에는 12개 전부로 바꿔야 한다(`add`는 빠진다). 업데이트는 숫자 `x.y.z` 비교이고 실행 중에는 거부되며, 1.1.1 → 2.0.0은 사용자가 누르는 업데이트다(`apiVersion`이 최소 2 미만일 때만 자동 교체).
-- **apiVersion.** 2.0.0 매니페스트(`apiVersion 3`, `engines ^1.2.0`)는 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. API 4 기능(파일 미리보기 등)을 쓰면 그때 올라간다.
+- **apiVersion.** 2.0.0 매니페스트(`apiVersion 3`, `engines ^1.2.0`)는 Desktop이 그대로 받는다. 다만 `apiVersion < 4`는 UI에서 "deprecated" 뱃지가 붙는다. 2026-10-20 실기에서 카드의 "이전 확장 API(3)로 동작 중이며, 다음 업데이트에서 지원이 끝납니다."를 고치기로 해 다음 판부터 `apiVersion 4`다(`se-ya5e`). API 4는 Desktop 0.1.69(2026-10-13 `f94655ecf`)부터 현재 판이고 엔진은 그대로 1.2.0이라, Moai 2.x를 돌리는 Desktop은 모두 받는다.
 - **불투명 origin → `localStorage`는 세션 한정.** 패널 iframe은 `sandbox="allow-scripts"`만 가져 origin이 opaque다. Chromium 규칙상 `localStorage` 접근이 `SecurityError`를 낼 것으로 보인다(코드와 sandbox 플래그에서 추정, 실행은 안 함). 패널 기억은 이미 메모리 폴백이라 **마지막 탭·상세 위치는 세션 동안만** 남는다. 스파이크 `se-0g4a.y91`은 "localStorage 불가, 세션 한정"으로 닫을 수 있다(Desktop이 `allow-same-origin`이나 저장 API를 주지 않는 한).
 - **가시성 신호 없음.** 열린 도구 탭은 모두 마운트된 채 `display:none`으로만 숨겨진다. 호스트→패널 포트는 테마만 나르고 가시성·포커스 신호가 없다. `visibilityState`는 창을 따른다. 그래서 `panelVisibility()`가 0×0 뷰포트를 숨김으로 본다. iframe이 실제로 0×0이 되는지는 라이브 확인이 남았다. 언어 변경은 iframe을 다시 읽지만 테마 변경은 아니다.
 

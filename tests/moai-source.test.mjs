@@ -53,7 +53,8 @@ async function host() {
   return { run: (...args) => testHost.invokeCommand('buzzni.moai.run', args), starts }
 }
 
-const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all', 'show-all-worktree', 'skill-status', 'skill-install-saycode']
+const NO_VALUE = ['status', 'prime', 'show-all', 'backlog-all', 'show-archived', 'wiki-ls', 'read-all', 'show-all-worktree', 'skill-status', 'skill-install-saycode', 'init']
+const WRITES = new Set(['buzzni.moai.skill-install-saycode', 'buzzni.moai.init'])
 const ONE_VALUE = { show: 'id', 'show-worktree': 'id', 'wiki-show': 'slug', read: 'id', 'read-group': 'group', 'show-archived-after': 'after' }
 
 test('every declared profile is runnable through the whitelist, and nothing else is', () => {
@@ -68,10 +69,14 @@ test('every declared profile is runnable through the whitelist, and nothing else
   }
   for (const profile of manifest.machineCommands.profiles) {
     assert.deepEqual(profile.argv.slice(0, 3), ['--json', '-C', '{{workspaceRoot}}'])
-    assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
-    // Nothing writes the tracker (no `add`, se-24ey.oxd); `read*` write the user's own ~/.config/moai/read. The one
-    // write is planting the optional `moai-saycode` skill in the project's `.claude/` (se-gowr.fk2): Desktop asks each time.
-    assert.equal(profile.writeScope, profile.id === 'buzzni.moai.skill-install-saycode' ? 'project' : undefined, profile.id)
+    // init is the one profile that runs `init`, and only as itself: no skills (the banner plants them with
+    // `--hook-exe`) and no project list of the person's (se-s1e8.xjh).
+    if (profile.id === 'buzzni.moai.init') assert.deepEqual(profile.argv.slice(3), ['init', '--no-skill', '--no-register'])
+    else assert.doesNotMatch(profile.argv.join(' '), /init|tui|wake|hooks|editor|shell/i)
+    // Nothing writes the tracker's rows (no `add`, se-24ey.oxd); `read*` write the user's own ~/.config/moai/read. The
+    // writes are planting the optional `moai-saycode` skill in the project's `.claude/` (se-gowr.fk2) and putting a
+    // `.moai/` into a project that has none (se-s1e8): Desktop asks each time.
+    assert.equal(profile.writeScope, WRITES.has(profile.id) ? 'project' : undefined, profile.id)
   }
 })
 
@@ -120,7 +125,7 @@ test('profiles that take one value map it to their parameter and refuse an empty
 
 test('add, unknown and dangerous profiles are refused', async () => {
   const { run, starts } = await host()
-  for (const profileId of ['buzzni.moai.add', 'buzzni.moai.init', 'buzzni.moai.tui', 'buzzni.moai.wake', 'buzzni.moai.hooks', 'buzzni.moai.editor', 'buzzni.moai.shell', 'buzzni.moai.mv', 'other.status', 42]) {
+  for (const profileId of ['buzzni.moai.add', 'buzzni.moai.tui', 'buzzni.moai.wake', 'buzzni.moai.hooks', 'buzzni.moai.editor', 'buzzni.moai.shell', 'buzzni.moai.mv', 'other.status', 42]) {
     await assert.rejects(run(profileId), /unsupported Moai profile/)
   }
   assert.equal(starts.length, 0)

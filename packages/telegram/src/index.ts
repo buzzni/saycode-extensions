@@ -3,6 +3,7 @@ import type { ExtensionChannelLifecycle, ExtensionChannelReplyFormatRequest } fr
 
 import { formatTelegramReply } from './reply.js'
 import { createTelegramPollRuntime, type TelegramPollRuntime } from './pollLoop.js'
+import { TELEGRAM_POLL_MAX_MS } from './backoff.js'
 
 /** Must equal the `channels` contribution id in `extension.json`. */
 export const TELEGRAM_CHANNEL_ID = 'buzzni.telegram.bot'
@@ -10,6 +11,12 @@ export const TELEGRAM_CHANNEL_ID = 'buzzni.telegram.bot'
 export default defineExtension({
   activate(context) {
     const runtimes = new Map<string, TelegramPollRuntime>()
+
+    // A Desktop that sends intake hints wakes the loop when Core queues a message, so a quiet
+    // connection can ask rarely. An older Desktop has no `onIntake`, and the loop keeps its short
+    // idle poll there. Polling stays either way: a hint can be missed.
+    const hinted = typeof context.channels.onIntake === 'function'
+    context.channels.onIntake?.(TELEGRAM_CHANNEL_ID, (event) => { runtimes.get(event.connectionId)?.hint() })
 
     context.channels.register(TELEGRAM_CHANNEL_ID, (event: ExtensionChannelLifecycle) => {
       if (event.state === 'start') {
@@ -20,6 +27,7 @@ export default defineExtension({
         const runtime = createTelegramPollRuntime({
           invokeCapability: context.invokeCapability,
           connectionId: event.connectionId,
+          ...(hinted ? { idleMaxMs: TELEGRAM_POLL_MAX_MS } : {}),
         })
         runtimes.set(event.connectionId, runtime)
         runtime.start()

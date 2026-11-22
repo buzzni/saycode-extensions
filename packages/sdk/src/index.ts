@@ -1,3 +1,4 @@
+import type { ExtensionChannelNormalizer } from './channelNormalize.js'
 import type { ExtensionPermission } from './manifest.js'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -26,6 +27,13 @@ export interface ExtensionChannelLifecycle {
   connectionRevision: number
 }
 export type ExtensionChannelHandler = (event: ExtensionChannelLifecycle) => void | Promise<void>
+/**
+ * "Core has queued something for this connection" (Desktop specs/channel-intake-wake). A hint only:
+ * no message and no state — read the work through `channels.receive` as usual, and keep polling,
+ * because a hint can be missed.
+ */
+export type ExtensionChannelIntake = Omit<ExtensionChannelLifecycle, 'state'>
+export type ExtensionChannelIntakeHandler = (event: ExtensionChannelIntake) => void | Promise<void>
 
 /** Only Core-approved current final/status text; chunk limits count UTF-16 code units. */
 interface ChannelReplyFormatBase extends Omit<ExtensionChannelLifecycle, 'state'> {
@@ -34,10 +42,24 @@ interface ChannelReplyFormatBase extends Omit<ExtensionChannelLifecycle, 'state'
   maxChunkUtf16Units: number
   maxChunks: number
 }
-export type ExtensionChannelReplyFormatRequest = ChannelReplyFormatBase & (
+type ChannelReplyFormatKind =
   | { kind: 'final' | 'status'; approval?: never }
   | { kind: 'approval'; approval: { approvalHandle: string; approveLabel: string; denyLabel: string } }
-)
+/**
+ * Channel API 2 adds a mode for final and status replies. `verbatim` means exactly the v1 request;
+ * `rendered` asks for Slack mrkdwn chunks that each say which part of the approved text they show
+ * (`ExtensionChannelRenderedReplyResult`). Approval requests stay v1.
+ */
+export type ExtensionChannelReplyFormatRequestV2 = Omit<ChannelReplyFormatBase, 'apiVersion'> & {
+  apiVersion: 2
+  kind: 'final' | 'status'
+  approval?: never
+  mode: 'verbatim' | 'rendered'
+  dialect: 'slack-mrkdwn'
+}
+export type ExtensionChannelReplyFormatRequest =
+  | (ChannelReplyFormatBase & ChannelReplyFormatKind & { mode?: never; dialect?: never })
+  | ExtensionChannelReplyFormatRequestV2
 
 type SlackApprovalButton = {
   type: 'button'
@@ -47,18 +69,57 @@ type SlackApprovalButton = {
 type DiscordApprovalButton = { type: 2; style: 3 | 4; label: string; custom_id: string }
 
 /** Core checks every field against its request; arbitrary blocks, URLs and extra actions are refused. */
-export type ExtensionChannelApprovalFormatResult = { chunks: readonly [string] } & (
+export type ExtensionChannelApprovalFormatResult = { chunks: readonly [string]; rendered?: never } & (
   | { blocks: readonly [
       { type: 'section'; text: { type: 'plain_text'; text: string } },
       { type: 'actions'; elements: readonly [SlackApprovalButton, SlackApprovalButton] },
     ]; components?: never }
   | { components: readonly [{ type: 1; components: readonly [DiscordApprovalButton, DiscordApprovalButton] }]; blocks?: never }
 )
+/**
+ * One chunk of a `rendered` reply: Slack mrkdwn (at most `maxChunkUtf16Units`) and the half-open
+ * UTF-16 range of the approved text it shows. The ranges must tile the whole text in order, and Core
+ * checks each chunk shows exactly its range's visible characters, code blocks byte-for-byte after
+ * escaping `&`, `<`, `>`, with no `<!`, `<@` or `<#` token — a refused result is sent as plain text.
+ */
+export interface ExtensionChannelRenderedChunk { text: string; sourceStart: number; sourceEnd: number }
+export interface ExtensionChannelRenderedReplyResult {
+  rendered: readonly ExtensionChannelRenderedChunk[]
+  chunks?: never
+  blocks?: never
+  components?: never
+}
 export type ExtensionChannelReplyFormatResult =
-  | { chunks: readonly string[]; blocks?: never; components?: never }
+  | { chunks: readonly string[]; blocks?: never; components?: never; rendered?: never }
   | ExtensionChannelApprovalFormatResult
+  | ExtensionChannelRenderedReplyResult
 export type ExtensionChannelReplyFormatter = (input: ExtensionChannelReplyFormatRequest) =>
   ExtensionChannelReplyFormatResult | Promise<ExtensionChannelReplyFormatResult>
+
+/**
+ * What a `dynamic` session hook's handler receives each time Saycode opens a session (create or resume).
+ * JSON only: no local path, token, credential or conversation text.
+ */
+export interface SessionOpenBeforeInput {
+  reason: 'create' | 'resume'
+  sessionKind: 'chat' | 'child' | 'automation' | 'channel'
+  agent: string
+  project: { id: string; companyId?: string; repository?: { name: string; remoteHost?: string } }
+}
+
+/**
+ * What a handler may return. `env` may only name the hook's declared non-secret env (values are strings up to 8192
+ * characters without NUL); a secret is entered in Saycode and can never be returned. `mcpServers` picks which of the
+ * hook's declared servers to start this time (omitted = all of them). Anything else — an undeclared or secret name, an
+ * unknown key, a non-string value — makes Saycode drop this extension's whole injection for that session; the session
+ * still starts.
+ */
+export interface SessionOpenBeforeResult {
+  env?: Record<string, string>
+  mcpServers?: string[]
+}
+
+export type SessionOpenBeforeHandler = (input: SessionOpenBeforeInput) => SessionOpenBeforeResult | Promise<SessionOpenBeforeResult>
 
 export interface ExtensionContext {
   readonly extensionId: string
@@ -67,10 +128,25 @@ export interface ExtensionContext {
     register(id: string, handler: ExtensionChannelHandler): void
     /** Return nonempty Unicode-safe chunks whose concatenation is exactly the supplied text. */
     registerFormatter(id: string, formatter: ExtensionChannelReplyFormatter): void
+    /** Absent on a Desktop that does not send intake hints; check before calling. */
+    onIntake?(id: string, handler: ExtensionChannelIntakeHandler): void
+    /**
+     * Channel API 2: Core calls it with thread history only while `channels.normalize` is declared
+     * and approved. Absent on a Desktop below channel API 2; check before calling.
+     */
+    registerNormalizer?(id: string, normalizer: ExtensionChannelNormalizer): void
   }
   invokeCapability(permission: ExtensionPermission, action: string, args: JsonValue): Promise<JsonValue>
   readonly commands: {
     register(id: string, handler: ExtensionCommandHandler): void
+  }
+  /**
+   * Saycode 1.4.0+. Register, once and during activate, the handler for a session hook the manifest declares with
+   * `dynamic: true` (activation event `onSessionOpenBefore:<hookId>`). Any other id throws. Absent on an older
+   * Desktop, which also refuses a manifest that declares `sessionHooks`.
+   */
+  readonly sessionHooks?: {
+    onOpenBefore(hookId: string, handler: SessionOpenBeforeHandler): void
   }
 }
 
@@ -147,10 +223,28 @@ export type {
   ExtensionPermission,
   ExtensionProjectTemplateLocalization,
   ExtensionProjectTemplateContribution,
+  ExtensionSessionHookContribution,
+  ExtensionSessionHookEnv,
+  ExtensionSessionHookMcpServer,
   ExtensionSettingContribution,
+  ExtensionWorktreeHookContribution,
   MachineCommandParameter,
   MachineCommandProfile,
   MachineCommandsDeclaration,
 } from './manifest.js'
+
+export { CHANNEL_NORMALIZE_ADDITION_SOURCES } from './channelNormalize.js'
+export type {
+  ExtensionChannelNormalizeAdditionSource,
+  ExtensionChannelNormalizeMessagesRequest,
+  ExtensionChannelNormalizeMessagesResult,
+  ExtensionChannelNormalizer,
+  ExtensionSlackBlockProjection,
+  ExtensionSlackHttpUrl,
+  ExtensionSlackMessageProjection,
+  ExtensionSlackRichTextContainer,
+  ExtensionSlackRichTextLeaf,
+  ExtensionSlackTextObject,
+} from './channelNormalize.js'
 
 export type { ManagedLocalTool, ManagedToolArtifact, ManagedToolOperation } from './managedLocalTool.js'

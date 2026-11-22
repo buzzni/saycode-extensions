@@ -1,0 +1,1 @@
+{"id":"buzzni.react-source-locator","version":"1.0.0","apiVersion":4,"engines":{"saycode":"^1.0.0"},"entrypoint":"index.js","permissions":["browserPicks.inspect"],"activationEvents":[],"contributes":{"elementPickInspectors":[{"id":"buzzni.react-source-locator.source","title":"React source","script":"inspector.js"}]}}

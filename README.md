@@ -33,3 +33,7 @@ prompts, source assets, and content tests. Saycode Desktop ships a checksum-pinn
 enables it only after the user confirms from the new-project **Templates** tab. See the
 [user guide](docs/USER_GUIDE.md#official-project-templates) for lifecycle behavior and the
 [developer guide](docs/DEVELOPMENT.md#first-party-project-templates) for package gates.
+
+`packages/shorts-director` is the public npm CLI `@buzzni/shorts-director` that a shorts-director agent skill runs
+through `npx` (plan checks, LTX video takes, Qwen TTS narration, ffmpeg assembly). The release workflow publishes it
+next to the SDK; see [its README](packages/shorts-director/README.md).

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -10,7 +11,7 @@ import { build } from 'esbuild'
 import JSZip from 'jszip'
 
 import { parseExtensionManifest } from '../packages/sdk/dist/manifest.js'
-import { createTestHost } from '../packages/test-host/dist/index.js'
+import { createTestHost, fakeSlackHistory } from '../packages/test-host/dist/index.js'
 
 const exec = promisify(execFile)
 const root = new URL('..', import.meta.url).pathname
@@ -59,16 +60,31 @@ function envelope(overrides) {
 
 // ---- manifest --------------------------------------------------------------------------------
 
+const CHANNEL_V2_HOST = { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 2, minimumSupportedChannelApiVersion: 1 }
+
 test('Slack manifest declares exactly the channel it uses and nothing wider', async () => {
-  const manifest = parseExtensionManifest(
-    JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8')),
-    { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 },
-  )
+  const raw = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  const manifest = parseExtensionManifest(raw, CHANNEL_V2_HOST)
   assert.equal(manifest.id, 'buzzni.slack')
-  assert.equal(manifest.channelApiVersion, 1)
-  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'sessions.control', 'sessions.approveOnce'])
+  // Channel API 2 for thread-history normalization; a Desktop that speaks only channel API 1 refuses it.
+  assert.equal(manifest.channelApiVersion, 2)
+  assert.throws(
+    () => parseExtensionManifest(raw, { ...CHANNEL_V2_HOST, supportedChannelApiVersion: 1, minimumSupportedChannelApiVersion: 1 }),
+    /channelApiVersion: unsupported 2/,
+  )
+  assert.deepEqual(manifest.permissions, ['channels.receive', 'channels.ack', 'channels.send', 'channels.normalize', 'sessions.control', 'sessions.approveOnce'])
   assert.deepEqual(manifest.activationEvents, ['onChannel:buzzni.slack.bot'])
   assert.deepEqual(manifest.contributes.channels, [{ id: 'buzzni.slack.bot', provider: 'slack' }])
+})
+
+test('the release workflow publishes the Slack artifact under the manifest version', async () => {
+  // The archive is named from extension.json; a stale name in release.yml fails the tag build.
+  const { version } = JSON.parse(await readFile(join(packageRoot, 'extension.json'), 'utf8'))
+  assert.equal(version, '1.6.1')
+  const workflow = await readFile(join(root, '.github/workflows/release.yml'), 'utf8')
+  const names = [...workflow.matchAll(/buzzni\.slack-([0-9.]+)\.saycode-extension/g)].map(match => match[1])
+  assert.equal(names.length, 3)
+  assert.deepEqual([...new Set(names)], [version])
 })
 
 test('Slack never actually calls channels.send despite declaring it', async () => {
@@ -83,14 +99,318 @@ test('Slack packs as an installable API v3 archive', async () => {
   try {
     assert.deepEqual(Object.keys(packed.zip.files).sort(), ['extension.json', 'index.js'])
     const manifest = JSON.parse(await packed.zip.file('extension.json').async('string'))
-    assert.equal(
-      parseExtensionManifest(manifest, { supportedApiVersion: 3, minimumSupportedApiVersion: 2, supportedChannelApiVersion: 1 }).id,
-      'buzzni.slack',
-    )
+    assert.equal(parseExtensionManifest(manifest, CHANNEL_V2_HOST).id, 'buzzni.slack')
     assert.ok(typeof packed.extension.activate === 'function')
   } finally {
     await rm(packed.temporary, { recursive: true, force: true })
   }
+})
+
+// ---- Desktop shared fixtures (channel-contract-v2) ------------------------------------------
+
+const contractFixtures = join(packageRoot, 'test/fixtures/channel-contract-v2')
+/** sha256 of each file at Desktop d162cbd4aafc0d34f200bb5d4420304fa2d75852 tests/fixtures/channel-contract-v2/. */
+const CONTRACT_FIXTURE_SHA256 = {
+  'normalize-result.json': '2a94a97261356351b8d112e5a58800b45ce254816b791b0a5a34855f65c2f9b1',
+  'normalize/forward.json': 'b2ff8335d7ca1e4eb6355117faf2aa7cb874d2df8e742ff947ba44be5d66ed5b',
+  'normalize/quote.json': '448c321beb2c6def47ac73d75f8833656edd61614ed481c44245710e1676678d',
+  'normalize/same-text-blocks.json': '39fec781ff4e750f9bcf01d52a5a6881b636cb16bf138ca654e20f1494463167',
+  'normalize/table.json': '6b39590cfcc8694c9a35aab86f40dbf5fdda6a6e6a1d9b4b7ace8323d2fd7882',
+  'normalize/unfurl-only.json': 'ffef0f63ad57f2f82ced4bd3394e96b6e6bbd798ac22827206d5783734c60cc3',
+  'rendered-reply.json': 'd571033648b1b12fd02a83edcb5654d382e94dcc30d01c49f75d2407265f325f',
+  'skeleton.json': 'e58eab66f53be3333a023408ffe35eb183e5114aeb1804467077fdd72a98e232',
+  'slack-text-tokens.json': 'dcaeadbb37fe9649f9b104bd98a7a458859c8ab1e5ea0be669a049697ffcd00f',
+}
+
+async function contractFixture(relativePath) {
+  return JSON.parse(await readFile(join(contractFixtures, relativePath), 'utf8'))
+}
+
+test('the channel-contract-v2 copies are byte-identical to the Desktop source recorded in their README', async () => {
+  // Edited copies would silently move this adapter off the contract Core checks against.
+  const readme = await readFile(join(contractFixtures, 'README.md'), 'utf8')
+  assert.match(readme, /커밋 `d162cbd4aafc0d34f200bb5d4420304fa2d75852`/)
+  const recorded = new Map([...readme.matchAll(/^\| `([^`]+)` \| `([0-9a-f]{64})` \|$/gm)].map(match => [match[1], match[2]]))
+  // Pinned here as well, so a copy edited together with its README row still fails until the source moves.
+  assert.deepEqual(Object.fromEntries(recorded), CONTRACT_FIXTURE_SHA256)
+  const files = [
+    ...(await readdir(contractFixtures)).filter(name => name.endsWith('.json')),
+    ...(await readdir(join(contractFixtures, 'normalize'))).map(name => `normalize/${name}`),
+  ].sort()
+  assert.deepEqual([...recorded.keys()].sort(), files)
+  for (const file of files) {
+    const digest = createHash('sha256').update(await readFile(join(contractFixtures, file))).digest('hex')
+    assert.equal(digest, recorded.get(file), file)
+  }
+})
+
+// ---- channel.normalizeMessages (contracts §5.2) ------------------------------------------------
+
+const NORMALIZE_FIXTURES = ['forward', 'quote', 'same-text-blocks', 'table', 'unfurl-only']
+
+test('Slack tokens in Slack-authored text read exactly as Core renders them', async () => {
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  const { vectors } = await contractFixture('slack-text-tokens.json')
+  assert.ok(vectors.length > 0)
+  for (const vector of vectors) {
+    assert.equal(renderSlackTextTokens(vector.text, vector.userLabels), vector.expected, vector.id)
+  }
+})
+
+test('Slack token readings the shared vectors leave open match Desktop channelSlackTextTokens', async () => {
+  // Desktop d162cbd4aa src/domain/channelSlackTextTokens.ts: a date fallback is a label too (control
+  // characters out, 64 UTF-16 units), a link url has no whitespace, and an empty link label stays a label.
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  assert.equal(renderSlackTextTokens(`<!date^1793000000^{date}|${'가'.repeat(70)}\u0007>`, {}), '가'.repeat(64))
+  assert.equal(renderSlackTextTokens('<http://a b|문서> <http://a b>', {}), '<http://a b|문서> <http://a b>')
+  assert.equal(renderSlackTextTokens('<https://x|>', {}), ' (https://x)')
+})
+
+test('a long date fallback cannot push a later quote out of the budget', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['회의', { blocks: [
+    { type: 'section', text: { type: 'mrkdwn', text: `<!date^1793000000^{date}|${'a'.repeat(2100)}>` } },
+    { type: 'rich_text', elements: [{ type: 'rich_text_quote', elements: [{ type: 'text', text: '운영 DB 삭제 금지' }] }] },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0], {
+    itemRef: 'i0',
+    additions: [{ source: 'blocks', text: 'a'.repeat(64) }, { source: 'quote', text: '[인용] 운영 DB 삭제 금지' }],
+    truncated: false,
+  })
+})
+
+test('normalizeSlackMessages produces each shared I02 fixture result exactly', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  for (const name of NORMALIZE_FIXTURES) {
+    const fixture = await contractFixture(`normalize/${name}.json`)
+    assert.deepEqual(normalizeSlackMessages(fixture.request), fixture.expectedResult, fixture.id)
+  }
+})
+
+test('the test host fake history builds the same requests as the Desktop fixtures', async () => {
+  // Cross-check promised in PR #62: the test host's Core fake and Desktop's fixtures agree on shape.
+  for (const name of NORMALIZE_FIXTURES) {
+    const { request } = await contractFixture(`normalize/${name}.json`)
+    const rebuilt = fakeSlackHistory({
+      channelId: request.channelId, connectionId: request.connectionId, connectionRevision: request.connectionRevision,
+      requestId: request.requestId, purpose: request.purpose, userLabels: request.userLabels,
+      messages: request.items.map(item => ({
+        primaryText: item.primaryText, projection: item.projection, root: item.maxAdditionsBytes === 6000,
+      })),
+    })
+    assert.deepEqual(rebuilt, request, name)
+  }
+})
+
+test('channel API 2 format requests: verbatim reads as v1, rendered returns mrkdwn chunks Core accepts (O01, T33)', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  const packed = await packedSlack()
+  try {
+    const host = createTestHost('buzzni.slack')
+    await host.activate(packed.extension)
+    const base = {
+      channelId: 'buzzni.slack.bot', connectionId: 'c1', provider: 'slack', connectionRevision: 1,
+      requestId: 'r1', kind: 'final', text: '완료 & <b>', maxChunkUtf16Units: 3000, maxChunks: 64,
+    }
+    const v1 = await host.formatChannelReply({ ...base, apiVersion: 1 })
+    assert.deepEqual(v1, { chunks: ['완료 & <b>'] })
+    assert.deepEqual(await host.formatChannelReply({ ...base, apiVersion: 2, mode: 'verbatim', dialect: 'slack-mrkdwn' }), v1)
+    // R11: a short answer is rendered as well, a status line too.
+    for (const [kind, text] of [['final', '**완료** & <b> `<!here>`'], ['status', '_빌드 중_ (2/3)']]) {
+      const result = await host.formatChannelReply({ ...base, kind, text, apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' })
+      assert.deepEqual(Object.keys(result), ['rendered'])
+      const verdict = verifyRenderedReply(text, result, { maxChunkUtf16Units: 3000, maxChunks: 64 })
+      assert.ok(verdict.ok, `${kind}: rule ${verdict.rule}`)
+    }
+    assert.deepEqual(
+      (await host.formatChannelReply({ ...base, text: '**완료** & <b>', apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' })).rendered,
+      [{ text: '*완료* &amp; &lt;b&gt;', sourceStart: 0, sourceEnd: 12 }],
+    )
+    // What only the plain path can send is refused, so Core falls back to it (§6.4).
+    await assert.rejects(
+      host.formatChannelReply({ ...base, text: '벨\u0007', apiVersion: 2, mode: 'rendered', dialect: 'slack-mrkdwn' }),
+      /control character/,
+    )
+    await host.deactivate()
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+test('the packaged extension registers its normalizer and passes the test host contract check', async () => {
+  const packed = await packedSlack()
+  try {
+    const host = createTestHost('buzzni.slack')
+    await host.activate(packed.extension)
+    for (const name of NORMALIZE_FIXTURES) {
+      const fixture = await contractFixture(`normalize/${name}.json`)
+      assert.deepEqual(
+        await host.normalizeChannelMessages({ ...fixture.request, channelId: 'buzzni.slack.bot' }),
+        fixture.expectedResult,
+        fixture.id,
+      )
+    }
+    await host.deactivate()
+  } finally {
+    await rm(packed.temporary, { recursive: true, force: true })
+  }
+})
+
+function normalizeRequest(items, overrides = {}) {
+  return fakeSlackHistory({
+    channelId: 'buzzni.slack.bot', userLabels: { U1: 'kim' },
+    messages: items.map(([primaryText, projection, root = false]) => ({ primaryText, projection, root })),
+    ...overrides,
+  })
+}
+
+function utf8(text) { return new TextEncoder().encode(text).length }
+
+test('normalizeSlackMessages writes blocks, lists, code, attachments and files as readable additions', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([
+    ['배포 공지', {
+      blocks: [
+        { type: 'header', text: { type: 'plain_text', text: '배포 공지' } },
+        { type: 'section', text: { type: 'mrkdwn', text: '담당 <@U1> &amp; <#C1|ops>' }, fields: [{ type: 'mrkdwn', text: '*환경* prod' }] },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: '자동 알림' }, { type: 'plain_text', text: 'v2' }] },
+        { type: 'rich_text', elements: [
+          { type: 'rich_text_list', style: 'ordered', elements: [
+            { type: 'rich_text_section', elements: [{ type: 'text', text: '빌드' }] },
+            { type: 'rich_text_section', elements: [{ type: 'link', url: 'https://ci.example/1', text: '로그' }, { type: 'broadcast', range: 'here' }] },
+          ] },
+          { type: 'rich_text_preformatted', elements: [{ type: 'text', text: 'npm run deploy\nexit 0' }] },
+          { type: 'rich_text_section', elements: [{ type: 'usergroup', usergroup_id: 'S1' }, { type: 'text', text: ' ' }, { type: 'emoji', name: 'tada' }, { type: 'channel', channel_id: 'C9' }] },
+        ] },
+      ],
+      attachments: [{ pretext: '알림', title: '빌드 결과', text: '성공 <!channel>' }],
+      files: [{ name: 'log.txt', filetype: 'text', size: 1536 }, { title: '스크린샷', mimetype: 'image/png' }, {}],
+    }, true],
+  ])
+  assert.deepEqual(normalizeSlackMessages(request).items, [{
+    itemRef: 'i0',
+    truncated: false,
+    additions: [
+      // The header repeats the primary text, so it is left out.
+      { source: 'blocks', text: '담당 @kim & #ops\n*환경* prod' },
+      { source: 'blocks', text: '자동 알림 v2' },
+      { source: 'blocks', text: '1. 빌드\n2. 로그 (https://ci.example/1)@here' },
+      { source: 'blocks', text: 'npm run deploy\nexit 0' },
+      { source: 'blocks', text: '@usergroup :tada:#C9' },
+      { source: 'blocks', text: '알림\n빌드 결과\n성공 @channel' },
+      { source: 'files', text: '[첨부: log.txt (text, 1.5 KB)]' },
+      { source: 'files', text: '[첨부: 스크린샷 (image/png)]' },
+      { source: 'files', text: '[첨부: 파일]' },
+    ],
+  }])
+})
+
+test('normalizeSlackMessages leaves out lines Core would drop as duplicates', async () => {
+  // Same line rule as Core (§5.2 rule 3): whole lines only, compared with whitespace folded.
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['회의는  3시\nA', { blocks: [
+    { type: 'section', text: { type: 'mrkdwn', text: '회의는 3시\nBACKUP' } },
+    { type: 'section', text: { type: 'mrkdwn', text: ' A ' } },
+    { type: 'section', text: { type: 'mrkdwn', text: 'BACKUP\n회의는 3시 이후 공지' } },
+    { type: 'rich_text', elements: [{ type: 'rich_text_preformatted', elements: [{ type: 'text', text: 'if (a) {\n  }\n}' }] }] },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'blocks', text: 'BACKUP' },
+    { source: 'blocks', text: '회의는 3시 이후 공지' },
+    // Lines repeated inside one addition stay: Core only drops lines seen earlier.
+    { source: 'blocks', text: 'if (a) {\n  }\n}' },
+  ])
+})
+
+test('normalizeSlackMessages keeps every result within budget and free of characters Core refuses', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const long = '가'.repeat(1000)
+  const request = normalizeRequest([
+    ['원글', { blocks: [{ type: 'section', text: { type: 'plain_text', text: long } }, { type: 'section', text: { type: 'plain_text', text: '뒤 블록' } }] }],
+    ['깨진 글', { blocks: [{ type: 'section', text: { type: 'plain_text', text: 'a\u0000b\uD800c\u0007d\te' } }] }],
+  ])
+  const [reply, broken] = normalizeSlackMessages(request).items
+  assert.equal(reply.truncated, true)
+  assert.equal(reply.additions.length, 1)
+  assert.ok(reply.additions[0].text.endsWith('…(잘림)'))
+  assert.ok(utf8(reply.additions.map(addition => addition.text).join('')) <= 2000)
+  assert.deepEqual(broken.additions, [{ source: 'blocks', text: 'ab�cd\te' }])
+  assert.equal(broken.truncated, false)
+
+  // A surrogate pair is never cut in half at the budget edge.
+  const emoji = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'section', text: { type: 'plain_text', text: '😀'.repeat(600) } }] }]]))
+  const text = emoji.items[0].additions[0].text
+  assert.ok(utf8(text) <= 2000)
+  assert.doesNotMatch(text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''), /[\uD800-\uDFFF]/)
+})
+
+test('normalizeSlackMessages survives ids and tokens that name Object.prototype properties', async () => {
+  // An inherited `userLabels.constructor` is a function, not a label; one such item must not lose them all.
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const { renderSlackTextTokens } = await bundleModule('src/slackTextTokens.ts')
+  assert.equal(renderSlackTextTokens('<toString> <!constructor> <@Uconstructor>', {}), '<toString> <!constructor> <@Uconstructor>')
+  const request = normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [
+    { type: 'user', user_id: 'constructor' }, { type: 'user', user_id: '__proto__' },
+  ] }] }] }]], { userLabels: {} })
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [{ source: 'blocks', text: '@constructor@__proto__' }])
+})
+
+test('normalizeSlackMessages keeps nested quotes, forwarded text without usable blocks, and long file names', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const longName = `${'a'.repeat(70)}`
+  const request = normalizeRequest([['x', {
+    blocks: [{ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [
+      { type: 'text', text: '설명' }, { type: 'rich_text_quote', elements: [{ type: 'text', text: '삭제 금지' }] },
+    ] }] }],
+    attachments: [
+      { is_share: true, text: '원문 중요 내용', message_blocks: [{ message: { blocks: [] } }] },
+      { is_share: true, text: '두 번째 원문', message_blocks: [{ message: { blocks: [{ type: 'section' }] } }] },
+    ],
+    files: [{ name: `${longName}-1.txt`, filetype: 'text', size: 1 }, { name: `${longName}-2.txt`, filetype: 'text', size: 1 }],
+  }, true]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'blocks', text: '설명' },
+    { source: 'quote', text: '[인용] 삭제 금지' },
+    { source: 'forward', text: '[전달된 글] 원문 중요 내용' },
+    { source: 'forward', text: '[전달된 글] 두 번째 원문' },
+    { source: 'files', text: `[첨부: ${longName}-1.txt (text, 1 B)]` },
+    { source: 'files', text: `[첨부: ${longName}-2.txt (text, 1 B)]` },
+  ])
+})
+
+test('normalizeSlackMessages keeps quotes where they stand, under lists too, so the budget cuts the end first', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const quote = (text) => ({ type: 'rich_text_quote', elements: [{ type: 'text', text }] })
+  const ordered = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [{ type: 'text', text: '앞' }, quote('가운데 인용'), { type: 'text', text: '뒤' }] },
+    { type: 'rich_text_list', style: 'bullet', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: '항목' }] }, quote('삭제 금지')] },
+  ] }] }]]))
+  assert.deepEqual(ordered.items[0].additions, [
+    { source: 'blocks', text: '앞' },
+    { source: 'quote', text: '[인용] 가운데 인용' },
+    { source: 'blocks', text: '뒤' },
+    { source: 'blocks', text: '- 항목' },
+    { source: 'quote', text: '[인용] 삭제 금지' },
+  ])
+  const budgeted = normalizeSlackMessages(normalizeRequest([['x', { blocks: [{ type: 'rich_text', elements: [
+    { type: 'rich_text_section', elements: [quote('운영 DB 삭제 금지'), { type: 'text', text: 'a'.repeat(2500) }] },
+  ] }] }]]))
+  assert.equal(budgeted.items[0].truncated, true)
+  assert.deepEqual(budgeted.items[0].additions[0], { source: 'quote', text: '[인용] 운영 DB 삭제 금지' })
+})
+
+test('normalizeSlackMessages reads forwards and unfurls without their author or source link', async () => {
+  const { normalizeSlackMessages } = await bundleModule('src/normalize.ts')
+  const request = normalizeRequest([['링크', { attachments: [
+    { is_share: true, author_name: 'Park', from_url: 'https://a.slack.com/archives/C2/p1', text: '본문만 <@U1>' },
+    { is_msg_unfurl: true, original_url: 'https://a.slack.com/archives/C3/p2', text: '다른 채널 글' },
+    { original_url: 'https://news.example/b' },
+  ] }]])
+  assert.deepEqual(normalizeSlackMessages(request).items[0].additions, [
+    { source: 'forward', text: '[전달된 글] 본문만 @kim' },
+    { source: 'unfurl', text: '[링크 미리보기] 다른 채널 글 — https://a.slack.com/archives/C3/p2' },
+    { source: 'unfurl', text: '[링크 미리보기] https://news.example/b' },
+  ])
 })
 
 // ---- command parsing / mention & mrkdwn normalization (white-box: pure functions) -------------
@@ -156,12 +476,401 @@ test('unrecognized bracketed content — plain text or code, not Slack markup �
 
 // ---- backoff (white-box: pure function) --------------------------------------------------------
 
-test('receive backoff resets on events and is bounded when idle', async () => {
-  const { nextSlackReceiveDelayMs, SLACK_RECEIVE_BASE_MS, SLACK_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
-  let delay = SLACK_RECEIVE_BASE_MS
-  for (let i = 0; i < 10; i++) delay = nextSlackReceiveDelayMs(delay, false)
-  assert.equal(delay, SLACK_RECEIVE_MAX_MS)
-  assert.equal(nextSlackReceiveDelayMs(delay, true), SLACK_RECEIVE_BASE_MS)
+test('receive backoff resets on events, stays short while idle, and backs off further only on failure', async () => {
+  const { nextSlackReceiveDelayMs, SLACK_RECEIVE_BASE_MS, SLACK_RECEIVE_IDLE_MAX_MS, SLACK_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
+  let idle = SLACK_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) idle = nextSlackReceiveDelayMs(idle, false)
+  assert.equal(idle, SLACK_RECEIVE_IDLE_MAX_MS)
+  assert.ok(SLACK_RECEIVE_IDLE_MAX_MS <= 3_000)
+  let failing = SLACK_RECEIVE_BASE_MS
+  for (let i = 0; i < 10; i++) failing = nextSlackReceiveDelayMs(failing, false, true)
+  assert.equal(failing, SLACK_RECEIVE_MAX_MS)
+  // An empty window after a failure is idle again, not still failing.
+  assert.equal(nextSlackReceiveDelayMs(failing, false), SLACK_RECEIVE_IDLE_MAX_MS)
+  assert.equal(nextSlackReceiveDelayMs(failing, true), SLACK_RECEIVE_BASE_MS)
+})
+
+// Core admits messages in real time but has no "new work is waiting" push, so the time between a
+// message arriving and this adapter dispatching it is the idle poll interval. It was 30s, and a
+// follow-up sent after a short pause sat in Core's queue for up to that long.
+test('an idle connection dispatches a new message within 3s, however long it has been quiet', async (t) => {
+  const { createSlackIntakeRuntime } = await bundleModule('src/intakeLoop.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createSlackIntakeRuntime({ invokeCapability, connectionId: 'conn-1' })
+  runtime.start()
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settle() }
+  // Arrive just after a poll: the worst case, where the whole idle interval is waited out.
+  const before = receives
+  while (receives === before) { t.mock.timers.tick(1_000); await settle() }
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  t.mock.timers.tick(3_000)
+  await settle()
+
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
+})
+
+// ---- Core's rendered-reply check, ported (contracts §6.3) ---------------------------------------
+// The renderer is held to the check Core runs on its result. This port must give Core's verdict on
+// every shared case, or a passing renderer test would say nothing about what Core accepts.
+
+test('the ported skeleton gives every shared skeleton vector', async () => {
+  const { renderedSkeleton } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const { id, dialect, input, expected } of (await contractFixture('skeleton.json')).vectors) {
+    assert.equal(renderedSkeleton(dialect, input), expected, id)
+  }
+})
+
+test('the ported verifier gives Core\'s verdict on every shared rendered-reply case', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const testCase of (await contractFixture('rendered-reply.json')).cases) {
+    const verdict = verifyRenderedReply(testCase.source, testCase.result, testCase.limits)
+    if (testCase.expected.verdict === 'accept') {
+      assert.deepEqual(verdict, { ok: true, chunks: testCase.result.rendered.map(chunk => chunk.text) }, testCase.id)
+    } else {
+      assert.equal(verdict.ok, false, testCase.id)
+      assert.ok(testCase.expected.failedRules.includes(verdict.rule), `${testCase.id}: rule ${verdict.rule}`)
+    }
+  }
+})
+
+test('the ported verifier refuses a source holding NUL, as Core does', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  assert.deepEqual(
+    verifyRenderedReply('a\u0000b', { rendered: [{ text: 'ab', sourceStart: 0, sourceEnd: 3 }] }, { maxChunkUtf16Units: 3000, maxChunks: 64 }),
+    { ok: false, rule: 3 },
+  )
+})
+
+test('the ported verifier stays linear on adversarial link text', async () => {
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const source of ['['.repeat(65_536), '![a]('.repeat(10_000), '[a]'.repeat(20_000)]) {
+    const started = performance.now()
+    const verdict = verifyRenderedReply(source, { rendered: [{ text: 'x', sourceStart: 0, sourceEnd: source.length }] }, { maxChunkUtf16Units: 3000, maxChunks: 64 })
+    assert.equal(verdict.ok, false)
+    assert.ok(performance.now() - started < 1_000)
+  }
+})
+
+// ---- Markdown → Slack mrkdwn renderer (contracts §6.1–§6.3, scenario O01) ---------------------
+
+const RENDER_LIMITS = { maxChunkUtf16Units: 3000, maxChunks: 64 }
+
+/** Renders `source` and holds the result to the ported Core check; returns the chunks. */
+async function renderedAndAccepted(source, limits = RENDER_LIMITS) {
+  const { renderSlackMarkdown } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  const rendered = renderSlackMarkdown(source, limits)
+  const verdict = verifyRenderedReply(source, { rendered }, limits)
+  assert.ok(verdict.ok, `refused by rule ${verdict.rule}: ${JSON.stringify(rendered).slice(0, 400)}`)
+  assertUrlsFromSource(source, rendered)
+  return rendered
+}
+
+/** Slack links every address it sees, so each one a chunk shows must be written that way in its range. */
+function assertUrlsFromSource(source, rendered) {
+  for (const { text, sourceStart, sourceEnd } of rendered) {
+    const shown = text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&')
+    for (const [url] of shown.matchAll(/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|mailto:|www\.)[^\s<>`|]*|[^\s<>()[\],;:@"]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/gi)) {
+      const address = url.replace(/[*_~.,;:!?'")\]]+$/, '')
+      assert.ok(source.slice(sourceStart, sourceEnd).includes(address), `${address} is not in the answer`)
+    }
+  }
+}
+
+function fencesBalanced(text) {
+  const lines = text.split('\n')
+  return lines.filter(line => line.startsWith('```')).length % 2 === 0 && lines.every(line => !line.includes('```') || line === '```')
+}
+
+test('every shared fixture answer renders to a result Core accepts, except one that holds a control character', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  for (const testCase of (await contractFixture('rendered-reply.json')).cases) {
+    if (/[\u0000-\u0008\u000b-\u001f]/.test(testCase.source)) {
+      // Rule 2 refuses the bell in any chunk and rule 3 refuses dropping it: only the plain path can send it.
+      assert.throws(() => renderSlackMarkdown(testCase.source, testCase.limits), SlackRenderUnsupportedError, testCase.id)
+      continue
+    }
+    const rendered = renderSlackMarkdown(testCase.source, testCase.limits)
+    const verdict = verifyRenderedReply(testCase.source, { rendered }, testCase.limits)
+    assert.ok(verdict.ok, `${testCase.id}: rule ${verdict.rule}`)
+  }
+})
+
+test('O01 (a): a short Markdown answer is rendered too, as Slack bold, bullets and a labeled link', async () => {
+  const source = '# 제목\n**굵게** 설명과 [링크](https://x.example)\n- 목록 하나\n- 목록 둘'
+  assert.deepEqual(await renderedAndAccepted(source), [{
+    text: '*제목*\n*굵게* 설명과 <https://x.example|링크>\n• 목록 하나\n• 목록 둘', sourceStart: 0, sourceEnd: source.length,
+  }])
+})
+
+test('O01 (b): a 40-row table becomes one aligned code block with balanced fences', async () => {
+  const rows = Array.from({ length: 40 }, (_, i) => `| api-${i + 1} | ${i % 7 === 0 ? '점검 중' : '정상'} |`)
+  const source = ['| 서버 | 상태 |', '|---|---|', ...rows].join('\n')
+  const [chunk, ...rest] = await renderedAndAccepted(source)
+  assert.equal(rest.length, 0)
+  assert.ok(fencesBalanced(chunk.text))
+  const lines = chunk.text.split('\n')
+  assert.deepEqual([lines[0], lines.at(-1)], ['```', '```'])
+  assert.equal(lines.length, 2 + 42)
+  assert.equal(lines[1], '| 서버   | 상태    |')
+  assert.equal(lines[3], '| api-1  | 점검 중 |')
+  assert.equal(lines[4], '| api-2  | 정상    |')
+})
+
+test('O01 (c): a 9,000-character code block goes out as 3–4 chunks that each open and close a fence, code only escaped', async () => {
+  const testCase = (await contractFixture('rendered-reply.json')).cases.find(c => c.id === 'o01-long-code-escaped-chunks')
+  const chunks = await renderedAndAccepted(testCase.source)
+  assert.ok(chunks.length >= 3 && chunks.length <= 4, `${chunks.length} chunks`)
+  for (const { text } of chunks) {
+    assert.ok(text.length <= 3000)
+    assert.ok(fencesBalanced(text))
+    assert.doesNotMatch(text, /<[!@#]/)
+  }
+  const shown = chunks.map(chunk => chunk.text).join('\n')
+  assert.match(shown, /print\("&lt;@U1&gt;"\)/)
+  assert.match(shown, /if a &amp;&amp; b: x -&gt; y/)
+  assert.match(shown, /send\("&lt;!channel&gt;"\)/)
+})
+
+test('O01 (d): a joined emoji on the 3,000 boundary is never cut, and a long paragraph is split between words', async () => {
+  const emoji = (await contractFixture('rendered-reply.json')).cases.find(c => c.id === 'o01-emoji-at-3000-boundary')
+  const chunks = await renderedAndAccepted(emoji.source)
+  assert.ok(chunks.some(chunk => chunk.text.startsWith('👨‍👩‍👧')))
+  const sentence = '배포 전에 [체크리스트](https://wiki.example/release) 를 확인하고 `npm test` 를 실행합니다. '
+  const paragraph = sentence.repeat(160)
+  for (const chunk of await renderedAndAccepted(paragraph)) {
+    assert.ok(chunk.text.length <= 3000)
+    // Cuts land after a space, never inside the link or the code span.
+    assert.ok(chunk.sourceEnd === paragraph.length || paragraph[chunk.sourceEnd - 1] === ' ', String(chunk.sourceEnd))
+    assert.doesNotMatch(chunk.text, /<https:\/\/wiki\.example\/release\|체크리스트>[^ ]|\[체크/)
+  }
+})
+
+test('Slack special tokens and HTML in the answer are escaped, outside code as well as inside', async () => {
+  const [chunk] = await renderedAndAccepted('공지 <!here> 담당 <@U2> 채널 <#C1> <b>굵게</b> a && b\n`<!channel>` 는 쓰지 마세요')
+  assert.equal(chunk.text, '공지 &lt;!here&gt; 담당 &lt;@U2&gt; 채널 &lt;#C1&gt; &lt;b&gt;굵게&lt;/b&gt; a &amp;&amp; b\n`&lt;!channel&gt;` 는 쓰지 마세요')
+})
+
+test('inline Markdown reads as Slack mrkdwn: emphasis, strike, code, quotes, images and links Slack cannot open', async () => {
+  const source = [
+    '## 요약',
+    '이번 변경은 **중요**하고 *조심*해야 하며 ~~예전 방식~~ 은 버립니다. `rm -rf` 는 금지.',
+    '> 인용한 문장',
+    '>> 중첩 인용',
+    '![구성도](https://img.example/a.png) 와 [내부](ftp://files.example/x) 참고',
+    '[https://a.example](https://b.example) 는 다른 주소입니다',
+    '---',
+    '1. 첫째',
+    '2. 둘째',
+    '   - 하위 항목',
+    '   * 별 하위',
+  ].join('\n')
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '*요약*',
+    '이번 변경은 *중요*하고 _조심_해야 하며 ~예전 방식~ 은 버립니다. `rm -rf` 는 금지.',
+    '> 인용한 문장',
+    '> 중첩 인용',
+    '<https://img.example/a.png|구성도> 와 내부 ftp://files.example/x 참고',
+    'https://a.example <https://b.example> 는 다른 주소입니다',
+    '---',
+    '1. 첫째',
+    '2. 둘째',
+    '   - 하위 항목',
+    '   * 별 하위',
+  ])
+})
+
+test('code blocks keep their bytes (escaped), lose only the language tag, and a fence nested in a list item is a code block too', async () => {
+  const source = [
+    '설치:',
+    '```bash',
+    'npm i && npm test > out.txt',
+    '```',
+    '1. 빌드',
+    '   ```sh',
+    '   make all',
+    '   ```',
+  ].join('\n')
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '설치:', '```', 'npm i &amp;&amp; npm test &gt; out.txt', '```', '1. 빌드', '_sh_', '```', 'make all', '```',
+  ])
+})
+
+test('a nested fence showing the same code as a later code block does not take that block\'s place in Core\'s check', async () => {
+  // Core pairs each source code block with the first rendered block of the same content; the nested
+  // one is not a source code block, so the answer is written without it as a block.
+  const source = '1. 테스트\n   ```\n   npm test\n   ```\n다시 한 번:\n```\nnpm test\n```'
+  const [chunk] = await renderedAndAccepted(source)
+  assert.equal(chunk.text.split('\n').filter(line => line === '```').length, 2)
+})
+
+test('an address is shown only as the answer writes it: no escape or emphasis is resolved inside a URL', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  // Resolving `\#` or `\_` would show (and Slack would link) an address the answer does not contain;
+  // keeping the backslash would not compare equal for Core, so these go by the plain path.
+  for (const source of [
+    '[로그](https://example.com/build\\#42)', '자세한 내용 https://x.example/a\\_b 참고',
+    // Any case Slack links, and bare e-mail addresses, which Slack links as mail.
+    'WWW.example.com/a\\#42', '[메일](MAILTO:admin\\_ops@example.com)', 'first\\_last@example.com',
+    // A CR inside an address is not a line end: dropping it would join the address into another.
+    'https://exa\rmple.com/a', 'mailto:first\rlast@example.com',
+    // An address shown as text right before an escape the link's `)` ends: still one address in Slack.
+    '[파일](ftp://files.example/x)\\_y',
+    // An escape just before an address must not take the address's first character with it.
+    '\\-https://u.example/a\\#b',
+    // A link written next to an address joins it; an e-mail's local part is any text before `@`.
+    'https://example.com/[x](foo)', '[a](HTTPS://example.com/)[b](foo)', 'first\\#last@example.com', "first\\_o'connor@example.com",
+  ]) {
+    assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, source)
+  }
+  // An emphasis star turned `_` next to an e-mail would join the address (`*y*x@…` → `_y_x@…`).
+  await renderedAndAccepted('*y*x@y.example 와 *기울임* ops@y.example')
+  assert.deepEqual((await renderedAndAccepted('~~first~~last@example.com')).map(chunk => chunk.text), ['~~first~~last@example.com'])
+  // A quoted local part (RFC 5322) is part of the address: `"a**b**"` must not become `"ab"`.
+  for (const address of ['"a**b**"@example.com', String.raw`"a**b**\"c"@example.com`, '"a**b** c@d"@example.com', `"a**b**${String.raw`\x`.repeat(32)}"@example.com`]) {
+    for (const source of [`메일 ${address} 로`, `| Mail |\n|---|\n| ${address} |`]) {
+      assert.ok((await renderedAndAccepted(source)).some(chunk => chunk.text.includes(address)), source)
+    }
+  }
+  const [chunk] = await renderedAndAccepted('참고 https://x.example/a*b*c 와 **https://y.example/doc** 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
+  assert.equal(chunk.text, '참고 https://x.example/a*b*c 와 *https://y.example/doc* 그리고 www.z.example/_x_ 끝, 문의 ops_team@example.com')
+})
+
+test('a table honors its column alignment and keeps cells past the header', async () => {
+  const source = '| 항목 | 수량 | 비고 |\n|:--|--:|:-:|\n| 사과 | 3 | 빨강 |\n| 배 | 12 | 노랑 | 추가 |'
+  const [chunk] = await renderedAndAccepted(source)
+  assert.deepEqual(chunk.text.split('\n'), [
+    '```',
+    '| 항목 | 수량 | 비고 |      |',
+    '|------|------|------|------|',
+    '| 사과 |    3 | 빨강 |      |',
+    '| 배   |   12 | 노랑 | 추가 |',
+    '```',
+  ])
+})
+
+test('the renderer refuses what only the plain path can send', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  for (const source of [
+    '',
+    'a\u0000b',
+    '```\nconst fence = "``` inside"\n```',
+    '```\r\nwindows line\r\n```',
+    '\ud800 lone',
+  ]) {
+    assert.throws(() => renderSlackMarkdown(source, RENDER_LIMITS), SlackRenderUnsupportedError, JSON.stringify(source))
+  }
+  assert.throws(() => renderSlackMarkdown('가 '.repeat(100), { maxChunkUtf16Units: 10, maxChunks: 3 }), SlackRenderUnsupportedError)
+})
+
+// Core waits 3 s for a rendering (§6.4); the approved text can be 64 KiB on one line.
+test('rendering stays fast on adversarial 64 KiB answers', async () => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  for (const source of [
+    '['.repeat(65_536), '**a '.repeat(16_000), '*a '.repeat(20_000), '\\*'.repeat(30_000), '[a](https://x) '.repeat(4_000), 'a\n'.repeat(30_000),
+    // A row of thousands of columns; then header/delimiter pairs, each a table that cannot be written as one.
+    '| a |\n|---|\n' + '|a|\n'.repeat(10_000) + '|'.repeat(20_000), '|a|\n|-|\n'.repeat(4_000) + '|'.repeat(30_000),
+    // Long runs that only look like the start of an address or an e-mail.
+    'a'.repeat(65_536), 'a-'.repeat(32_768), 'a@'.repeat(32_768), ':/'.repeat(32_768) + '/', 'www.'.repeat(16_384),
+    // A line that nearly reads as a table delimiter row, or as a thematic break.
+    '| h |\n' + ' '.repeat(32_764) + '-' + ' '.repeat(32_764) + 'x', '- '.repeat(32_000) + 'x', '-\t'.repeat(32_000) + 'x',
+    // A link label of one long word, checked for reading as an address.
+    '[' + 'a'.repeat(60_000) + '](https://x.example)',
+    // Long whitespace before a CR or U+2028 inside a list item, heading or nested fence line.
+    '- ' + ' '.repeat(65_531) + 'x\rY', '- ' + ' '.repeat(65_529) + 'x\u2028Y', '1.' + ' '.repeat(65_530) + 'x\u2028Y',
+    '#' + ' '.repeat(65_530) + 'x\u2028Y', ' '.repeat(65_530) + '```x\u2028Y',
+  ]) {
+    const started = performance.now()
+    try { renderSlackMarkdown(source, RENDER_LIMITS) } catch (error) { if (!(error instanceof SlackRenderUnsupportedError)) throw error }
+    assert.ok(performance.now() - started < 2_000, `${source.slice(0, 8)}: ${performance.now() - started}ms`)
+  }
+})
+
+test('a long line is never cut into a piece that shows nothing', async () => {
+  // `# ` alone renders blank; Slack refuses a blank message.
+  const chunks = await renderedAndAccepted('# ' + '가'.repeat(5_000))
+  assert.ok(chunks.length >= 2 && chunks.every(chunk => /\S/.test(chunk.text)))
+})
+
+/** Whether some chunk shows `address` as a whole word (between spaces or quotes), not cut or extended. */
+function showsWhole(chunks, address) {
+  return chunks.some(chunk => chunk.text.split(/[\s"]/).includes(address))
+}
+
+test('a long line without spaces is cut before an address, never inside one', async () => {
+  // A cut at `/sec` would show (and Slack would link) a shorter address that the answer only contains
+  // as part of a longer one.
+  const source = '{"data":"' + 'a'.repeat(2959) + '","url":"https://example.com/secure"}'
+  const chunks = await renderedAndAccepted(source)
+  assert.ok(chunks.length >= 2)
+  assert.ok(showsWhole(chunks, 'https://example.com/secure'))
+  // An address longer than a chunk cannot be shown whole: the plain path sends it.
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  assert.throws(() => renderSlackMarkdown('https://example.com/' + 'a'.repeat(4000), RENDER_LIMITS), SlackRenderUnsupportedError)
+  assert.throws(() => renderSlackMarkdown('[문서](https://example.com/' + 'a'.repeat(4000) + ')', RENDER_LIMITS), SlackRenderUnsupportedError)
+  // Inside a long code span too: a middle chunk of it shows no backticks, and Slack links what it sees.
+  const code = '`' + 'a '.repeat(2990) + 'https://example.com.evil/secure ' + 'b'.repeat(100) + '`'
+  assert.ok(showsWhole(await renderedAndAccepted(code), 'https://example.com.evil/secure'))
+  assert.throws(() => renderSlackMarkdown('`x https://example.com/' + 'a'.repeat(4000) + '`', RENDER_LIMITS), SlackRenderUnsupportedError)
+  // A code block line over a chunk is cut before an address as well.
+  const block = '```\n' + 'a'.repeat(2970) + ' https://example.com/secure\n```'
+  assert.ok(showsWhole(await renderedAndAccepted(block), 'https://example.com/secure'))
+  // An address in minified JSON ends at its closing quote, so the rest of the line can still be cut.
+  const json = '{"url":"https://example.com/a","data":"' + 'a'.repeat(5000) + '"}'
+  assert.ok(showsWhole(await renderedAndAccepted(json), 'https://example.com/a'))
+})
+
+test('CRLF prose and lines Markdown escapes still render to a result Core accepts', async () => {
+  for (const source of [
+    '첫 줄\r\n둘째 줄\r\n',
+    '\\# 제목 아님\n\\- 목록 아님\n\\> 인용 아님\n\\*별\\* 그대로 C:\\\\Users',
+    '| 열 |\n|---|\n| a \\| b |',
+    '- [ ] 할 일\n- [x] 끝',
+    '***\n___\n* * *',
+    '\n\n앞뒤 빈 줄\n\n',
+  ]) await renderedAndAccepted(source)
+})
+
+// T34: contracts §6.3 would be too strict if most answers fell back to plain text; under 95% the
+// contract needs adjusting (Desktop specs/slack-bot-improvements plan, risks).
+test('at least 95 of 100 fake answers render to a result Core accepts, and every miss is a refusal, not a bad result', async (t) => {
+  const { renderSlackMarkdown, SlackRenderUnsupportedError } = await bundleModule('src/render.ts')
+  const { verifyRenderedReply } = await bundleModule('src/renderedReplyCheck.ts')
+  const { fakeAnswers } = await import(pathToFileURL(join(packageRoot, 'test/renderSamples.mjs')).href)
+  const answers = fakeAnswers()
+  assert.equal(answers.length, 100)
+  assert.ok(answers.filter(answer => answer.length > 3000).length >= 10)
+  const missed = []
+  let accepted = 0
+  for (const [index, answer] of answers.entries()) {
+    try {
+      const verdict = verifyRenderedReply(answer, { rendered: renderSlackMarkdown(answer, RENDER_LIMITS) }, RENDER_LIMITS)
+      assert.ok(verdict.ok, `answer ${index} rendered but Core refuses it (rule ${verdict.rule})`)
+      accepted += 1
+    } catch (error) {
+      if (!(error instanceof SlackRenderUnsupportedError)) throw error
+      missed.push(`${index}: ${error.message}`)
+    }
+  }
+  t.diagnostic(`rendered and accepted: ${accepted}/100; sent as plain text: ${missed.join('; ') || 'none'}`)
+  assert.ok(accepted >= 95, `${accepted}/100`)
 })
 
 // ---- formatter (white-box: pure function, also exercised through the real formatter registration) --
@@ -350,6 +1059,32 @@ test('activation lifecycle drives receive -> dispatch -> ack for each command', 
   assert.equal(ackCalls.length, 1)
   assert.equal(ackCalls[0].args.cursor, '6')
   assert.ok(calls.indexOf(ackCalls[0]) > calls.lastIndexOf(controlCalls.at(-1)))
+})
+
+test('packed adapter forwards attachment-only input without a text proposal (T47)', async (t) => {
+  const packed = await packedSlack()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  const dispatched = []
+  let received = false
+  const host = createTestHost('buzzni.slack', {
+    invokeCapability: async (permission, action, args) => {
+      if (permission === 'channels.receive') {
+        if (received) return { events: [], cursor: '1' }
+        received = true
+        return { events: [envelope({ text: '', attachmentCount: 1 })], cursor: '1' }
+      }
+      if (permission === 'sessions.control') dispatched.push(args)
+      return { cursor: '1' }
+    },
+  })
+  await host.activate(packed.extension)
+  await host.deliverChannelLifecycle({ channelId: 'buzzni.slack.bot', connectionId: 'conn-1', connectionRevision: 1, provider: 'slack', state: 'start' })
+  const deadline = Date.now() + 3000
+  while (!dispatched.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+  await host.deliverChannelLifecycle({ channelId: 'buzzni.slack.bot', connectionId: 'conn-1', connectionRevision: 1, provider: 'slack', state: 'stop' })
+  assert.equal(dispatched.length, 1)
+  assert.equal(dispatched[0].operation, 'prompt')
+  assert.equal(Object.hasOwn(dispatched[0], 'text'), false)
 })
 
 test('a message Slack marks bot-authored is dropped, not dispatched, but still acked (R11)', async () => {
@@ -878,4 +1613,91 @@ test('a dispatch Core never answered is retried in order and never given up', as
   assert.ok(controls.length >= 5)
   assert.ok(controls.every((handle) => handle === 'h1'))
   assert.equal(calls.filter((call) => call.permission === 'channels.ack').length, 0)
+})
+
+// ---- intake hints (specs/channel-intake-wake) --------------------------------------------------
+
+async function hintedHost(extension, hostOptions) {
+  const waiting = []
+  const dispatched = []
+  const counter = { receives: 0 }
+  const host = createTestHost('buzzni.slack', {
+    ...hostOptions,
+    async invokeCapability(permission, action, args) {
+      if (permission === 'channels.receive') {
+        counter.receives += 1
+        return { events: waiting.splice(0), cursor: waiting.length === 0 ? null : '1' }
+      }
+      if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+      return {}
+    },
+  })
+  await host.activate(extension)
+  const identity = { apiVersion: 1, channelId: 'buzzni.slack.bot', connectionId: 'conn-hint', provider: 'slack', connectionRevision: 1 }
+  await host.deliverChannelLifecycle({ ...identity, state: 'start' })
+  return { host, identity, waiting, dispatched, counter }
+}
+const settleHint = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+
+test('with a Desktop that sends intake hints, a quiet connection polls rarely and a hint fetches a new message at once', async (t) => {
+  const packed = await packedSlack()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { host, identity, waiting, dispatched, counter } = await hintedHost(packed.extension)
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settleHint() }
+  assert.ok(counter.receives <= 20, `polled ${counter.receives} times in five quiet minutes`)
+
+  waiting.push(envelope({ eventHandle: 'hinted', semanticMessageId: 'hinted-msg' }))
+  await host.deliverIntake(identity)
+  await settleHint()
+  assert.deepEqual(dispatched, ['hinted'])
+  await host.deliverChannelLifecycle({ ...identity, state: 'stop' })
+  await host.deactivate()
+})
+
+test('with an older Desktop that has no onIntake, activation still works and a message is fetched within 3s', async (t) => {
+  const packed = await packedSlack()
+  t.after(() => rm(packed.temporary, { recursive: true, force: true }))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { host, identity, waiting, dispatched, counter } = await hintedHost(packed.extension, { intake: false })
+  for (let i = 0; i < 300; i++) { t.mock.timers.tick(1_000); await settleHint() }
+  const before = counter.receives
+  while (counter.receives === before) { t.mock.timers.tick(1_000); await settleHint() }
+  waiting.push(envelope({ eventHandle: 'polled', semanticMessageId: 'polled-msg' }))
+  t.mock.timers.tick(3_000)
+  await settleHint()
+  assert.deepEqual(dispatched, ['polled'])
+  await host.deliverChannelLifecycle({ ...identity, state: 'stop' })
+  await host.deactivate()
+})
+
+test('a hint that lands while a receive is in flight is not lost to the long idle wait', async (t) => {
+  const { createSlackIntakeRuntime } = await bundleModule('src/intakeLoop.ts')
+  const { SLACK_RECEIVE_MAX_MS } = await bundleModule('src/backoff.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const waiting = []
+  const dispatched = []
+  let receives = 0
+  let releaseReceive = null
+  const invokeCapability = async (permission, action, args) => {
+    if (permission === 'channels.receive') {
+      receives += 1
+      const events = waiting.splice(0)
+      if (receives === 3) await new Promise((resolve) => { releaseReceive = resolve })
+      return { events, cursor: events.length === 0 ? null : '1' }
+    }
+    if (permission === 'sessions.control') dispatched.push(args.eventHandle)
+    return {}
+  }
+  const runtime = createSlackIntakeRuntime({ invokeCapability, connectionId: 'conn-1', idleMaxMs: SLACK_RECEIVE_MAX_MS })
+  runtime.start()
+  while (releaseReceive === null) { t.mock.timers.tick(1_000); await settleHint() }
+  // The message lands after this receive read the queue, so it comes back empty; the hint for it
+  // arrives while the call is still out.
+  waiting.push(envelope({ eventHandle: 'late', semanticMessageId: 'late-msg' }))
+  runtime.hint()
+  releaseReceive()
+  await settleHint()
+  assert.deepEqual(dispatched, ['late'])
+  await runtime.stop()
 })

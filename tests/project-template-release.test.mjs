@@ -119,7 +119,8 @@ test('release gate packs, checksums, and publishes the official Moai extension',
 
   assert.match(packageJson.scripts['package:moai'], /moai.*pack/)
   assert.equal(moaiPackage.version, manifest.version)
-  assert.equal(manifest.apiVersion, 3)
+  // Extension API 4, current since Desktop 0.1.69 (se-ya5e.1zg).
+  assert.equal(manifest.apiVersion, 4)
   assert.match(workflow, /npm run package:moai/)
   // Plain substring checks: the archive name comes from the manifest, so no regular expression is built from it.
   assert.ok(workflow.includes(`packages/moai/${archive}.sha256`))
@@ -136,6 +137,16 @@ test('release gate tests, packs, checksums, and publishes Media Preview', async 
   assert.match(workflow, /npm run package:media-preview/)
   assert.ok(workflow.includes(`packages/media-preview/${archive}\n`))
   assert.ok(workflow.includes(`packages/media-preview/${archive}.sha256\n`))
+})
+
+test('release gate tests, packs, checksums, and publishes React Source Locator', async () => {
+  const manifest = JSON.parse(await readFile(new URL('packages/react-source-locator/extension.json', root), 'utf8'))
+  const workflow = await readFile(new URL('.github/workflows/release.yml', root), 'utf8')
+  const archive = `${manifest.id}-${manifest.version}.saycode-extension`
+  assert.match(workflow, /node --test packages\/react-source-locator\/tests\/\*\.test\.mjs/)
+  assert.match(workflow, /npm run package:react-source-locator/)
+  assert.ok(workflow.includes(`packages/react-source-locator/${archive}\n`))
+  assert.ok(workflow.includes(`packages/react-source-locator/${archive}.sha256\n`))
 })
 
 test('every checksummed release package publishes the archive its manifest version produces', async () => {

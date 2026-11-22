@@ -1,0 +1,37 @@
+{
+  "id": "buzzni.session-env-sample",
+  "version": "1.0.0",
+  "apiVersion": 4,
+  "engines": { "saycode": "^1.4.0" },
+  "entrypoint": "index.js",
+  "permissions": ["sessions.launchEnvironment"],
+  "activationEvents": ["onSessionOpenBefore:buzzni.session-env-sample.company"],
+  "contributes": {
+    "sessionHooks": [
+      {
+        "id": "buzzni.session-env-sample.docs",
+        "event": "session.open.before",
+        "env": [
+          { "name": "SAMPLE_DOCS_URL" },
+          { "name": "SAMPLE_DOCS_TOKEN", "secret": true }
+        ],
+        "mcpServers": [
+          {
+            "name": "sample-everything",
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-everything@2.2.1"],
+            "envNames": ["SAMPLE_DOCS_TOKEN"]
+          }
+        ]
+      },
+      {
+        "id": "buzzni.session-env-sample.company",
+        "event": "session.open.before",
+        "scope": "company",
+        "dynamic": true,
+        "env": [{ "name": "SAMPLE_COMPANY_WORKSPACE" }]
+      }
+    ]
+  }
+}

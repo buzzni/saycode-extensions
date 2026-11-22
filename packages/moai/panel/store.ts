@@ -61,6 +61,13 @@ export interface SkillsState {
   dismissed: boolean
 }
 
+/** Running `moai init` from the not-initialized screen (se-s1e8): the board is read again once it passed. */
+export interface InitState {
+  running: boolean
+  /** Why the last init did nothing. */
+  problem: Outcome | null
+}
+
 /** A read the panel shows: its data once it arrived, and why the last attempt failed. */
 export interface Loadable<T> {
   value: T | null
@@ -144,6 +151,7 @@ export interface State {
   /** What the answers so far tell of the moai CLI and the daemon's catalog (data/compat.ts); null before any. */
   compat: CompatReport | null
   skills: SkillsState
+  init: InitState
   /** The header's user and version, from the last `status` read (data/about.ts); null before one answered. */
   about: About | null
   /**
@@ -225,6 +233,7 @@ export function initialState(): State {
     archiveProblem: null,
     compat: null,
     skills: { report: null, installing: false, installed: null, problem: null, dismissed: false },
+    init: { running: false, problem: null },
     about: null,
     wiki: initialWiki(),
   }
@@ -285,6 +294,10 @@ export type Action =
   | { type: 'skills-installed'; installed: Installed; report?: SkillReport }
   | { type: 'skills-failed'; problem: Outcome }
   | { type: 'skills-dismissed' }
+  | { type: 'init-running' }
+  | { type: 'init-failed'; problem: Outcome }
+  /** init passed: the board read that follows replaces the not-initialized problem. */
+  | { type: 'init-done' }
   /** A `status` read answered; one that says what the last said changes nothing. */
   | { type: 'about'; about: About }
   /** Settings read back at boot (already cleaned by data/memory.ts); what is left out keeps its value. */
@@ -418,6 +431,12 @@ export function reduce(state: State, action: Action): State {
       return { ...state, skills: { ...state.skills, installing: false, problem: action.problem } }
     case 'skills-dismissed':
       return { ...state, skills: { ...state.skills, dismissed: true } }
+    case 'init-running':
+      return { ...state, init: { running: true, problem: null } }
+    case 'init-failed':
+      return { ...state, init: { running: false, problem: action.problem } }
+    case 'init-done':
+      return { ...state, init: { running: false, problem: null } }
     case 'about':
       return sameAbout(state.about, action.about) ? state : { ...state, about: action.about }
     case 'restore': {

@@ -15,6 +15,7 @@ export interface SlackInboundEnvelope {
   connectionRevision: number
   semanticMessageId: string
   text: string
+  attachmentCount?: number
   /** R11: Core's own sender record; `sender.bot` is Slack's echo of a bot-authored message. */
   sender: { bot: boolean }
   /**
@@ -40,6 +41,8 @@ export interface SlackIntakeRuntimeDeps {
   sleep?(ms: number): Promise<void>
   mintClientRequestId?(): string
   onError?(error: unknown): void
+  /** The empty-window ceiling; raised when Core sends intake hints, since a hint wakes the loop. */
+  idleMaxMs?: number
 }
 
 export interface SlackIntakeRuntime {
@@ -47,6 +50,12 @@ export interface SlackIntakeRuntime {
   start(): void
   /** Idempotent and awaitable: resolves once the in-flight iteration has actually exited. */
   stop(): Promise<void>
+  /**
+   * Core queued something: ask now instead of waiting out the idle delay. A hint that arrives while
+   * a receive is already out is kept for the next wait, because that receive may have read the
+   * queue just before the message landed.
+   */
+  hint(): void
 }
 
 /**
@@ -86,9 +95,7 @@ function defaultMintClientRequestId(): string {
  *   belt-and-suspenders, not the only guard. A missing `sender` or a non-boolean `bot` fails
  *   closed — treated as bot-authored — rather than trusting a malformed envelope as human.
  * - **`message_changed` (Slack's edit-of-an-earlier-message event) cannot be detected here.**
- *   Core's Slack inbound mapping does not pass through `payload.event.subtype`, so an edited
- *   message arrives indistinguishable from a new one and is dispatched as a fresh prompt — a Core
- *   gap, not something this adapter can work around from the fields it is given.
+ *   Core filters edits before intake; this adapter cannot derive edit identity from the envelope.
  */
 export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackIntakeRuntime {
   const maxEvents = Math.min(Math.max(deps.maxEvents ?? 20, 1), 50)
@@ -103,12 +110,15 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
   const dispatched = new Set<string>()
   const refusals = new Map<string, number>()
 
+  let pendingHint = false
+
   function wake(): void {
     cancelPendingDelay?.()
     cancelPendingDelay = null
   }
 
   async function delay(ms: number): Promise<void> {
+    if (pendingHint) { pendingHint = false; return }
     if (deps.sleep) return deps.sleep(ms)
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, ms)
@@ -176,7 +186,10 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
       rememberDispatched(key)
       return true
     }
-    const command = parseSlackCommand(event.text)
+    // Core assembles attachment paths; an empty text proposal is not a valid prompt DTO.
+    const command = event.text === '' && (event.attachmentCount ?? 0) > 0
+      ? { operation: 'prompt' as const }
+      : parseSlackCommand(event.text)
     await deps.invokeCapability(
       'sessions.control',
       'sessions.control',
@@ -201,7 +214,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
     } catch (error) {
       if (currentEpoch !== epoch) return
       deps.onError?.(error)
-      delayMs = nextSlackReceiveDelayMs(delayMs, false)
+      delayMs = nextSlackReceiveDelayMs(delayMs, false, true)
       await delay(delayMs)
       return
     }
@@ -237,7 +250,7 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
       }
     }
 
-    delayMs = nextSlackReceiveDelayMs(delayMs, batchComplete && hadEvents)
+    delayMs = nextSlackReceiveDelayMs(delayMs, batchComplete && hadEvents, !batchComplete, deps.idleMaxMs)
     await delay(delayMs)
   }
 
@@ -257,6 +270,10 @@ export function createSlackIntakeRuntime(deps: SlackIntakeRuntimeDeps): SlackInt
         .catch((error) => deps.onError?.(error))
         .then(() => { inFlightGenerations.delete(generation) })
       inFlightGenerations.add(generation)
+    },
+    hint() {
+      if (cancelPendingDelay) wake()
+      else pendingHint = true
     },
     async stop() {
       epoch += 1
