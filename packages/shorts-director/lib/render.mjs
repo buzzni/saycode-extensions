@@ -302,10 +302,11 @@ async function checkPlacement({ root, base, work, captions, config }) {
   const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
   const scenes = JSON.parse(stdout)
   const fromTop = (rect, width = 1, height = 1) => ({ x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height })
-  // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변에 닿아 위로 잘린 것으로 보이는 머리를 함께 본다.
+  // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변·옆 가장자리에 닿아 잘린 것으로 보이는 머리를 함께 본다.
   const faces = (scene) => {
     const detected = scene.faces.map((face) => fromTop(face))
-    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height })]
+    const hands = (scene.hands ?? []).map((hand) => fromTop(hand))
+    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands })]
   }
   let next = 0
   const found = sampled.map((count) => {

@@ -55,3 +55,54 @@ test('no head is assumed when the face detector already found it, nobody touches
   assert.deepEqual(croppedHeads(grid('...........................', '.....#####.................'), [], { aspect: 0.5625 }), [])
   assert.deepEqual(croppedHeads(grid('###########################', '###########################'), [], { aspect: 0.5625 }), [], 'shoulders across the whole top are not a head')
 })
+
+// 27칸 × 24줄 격자를 만든다: rows 는 { 줄 번호: 그 줄 }, 나머지 줄은 비어 있다.
+function frame(rows) {
+  return grid(...Array.from({ length: 24 }, (_, index) => rows[index] ?? '.'.repeat(27)))
+}
+
+test('a face cut off by the left or right edge is found where the person first touches that edge at their top', () => {
+  const head = '########...................'
+  const leftCut = frame({ 6: '#####......................', 7: head, 8: head, 9: head, 10: head, 11: '######.....................', 12: '##########.................' })
+  const [left] = croppedHeads(leftCut, [], { aspect: 0.5625 })
+  assert.ok(left, 'a head cut by the left edge')
+  assert.equal(left.x, 0)
+  assert.ok(Math.abs(left.y - 6 / 24) < 0.01, `starts where the person starts (${left.y})`)
+  assert.ok(Math.abs(left.w - 8 / 27) < 0.01, `as wide as it shows (${left.w})`)
+
+  const mirrored = frame(Object.fromEntries(Object.entries(leftCut.lines).map(([row, line]) => [row, [...line].reverse().join('')])))
+  const [right] = croppedHeads(mirrored, [], { aspect: 0.5625 })
+  assert.ok(right && Math.abs(right.x + right.w - 1) < 0.01, 'a head cut by the right edge')
+})
+
+test('an arm or shoulder touching the side below a head that is inside the frame is not a head', () => {
+  const body = frame({
+    4: '...........#####...........',
+    5: '..........#######..........',
+    6: '..........#######..........',
+    8: '.......#############.......',
+    12: '####################.......',
+    13: '#####################......',
+  })
+  assert.deepEqual(croppedHeads(body, [], { aspect: 0.5625 }), [])
+})
+
+test('a raised hand reaching over the top edge is not taken for a cut-off head', () => {
+  const raisedHand = grid('...########################', '...######################..', '#####################......')
+  assert.equal(croppedHeads(raisedHand, [], { aspect: 0.5625 }).length, 1, 'without hands it looks like a head')
+  const hand = { x: 0.11, y: 0, w: 0.6, h: 0.4 }
+  assert.deepEqual(croppedHeads(raisedHand, [], { aspect: 0.5625, hands: [hand] }), [])
+})
+
+test('a head cut by the side is as wide as the widest part showing near its top, not just its first row of hair', () => {
+  const narrowHair = frame({
+    3: '####.......................',
+    4: '######.....................',
+    5: '#########..................',
+    6: '##########.................',
+    7: '##########.................',
+    8: '#########..................',
+  })
+  const [head] = croppedHeads(narrowHair, [], { aspect: 0.5625 })
+  assert.ok(Math.abs(head.w - 10 / 27) < 0.01, `widest of the first rows (${head.w})`)
+})
