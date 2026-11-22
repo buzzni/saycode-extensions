@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { captionBox, captionEvents, layoutNarration, scenesLongerThanSpeech, speechTempo, subtitleChunks, wrapLine } from '../lib/captions.mjs'
+import { captionBox, captionEvents, layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo, subtitleChunks, wrapLine } from '../lib/captions.mjs'
 
 test('narration lines are laid out back to back from measured durations with a breath gap', () => {
   const timed = layoutNarration([{ text: '하나', seconds: 1.2 }, { text: '둘', seconds: 0.8 }], { start: 0.5, gap: 0.3 })
@@ -30,6 +30,20 @@ test('a scene that runs well past its narration is reported, because the gap is 
     { text: 'c', start: 9.2, end: 11.9, moment: 'm3' },
   ]
   assert.deepEqual(scenesLongerThanSpeech(plan, lines), [{ id: 'm2', idle: 2.5 }])
+})
+
+test('speech that runs into the next scene is reported, because its subtitle shows over that scene', () => {
+  const plan = { moments: [{ id: 'm1', seconds: 4 }, { id: 'm2', seconds: 3 }, { id: 'm3', seconds: 3 }, { id: 'm4', seconds: 3 }] }
+  const lines = [
+    { text: 'a', start: 0.2, end: 3.6, moment: 'm1' },
+    { text: 'b', start: 4.2, end: 8.1, moment: 'm2' },
+    { text: 'c', start: 8.2, end: 9.5, moment: 'm3' },
+    { text: 'd', start: 9.6, end: 11.4 },
+  ]
+  assert.deepEqual(speechPastScene(plan, lines), [{ id: 'm2', into: 'm3', over: 1.1, text: 'b' }],
+    'm3 has its own line, so b running 1.1s into m3 is a mistake; d carrying on into m4 without a line of its own is not')
+  const twoLinesOneScene = [{ text: 'a', start: 0.2, end: 1.8, moment: 'm1' }, { text: 'b', start: 1.9, end: 3.5, moment: 'm1' }]
+  assert.deepEqual(speechPastScene(plan, twoLinesOneScene), [], 'a second line pinned to the same scene simply follows the first')
 })
 
 test('caption lines wrap at about eight Korean characters per line, at most three lines', () => {

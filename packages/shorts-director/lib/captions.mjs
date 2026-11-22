@@ -68,6 +68,28 @@ export function scenesLongerThanSpeech(plan, lines, { tolerance = 0.4 } = {}) {
   return idle
 }
 
+// 앞 장면의 말이 제 줄이 있는 다음 장면까지 넘어가면, 앞 줄의 자막 끝이 다음 장면 화면(다른 문구) 위에 뜨고 다음 줄이 늦게 시작한다.
+// 다음 장면에 제 줄이 없으면 앞 줄이 이어 말하는 것으로 보고 알리지 않는다. 0.1초 안쪽은 눈에 띄지 않는다.
+export function speechPastScene(plan, lines, { tolerance = 0.1 } = {}) {
+  const starts = new Map()
+  let cursor = 0
+  for (const moment of plan.moments ?? []) {
+    starts.set(moment.id, cursor)
+    cursor = round(cursor + Number(moment.seconds))
+  }
+  const overruns = []
+  let owner
+  let previous
+  for (const line of lines) {
+    if (line.moment && owner && owner !== line.moment && previous.end > starts.get(line.moment) + tolerance) {
+      overruns.push({ id: owner, into: line.moment, over: round(previous.end - starts.get(line.moment)), text: previous.text })
+    }
+    if (line.moment) owner = line.moment
+    previous = line
+  }
+  return overruns
+}
+
 export function wrapLine(text, maxChars = 8, maxLines = 3) {
   const lines = []
   let current = ''
