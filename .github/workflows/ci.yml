@@ -60,6 +60,9 @@ jobs:
       - run: node --test tests/spatial-content.test.mjs
       - run: npm run typecheck -w @buzzni/saycode-extension-spatial-content
       - run: npm run package:spatial-content
+      # Rendering tests skip on Linux (they need macOS osascript); the rest run everywhere.
+      - run: node scripts/publish-shorts-director.mjs --dry-run
+      - run: node --test tests/shorts-director.test.mjs packages/shorts-director/test/*.test.mjs
 
   publish-contract:
     # Guards what gets published to a public registry (ADR-046). Without this the checks run for the first
