@@ -8,7 +8,7 @@ import { FONTS, MUSIC, ensureAsset } from '../lib/assets.mjs'
 import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
-import { layoutNarration, scenesLongerThanSpeech, speechTempo } from '../lib/captions.mjs'
+import { layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo } from '../lib/captions.mjs'
 import { loadConfig, loadEnv, loadTts, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
 import { LOOKS } from '../lib/looks.mjs'
@@ -193,6 +193,9 @@ async function voice() {
   console.log(`✓ 내레이션 ${lines.length}줄 · 끝 ${end}초 / 영상 ${total}초`)
   for (const scene of scenesLongerThanSpeech(plan, lines)) {
     console.log(`! ${scene.id} 장면이 말보다 ${scene.idle}초 길다 — 빈 소리 구간이 된다. 테이크를 만들기 전에 장면을 줄이거나 말을 늘린다.`)
+  }
+  for (const scene of speechPastScene(plan, lines)) {
+    console.log(`! ${scene.id} 장면의 말이 ${scene.into} 장면으로 ${scene.over}초 넘어간다 — "${scene.text}" 자막 끝이 ${scene.into} 화면 위에 뜨고 ${scene.into} 의 말이 늦게 시작한다. 그 줄을 줄이거나 ${scene.id} 장면을 늘린다.`)
   }
   if (end > total - 0.2) console.log(`! 내레이션이 영상보다 ${Math.round((end - total + 0.2) * 10) / 10}초 길다 — 문장을 줄이거나 장면을 늘린다.`)
 }

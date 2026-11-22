@@ -50,7 +50,8 @@ npx -y @buzzni/shorts-director status     # status.md
 - `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.
 - Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
   1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
-  narration, so they can be shortened before any take is generated.
+  narration, so they can be shortened before any take is generated, and lines that run on into the next scene's own line
+  (their subtitle would end over the next scene).
 - Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
   ad, drama and calm each set the font, colours, box shape, outline, shadow, emphasis and entrance for every role
   (hook, title, info chip, subtitles, asides, label pill). The hook shows for its first three seconds with one
