@@ -338,3 +338,9 @@ that already exists in the new worktree. There is no command step in v1; a `mach
 The `examples/session-env-sample` (static env, secret env, a fixed `npx` stdio server and a dynamic hook) and
 `examples/worktree-prepare-sample` (`.env.local`) packages are packed and run in the test host by
 `tests/launch-hooks.test.mjs`.
+
+## Content generation
+
+The `content.generate` grant requires Extension API 4 and Desktop extension engine 1.4.1. Call `availability` with `{ version: 1 }` to check which of `room`, `person` and `story` the current organization has provisioned. `start` takes a kind and prompt and returns an opaque job ID. Use `status` to read text or model size and chunk size, then `read` with the ID and byte offset for each model chunk. Always `release` the job after use or cancellation. A release stops Desktop from collecting the result. The provider handles processing and any credits already spent.
+
+Spatial Content presents the AI generation form alongside local uploads and its packaged sample. The panel uses the existing command port. Keep provider credentials and download URLs in Desktop.

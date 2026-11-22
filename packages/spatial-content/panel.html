@@ -1,4 +1,4 @@
-<main class="studio" lang="ko" id="spatial-editor">
+<main class="studio" lang="ko" id="spatial-editor" hidden>
   <header class="studio-header">
     <div>
       <h1>공간컨텐츠 만들기</h1>
@@ -6,7 +6,7 @@
     </div>
     <div class="sample-actions">
       <button class="primary" id="quick-start" type="button">예시로 시작</button>
-      <button class="secondary" id="open-spatial-pilot" type="button">실사 3D 샘플 열기</button>
+      <button class="secondary" id="open-spatial-studio" type="button">3D 스튜디오로 돌아가기</button>
       <details class="samples" hidden>
         <summary>예시 불러오기</summary>
         <div class="sample-menu">
@@ -75,43 +75,182 @@
     </section>
   </div>
 </main>
-<main class="studio" lang="ko" id="spatial-pilot" hidden>
+<main class="studio" lang="ko" id="spatial-studio">
   <header class="studio-header">
-    <div><h1>3D 로비 검증</h1></div>
+    <div><h1>공간컨텐츠 스튜디오</h1></div>
     <div class="sample-actions">
-      <button class="secondary" id="close-spatial-pilot" type="button">편집기로 돌아가기</button>
-      <button class="primary" id="pick-spatial-pilot" type="button">3D 로비 불러오기</button>
-      <input type="file" accept=".glb" aria-label="3D 로비 파일" hidden>
+      <button type="button" class="secondary" id="spatial-legacy">이미지로 만들기</button>
+      <button type="button" class="secondary" id="spatial-sources" hidden>소스 편집</button>
     </div>
   </header>
-  <div class="pilot-scene" hidden>
-    <div class="pilot-tools" role="group" aria-label="3D 보기 방식">
-      <button type="button" class="secondary" data-pilot-mode="visit" aria-pressed="true">직접 걸어보기</button>
-      <button type="button" class="secondary" data-pilot-mode="place" aria-pressed="false">인물 배치</button>
+  <section id="spatial-setup" aria-labelledby="spatial-setup-heading">
+    <div class="source-header">
+      <h2 id="spatial-setup-heading" tabindex="-1">첫 장면 만들기</h2>
+      <button type="button" class="secondary" id="spatial-return" hidden>장면으로 돌아가기</button>
     </div>
-    <div class="pilot-viewport"></div>
-    <div class="pilot-tools" data-pilot-controls="visit" role="group" aria-label="이동과 시점">
-      <button class="secondary" aria-label="앞으로 이동" type="button" data-pilot-move="w">↑</button>
-      <button class="secondary" aria-label="뒤로 이동" type="button" data-pilot-move="s">↓</button>
-      <button class="secondary" aria-label="왼쪽으로 이동" type="button" data-pilot-move="a">←</button>
-      <button class="secondary" aria-label="오른쪽으로 이동" type="button" data-pilot-move="d">→</button>
-      <button class="secondary" aria-label="왼쪽 보기" type="button" data-pilot-turn="-1">↶</button>
-      <button class="secondary" aria-label="오른쪽 보기" type="button" data-pilot-turn="1">↷</button>
-      <button class="primary" id="greet-spatial-staff" type="button">직원에게 말 걸기</button>
+    <div class="source-grid">
+      <section class="source" aria-labelledby="spatial-room-label">
+        <h3 id="spatial-room-label">환경</h3>
+        <p data-source-name="room">보안 게이트 로비를 사용하거나 GLB를 올릴 수 있어요.</p>
+        <button type="button" class="secondary" data-studio-pick="room" aria-label="환경 GLB 업로드">GLB 업로드</button>
+        <button type="button" class="secondary" data-use-sample="room" hidden>샘플 로비 사용</button>
+        <input type="file" accept=".glb" aria-label="환경 GLB 파일" data-studio-file="room" hidden>
+        <details class="generation-source" data-generation="room">
+          <summary>AI로 만들기</summary>
+          <label for="spatial-prompt-room" class="sr-only">공간 생성 설명</label>
+          <textarea id="spatial-prompt-room" rows="2" maxlength="500" placeholder="예: 실제 회사처럼 보이는 보안 게이트 로비"></textarea>
+          <p class="generation-cost">World Labs 크레딧을 사용하며, 장면 변환에 한 시간 정도 걸릴 수 있어요.</p>
+          <p data-generation-unavailable>설정의 확장 권한과 조직의 AI 연결을 확인해 주세요.</p>
+          <div class="sample-actions">
+            <button type="button" class="primary" data-generate aria-label="공간 AI 생성" disabled>AI 생성</button>
+            <button type="button" class="secondary" data-stop-generation hidden>받기 중지</button>
+          </div>
+        </details>
+        <p data-source-status="room" role="status" hidden></p>
+      </section>
+      <section class="source" aria-labelledby="spatial-person-label">
+        <h3 id="spatial-person-label">인물</h3>
+        <p data-source-name="person">안내 직원을 사용하거나 GLB를 올릴 수 있어요.</p>
+        <button type="button" class="secondary" data-studio-pick="person" aria-label="인물 GLB 업로드">GLB 업로드</button>
+        <button type="button" class="secondary" data-use-sample="person" hidden>샘플 직원 사용</button>
+        <input type="file" accept=".glb" aria-label="인물 GLB 파일" data-studio-file="person" hidden>
+        <details class="generation-source" data-generation="person">
+          <summary>AI로 만들기</summary>
+          <label for="spatial-prompt-person" class="sr-only">인물 생성 설명</label>
+          <textarea id="spatial-prompt-person" rows="2" maxlength="500" placeholder="예: 남색 유니폼을 입은 실제 사람 같은 안내 직원"></textarea>
+          <p class="generation-cost">Meshy에 설명을 보내며 인물 생성과 동작 적용에 크레딧을 사용합니다.</p>
+          <p data-generation-unavailable>설정의 확장 권한과 조직의 AI 연결을 확인해 주세요.</p>
+          <div class="sample-actions">
+            <button type="button" class="primary" data-generate aria-label="인물 AI 생성" disabled>AI 생성</button>
+            <button type="button" class="secondary" data-stop-generation hidden>받기 중지</button>
+          </div>
+        </details>
+        <p data-source-status="person" role="status" hidden></p>
+      </section>
+      <section class="source" aria-labelledby="spatial-story-label">
+        <h3 id="spatial-story-label">스토리</h3>
+        <label for="spatial-story-input" class="sr-only">3D 스토리</label>
+        <textarea id="spatial-story-input" rows="3" maxlength="1202" aria-describedby="spatial-story-hint" placeholder="안녕하세요. 어떤 일로 방문하셨나요?"></textarea>
+        <p id="spatial-story-hint">첫 대사, 업무 미팅 안내, 시설 방문 안내를 한 줄씩 적어 주세요.</p>
+        <button type="button" class="secondary" data-studio-pick="story" aria-label="스토리 TXT·MD 업로드">TXT·MD 업로드</button>
+        <input type="file" accept=".txt,.md" aria-label="3D 스토리 파일" data-studio-file="story" hidden>
+        <details class="generation-source" data-generation="story">
+          <summary>AI로 만들기</summary>
+          <label for="spatial-prompt-story" class="sr-only">스토리 생성 설명</label>
+          <textarea id="spatial-prompt-story" rows="2" maxlength="500" placeholder="예: 방문객이 다가오면 방문 목적을 묻고 답에 따라 안내"></textarea>
+          <p class="generation-cost">Saycode 조직 AI에 설명을 보내며 해당 연결 사용량이 차감됩니다.</p>
+          <p data-generation-unavailable>설정의 확장 권한과 조직의 AI 연결을 확인해 주세요.</p>
+          <div class="sample-actions">
+            <button type="button" class="primary" data-generate aria-label="스토리 AI 생성" disabled>AI 생성</button>
+            <button type="button" class="secondary" data-stop-generation hidden>받기 중지</button>
+          </div>
+        </details>
+        <p data-source-status="story" role="status" hidden></p>
+      </section>
     </div>
-    <div class="pilot-tools" data-pilot-controls="place" role="group" aria-label="인물 배치와 동작" hidden>
-      <button class="secondary" type="button" data-pilot-place="desk" aria-pressed="true">접수대 옆</button>
-      <button class="secondary" type="button" data-pilot-place="aisle" aria-pressed="false">통로 쪽</button>
-      <button class="secondary" id="rotate-spatial-staff" type="button">방향 바꾸기</button>
-      <label for="spatial-motion">인물 동작</label>
-      <select id="spatial-motion">
-        <option value="Idle">대기</option>
-        <option value="Walk">걷기</option>
-        <option value="Greet">안내</option>
-      </select>
+    <div class="sample-actions">
+      <button type="button" class="primary" id="spatial-start">실사 3D 샘플 열기</button>
     </div>
-  </div>
-  <p id="spatial-pilot-status" role="status">환경과 직원이 담긴 검증용 GLB 파일을 불러오세요.</p>
+  </section>
+
+  <section id="spatial-stage" hidden aria-labelledby="spatial-scene-heading">
+    <div class="source-header">
+      <h2 id="spatial-scene-heading" tabindex="-1">보안 게이트 로비</h2>
+      <div class="sample-actions">
+        <button type="button" class="secondary" id="spatial-undo" disabled>되돌리기</button>
+        <button type="button" class="primary" id="spatial-walk">걸어보기</button>
+      </div>
+    </div>
+    <nav class="spatial-tabs" aria-label="장면 구성">
+      <button type="button" class="secondary" data-source-panel="environment" aria-pressed="false">환경</button>
+      <button type="button" class="secondary" data-source-panel="placement" aria-pressed="true">인물</button>
+      <button type="button" class="secondary" data-source-panel="dialogue" aria-pressed="false">스토리</button>
+    </nav>
+    <div class="spatial-layout">
+      <section class="spatial-preview" aria-label="3D 미리보기">
+        <div class="spatial-view">
+          <div class="pilot-viewport"></div>
+          <button type="button" class="secondary" id="spatial-staff-tag" hidden>안내 직원</button>
+        </div>
+        <div class="spatial-view-footer">
+          <p id="spatial-view-label">편집 중</p>
+          <div id="spatial-walk-controls" class="pilot-tools" role="group" aria-label="이동과 시점" hidden>
+            <button type="button" class="secondary" aria-label="왼쪽으로 걷기" data-walk="left">←</button>
+            <button type="button" class="secondary" aria-label="앞으로 걷기" data-walk="forward">↑</button>
+            <button type="button" class="secondary" aria-label="뒤로 걷기" data-walk="back">↓</button>
+            <button type="button" class="secondary" aria-label="오른쪽으로 걷기" data-walk="right">→</button>
+            <button type="button" class="secondary" aria-label="왼쪽 보기" data-turn="-1">↶</button>
+            <button type="button" class="secondary" aria-label="오른쪽 보기" data-turn="1">↷</button>
+            <button type="button" class="secondary" id="spatial-restart">입구에서 다시</button>
+          </div>
+        </div>
+      </section>
+      <aside class="source spatial-inspector" aria-label="장면 편집">
+        <div id="spatial-edit">
+          <h3 id="spatial-inspector-heading">안내 직원</h3>
+          <div class="spatial-tabs" id="spatial-edit-tabs" role="group" aria-label="수정할 항목">
+            <button type="button" class="secondary" data-inspect-panel="placement" aria-pressed="true">배치</button>
+            <button type="button" class="secondary" data-inspect-panel="motion" aria-pressed="false">동작</button>
+            <button type="button" class="secondary" data-inspect-panel="dialogue" aria-pressed="false">대사</button>
+          </div>
+          <div class="spatial-fields" data-edit-panel="placement">
+            <p>직원이 서 있을 곳</p>
+            <div class="sample-actions" role="group" aria-label="직원 배치 위치">
+              <button type="button" class="secondary" data-position="desk" aria-pressed="true">접수대 옆</button>
+              <button type="button" class="secondary" data-position="gate" aria-pressed="false">게이트 옆</button>
+            </div>
+            <details>
+              <summary>미세 조정</summary>
+              <label for="spatial-x">좌우 <output data-studio-value="x"></output></label>
+              <input id="spatial-x" data-studio-field="x" type="range" min="-100" max="100" step="5">
+              <label for="spatial-z">앞뒤 <output data-studio-value="z"></output></label>
+              <input id="spatial-z" data-studio-field="z" type="range" min="-50" max="50" step="5">
+              <label for="spatial-yaw">방향 <output data-studio-value="yaw"></output></label>
+              <input id="spatial-yaw" data-studio-field="yaw" type="range" min="-90" max="90" step="5">
+              <label for="spatial-height">키 <output data-studio-value="height"></output></label>
+              <input id="spatial-height" data-studio-field="height" type="range" min="155" max="195" step="1">
+            </details>
+          </div>
+          <div class="spatial-fields" data-edit-panel="motion" hidden>
+            <label for="spatial-motion">다가오면 할 동작</label>
+            <select id="spatial-motion" data-studio-field="motion">
+              <option value="Greet">인사하기</option>
+              <option value="Idle">가만히 서 있기</option>
+              <option value="Walk">한 걸음 다가오기</option>
+            </select>
+            <button type="button" class="secondary" id="spatial-motion-preview">동작 미리보기</button>
+            <p id="spatial-motion-hint" hidden>이 인물 파일에 들어 있는 동작을 선택할 수 있어요.</p>
+          </div>
+          <div class="spatial-fields" data-edit-panel="dialogue" hidden>
+            <label for="spatial-greeting">직원의 첫 대사</label>
+            <textarea id="spatial-greeting" data-studio-field="greeting" rows="3" maxlength="400"></textarea>
+            <p id="spatial-greeting-error" class="error" role="status" hidden>첫 대사를 입력해 주세요.</p>
+            <details>
+              <summary>다음 안내 수정</summary>
+              <label for="spatial-meeting">업무 미팅을 고르면</label>
+              <textarea id="spatial-meeting" data-studio-field="meeting" rows="2" maxlength="400"></textarea>
+              <label for="spatial-tour">시설 방문을 고르면</label>
+              <textarea id="spatial-tour" data-studio-field="tour" rows="2" maxlength="400"></textarea>
+            </details>
+          </div>
+          <div class="spatial-fields" data-edit-panel="environment" hidden>
+            <label for="spatial-light">로비 밝기 <output data-studio-value="light"></output></label>
+            <input id="spatial-light" data-studio-field="light" type="range" min="75" max="120" step="5">
+          </div>
+        </div>
+        <div id="spatial-visit" hidden>
+          <h3>방문 목적 확인</h3>
+          <p id="spatial-distance"></p>
+          <p id="spatial-speech" aria-live="polite"></p>
+          <div class="spatial-choices" id="spatial-choices" hidden>
+            <button type="button" class="secondary" data-visit-answer="meeting">업무 미팅</button>
+            <button type="button" class="secondary" data-visit-answer="tour">시설 방문</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+  <p id="spatial-studio-status" role="status"></p>
 </main>
 <!-- studio-styles -->
 <!-- studio-script -->

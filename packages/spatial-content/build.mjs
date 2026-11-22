@@ -17,7 +17,7 @@ await writeFile(new URL('assets/photoreal-lobby-pilot.mjs', root), sampleModule)
 const dataUrl = (image) => 'data:image/jpeg;base64,' + image.toString('base64')
 const bundled = await build({
   stdin: {
-    contents: "import './studio.mjs'; import './pilot.mjs';",
+    contents: "import './studio.mjs'; import './studio-3d.mjs';",
     resolveDir: fileURLToPath(root),
   },
   bundle: true,

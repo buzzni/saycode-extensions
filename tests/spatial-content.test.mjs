@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildScene, exportExperience, imageMime, storyFileText } from '../packages/spatial-content/scene.mjs'
+import { readStudioStory, studioStory } from '../packages/spatial-content/studio-story.mjs'
+import { readSceneSource } from '../packages/spatial-content/pilot-model.mjs'
+import { readFile } from 'node:fs/promises'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const input = {
@@ -60,4 +63,21 @@ test('serializes the same experience to standalone HTML and escapes authored tex
   assert.match(html, /data:image\/png/)
   assert.ok(!html.includes(scene.title))
   assert.ok(!html.includes('src="http'))
+})
+
+test('maps a story file to the first line and two editable visitor replies', async () => {
+  const text = '# 무엇을 도와드릴까요?\n- 등록을 도와드릴게요.\n- 담당자를 불러드릴게요.'
+  const story = await readStudioStory(new File([text], 'visitors.md'))
+  assert.deepEqual(story, { greeting: '무엇을 도와드릴까요?', meeting: '등록을 도와드릴게요.', tour: '담당자를 불러드릴게요.' })
+  assert.deepEqual(studioStory('어서 오세요.'), { greeting: '어서 오세요.', meeting: '', tour: '' })
+  await assert.rejects(readStudioStory(new File(['잘못된 형식'], 'story.pdf')))
+  assert.throws(() => studioStory('첫째\n둘째\n셋째\n넷째'), /세 줄/)
+  assert.throws(() => studioStory('  '))
+})
+
+test('opens the bundled 3D source and rejects invalid GLB uploads without a renderer', async () => {
+  const bytes = await readFile(new URL('../packages/spatial-content/photoreal-lobby-pilot.glb', import.meta.url))
+  const sample = await readSceneSource(new File([bytes], 'lobby.glb'))
+  assert.equal(sample.scenes[sample.scene].extras.spatialPilot, 1)
+  await assert.rejects(readSceneSource(new File(['broken'], 'lobby.glb')), /GLB/)
 })
