@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { FONTS, MUSIC, ensureAsset } from './assets.mjs'
 import { captionBox, captionEvents } from './captions.mjs'
 import { designFor, lookFonts } from './looks.mjs'
-import { croppedHeads, textProblems } from './textcheck.mjs'
+import { MIRROR_PAD, croppedHeads, cutSides, mirroredFaces, textProblems } from './textcheck.mjs'
 import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
@@ -273,6 +273,27 @@ async function renderCaptions(events, directory, config, look) {
 // 화면 문구(자막 띠 제외)가 그 순간의 글자 없는 화면에서 얼굴·주인공 사물을 가리거나 가장자리를 넘는지 잰다.
 // 결과는 out/text-check.json 과 render 출력으로 남기고, 에이전트가 caption.position·look 으로 옮겨 다시 render 한다.
 const SUBTITLE_ROLES = new Set(['narration', 'dialogue'])
+
+// 사람이 옆 가장자리에 닿은 장면은 잘린 쪽에 보이는 절반을 거울로 붙인 그림을 만들어 얼굴을 다시 찾는다 — 모자·후드를 써서
+// 윤곽으로 머리를 어림할 수 없는 옆으로 잘린 얼굴을 잡는다(textcheck.mirroredFaces).
+async function findMirroredFaces(scenes, stills, fromTop) {
+  const mirrors = []
+  for (const [index, scene] of scenes.entries()) {
+    for (const side of cutSides(scene.person)) {
+      const file = stills[index].replace(/\.png$/, `-mirror-${side}.png`)
+      const strip = `crop=iw*${MIRROR_PAD}:ih:${side === 'left' ? 0 : `iw*${1 - MIRROR_PAD}`}:0,hflip`
+      const stack = side === 'left' ? '[s][b]hstack' : '[b][s]hstack'
+      await ffmpeg(['-i', stills[index], '-filter_complex', `[0]split[a][b];[a]${strip}[s];${stack}`, file])
+      mirrors.push({ index, side, file })
+    }
+  }
+  if (mirrors.length === 0) return
+  const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, '--faces', ...mirrors.map((mirror) => mirror.file)])
+  JSON.parse(stdout).forEach((faces, order) => {
+    const { index, side } = mirrors[order]
+    scenes[index].mirrored = [...(scenes[index].mirrored ?? []), ...mirroredFaces(faces.map((face) => fromTop(face)), side)]
+  })
+}
 const SAMPLE_EVERY = 0.8
 const MAX_SAMPLES = 5
 
@@ -302,9 +323,10 @@ async function checkPlacement({ root, base, work, captions, config }) {
   const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
   const scenes = JSON.parse(stdout)
   const fromTop = (rect, width = 1, height = 1) => ({ x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height })
+  await findMirroredFaces(scenes, stills, fromTop)
   // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변·옆 가장자리에 닿아 잘린 것으로 보이는 머리를 함께 본다.
   const faces = (scene) => {
-    const detected = scene.faces.map((face) => fromTop(face))
+    const detected = [...scene.faces.map((face) => fromTop(face)), ...(scene.mirrored ?? [])]
     const hands = (scene.hands ?? []).map((hand) => fromTop(hand))
     return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands })]
   }

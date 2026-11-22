@@ -1,5 +1,5 @@
 // 장면 사진에서 얼굴, 눈에 띄는 대상(제품·음식 같은 주인공 사물), 사람 영역을 찾는다(macOS Vision).
-// 사용: osascript -l JavaScript vision.jxa.js <image>... — 결과는 이미지마다 { faces, subjects, person, hands } 이다. faces·subjects·hands 는
+// 사용: osascript -l JavaScript vision.jxa.js [--faces] <image>... — 결과는 이미지마다 { faces, subjects, person, hands } 이다. faces·subjects·hands 는
 // 화면 비율이고 아래에서 잰 값(Vision 좌표), person 은 사람 영역을 위에서부터 줄마다 '#'(사람)·'.' 로 적은 27×48 격자다
 // — 위로 잘린 얼굴을 찾는 데 쓴다. 화면 문구가 얼굴·대상을 가리는지 재는 데 쓴다(textcheck.mjs).
 ObjC.import('AppKit')
@@ -10,7 +10,16 @@ ObjC.import('Vision')
 const GRID = { cols: 27, rows: 48 }
 
 function run(argv) {
+  // --faces: 얼굴만 찾는다(잘린 쪽을 거울로 붙인 그림에서 얼굴을 다시 찾을 때).
+  if (argv[0] === '--faces') return JSON.stringify(argv.slice(1).map(facesOnly))
   return JSON.stringify(argv.map(detect))
+}
+
+function facesOnly(path) {
+  const handler = $.VNImageRequestHandler.alloc.initWithURLOptions($.NSURL.fileURLWithPath(path), $({}))
+  const faces = $.VNDetectFaceRectanglesRequest.alloc.init
+  if (!handler.performRequestsError($([faces]), null)) return []
+  return list(faces.results).map((face) => rect(face.boundingBox))
 }
 
 function detect(path) {

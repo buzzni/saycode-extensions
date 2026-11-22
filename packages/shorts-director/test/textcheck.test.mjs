@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { croppedHeads, textProblems } from '../lib/textcheck.mjs'
+import { croppedHeads, cutSides, mirroredFaces, textProblems } from '../lib/textcheck.mjs'
 
 // 상자·얼굴·대상은 모두 화면 비율(0~1), 위에서부터 잰다.
 const face = { x: 0.45, y: 0.3, w: 0.15, h: 0.08 }
@@ -127,4 +127,21 @@ test('a head cut by the side reaches down to the neck, where the outline narrows
   assert.ok(Math.abs(head.y - 2 / 24) < 0.01)
   assert.ok(Math.abs(head.y + head.h - 13 / 24) < 0.01, `down to the neck at row 12 (${head.y + head.h})`)
   assert.ok(Math.abs(head.w - 11 / 27) < 0.01, `as wide as the cheeks (${head.w})`)
+})
+
+test('a face cut by a side is looked for again in a picture with the showing half mirrored onto that side', () => {
+  // 왼쪽에 화면 폭의 절반을 덧붙인 그림(폭 1.5배)에서 찾은 얼굴: 덧붙인 곳 0.25 ~ 원래 그림 안까지.
+  const [left] = mirroredFaces([{ x: 0.1, y: 0.2, w: 0.4, h: 0.3 }], 'left')
+  assert.ok(Math.abs(left.x) < 1e-9 && Math.abs(left.w - (1.5 * 0.5 - 0.5)) < 1e-9, `only the part inside the frame (${left.x}, ${left.w})`)
+  assert.deepEqual([left.y, left.h], [0.2, 0.3])
+  const [right] = mirroredFaces([{ x: 0.5, y: 0.1, w: 0.3, h: 0.2 }], 'right')
+  assert.ok(Math.abs(right.x - 0.75) < 1e-9 && Math.abs(right.x + right.w - 1) < 1e-9, `${right.x}, ${right.w}`)
+  assert.deepEqual(mirroredFaces([{ x: 0.5, y: 0.1, w: 0.1, h: 0.1 }], 'left'), [], 'a face wholly inside the frame was already found the normal way')
+})
+
+test('the sides worth mirroring are those the person touches in the upper part of the frame', () => {
+  const hood = frame({ 3: '...................########', 4: '..................#########', 10: '..........#################' })
+  assert.deepEqual(cutSides(hood), ['right'])
+  const armOnly = frame({ 3: '..........#####............', 20: '#######....................' })
+  assert.deepEqual(cutSides(armOnly), [], 'touching the side only low down is an arm or a lap')
 })

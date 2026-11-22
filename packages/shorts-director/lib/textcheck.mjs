@@ -99,6 +99,28 @@ function sideHead(person, side, aspect) {
   return { x: side === 'left' ? 0 : 1 - w, y, w, h: Math.min(1 - y, h) }
 }
 
+// 모자·후드를 쓰면 윤곽이 목에서 좁아지지 않아 옆으로 잘린 머리를 윤곽으로 어림할 수 없다. 얼굴은 좌우 대칭이라, 잘린 쪽에
+// 보이는 절반(화면 폭의 50%)을 거울로 뒤집어 붙인 그림에서는 얼굴 감지가 모자·후드와 상관없이 얼굴을 찾는다.
+// 그 그림에서 찾은 얼굴(그 그림 비율, 위에서부터)을 원래 화면 비율로 되돌리고, 경계를 걸친 것만 화면 안쪽으로 잘라 돌려준다.
+export const MIRROR_PAD = 0.5
+// 사람이 화면 위쪽 60% 안에서 옆 가장자리에 닿아야 머리가 잘렸을 수 있다 — 그 아래는 팔·무릎이다.
+const CUT_SIDE_ROWS = 0.6
+
+export function mirroredFaces(faces, side) {
+  const scale = 1 + MIRROR_PAD
+  const shift = side === 'left' ? MIRROR_PAD : 0
+  return faces
+    .map((face) => ({ x0: face.x * scale - shift, x1: (face.x + face.w) * scale - shift, y: face.y, h: face.h }))
+    .filter((face) => (side === 'left' ? face.x0 < 0 && face.x1 > 0 : face.x0 < 1 && face.x1 > 1))
+    .map((face) => ({ x: Math.max(0, face.x0), y: face.y, w: Math.min(1, face.x1) - Math.max(0, face.x0), h: face.h }))
+}
+
+export function cutSides(person) {
+  if (!person?.lines?.length) return []
+  const upper = person.lines.slice(0, Math.ceil(person.rows * CUT_SIDE_ROWS))
+  return ['left', 'right'].filter((side) => upper.some((line) => line[side === 'left' ? 0 : person.cols - 1] === '#'))
+}
+
 function overlap(left, right) {
   const w = Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x)
   const h = Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y)
