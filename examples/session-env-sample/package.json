@@ -1,0 +1,9 @@
+{
+  "name": "@buzzni/saycode-extension-session-env-sample",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@buzzni/saycode-extension-sdk": "^0.10.0"
+  }
+}

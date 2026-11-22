@@ -1,4 +1,12 @@
 import { parseManagedLocalTool, type ManagedLocalTool } from './managedLocalTool.js'
+import {
+  assertExtensionLaunchHooks, parseExtensionSessionHooks, parseExtensionWorktreeHooks,
+  type ExtensionSessionHookContribution, type ExtensionWorktreeHookContribution,
+} from './launchHooks.js'
+export type {
+  ExtensionSessionHookContribution, ExtensionSessionHookEnv, ExtensionSessionHookMcpServer, ExtensionWorktreeHookContribution,
+} from './launchHooks.js'
+export { LAUNCH_HOOKS_MINIMUM_ENGINE, SESSION_HOOK_ACTIVATION_PREFIX } from './launchHooks.js'
 export const EXTENSION_PERMISSIONS = [
   'assets.read', 'assets.write', 'files.select', 'drafts.prepare',
   'projects.read', 'remoteFiles.read', 'remoteFiles.write', 'machine.execute', 'machine.run',
@@ -16,6 +24,8 @@ export const EXTENSION_PERMISSIONS = [
   'channels.normalize',
   'sessions.read', 'sessions.control', 'sessions.approveOnce',
   'localTools.inspect', 'localTools.install', 'localTools.control', 'localBrowser.setup',
+  // API 4, engine 1.4.0: env and MCP servers added at session open, and ignored files copied into a new worktree.
+  'sessions.launchEnvironment', 'worktrees.prepare',
 ] as const
 
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number]
@@ -105,6 +115,10 @@ export interface ExtensionContributions {
   projectTools?: ExtensionProjectToolContribution[]
   artifactActions?: ExtensionArtifactActionContribution[]
   channels?: ExtensionChannelContribution[]
+  /** API 4, engine 1.4.0; paired with `sessions.launchEnvironment`. */
+  sessionHooks?: ExtensionSessionHookContribution[]
+  /** API 4, engine 1.4.0; paired with `worktrees.prepare`. v1 copies Git-ignored files only. */
+  worktreeHooks?: ExtensionWorktreeHookContribution[]
 }
 export type MachineCommandParameter = { type: 'string'; maxLength: number; values?: string[] }
   | { type: 'integer'; min: number; max: number }
@@ -510,6 +524,9 @@ export function parseExtensionManifest(
   const engines = record(raw.engines, 'manifest.engines')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('filePreviews.read')) throw new Error('filePreviews.read requires API 4')
   if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes('browserPicks.inspect')) throw new Error('browserPicks.inspect requires API 4')
+  for (const gated of ['sessions.launchEnvironment', 'worktrees.prepare']) {
+    if (apiVersion < 4 && Array.isArray(raw.permissions) && raw.permissions.includes(gated)) throw new Error(`manifest.permissions: ${gated} requires Extension API version 4`)
+  }
   const permissions = list(raw.permissions, 'manifest.permissions').map((item, index) => {
     const permission = text(item, `manifest.permissions[${index}]`)
     if (!PERMISSIONS.has(permission)) throw new Error(`manifest.permissions: unknown ${permission}`)
@@ -565,6 +582,9 @@ export function parseExtensionManifest(
   if ((elementPickInspectors?.length ?? 0) > 0 !== permissions.includes('browserPicks.inspect')) {
     throw new Error('elementPickInspectors: requires browserPicks.inspect permission and an inspector that uses it')
   }
+  // Mirrors Desktop src/domain/extensionLaunchHooks.ts; pairing, ownership and activation are checked after the ids below.
+  const sessionHooks = contributions.sessionHooks === undefined ? undefined : parseExtensionSessionHooks(contributions.sessionHooks, apiVersion)
+  const worktreeHooks = contributions.worktreeHooks === undefined ? undefined : parseExtensionWorktreeHooks(contributions.worktreeHooks, apiVersion)
 
   if (apiVersion < 2 && contributions.machineActions !== undefined) {
     throw new Error('manifest.contributes.machineActions: requires Extension API version 2')
@@ -735,10 +755,18 @@ export function parseExtensionManifest(
     ...(fileViewers ?? []),
     ...(elementPickInspectors ?? []),
     ...(channels ?? []),
+    ...(sessionHooks ?? []),
+    ...(worktreeHooks ?? []),
   ].map((contribution) => contribution.id)
   if (new Set(contributionIds).size !== contributionIds.length) {
     throw new Error('manifest.contributes: duplicate contribution id')
   }
+  const activationEvents = list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`))
+  const engine = text(engines.saycode, 'manifest.engines.saycode')
+  assertExtensionLaunchHooks({
+    extensionId, engine, permissions, activationEvents,
+    sessionHooks: sessionHooks ?? [], worktreeHooks: worktreeHooks ?? [],
+  })
   return {
     id: extensionId,
     version,
@@ -746,10 +774,15 @@ export function parseExtensionManifest(
     ...(channelApiVersion === undefined ? {} : { channelApiVersion }),
     ...(managedLocalTool ? { managedLocalTool } : {}),
     ...(machineCommands ? { machineCommands } : {}),
-    engines: { saycode: text(engines.saycode, 'manifest.engines.saycode') },
+    engines: { saycode: engine },
     entrypoint: safePath(raw.entrypoint, 'manifest.entrypoint'),
     permissions,
-    activationEvents: list(raw.activationEvents, 'manifest.activationEvents').map((item, index) => text(item, `manifest.activationEvents[${index}]`)),
-    contributes: { commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers, elementPickInspectors },
+    activationEvents,
+    contributes: {
+      commands, settings, panels, projectTemplates, machineActions, projectTools, artifactActions, channels, fileViewers, elementPickInspectors,
+      // Only present when declared, so manifests without hooks parse to exactly the shape they did before.
+      ...(sessionHooks === undefined ? {} : { sessionHooks }),
+      ...(worktreeHooks === undefined ? {} : { worktreeHooks }),
+    },
   }
 }

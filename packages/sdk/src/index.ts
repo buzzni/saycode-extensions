@@ -96,6 +96,31 @@ export type ExtensionChannelReplyFormatResult =
 export type ExtensionChannelReplyFormatter = (input: ExtensionChannelReplyFormatRequest) =>
   ExtensionChannelReplyFormatResult | Promise<ExtensionChannelReplyFormatResult>
 
+/**
+ * What a `dynamic` session hook's handler receives each time Saycode opens a session (create or resume).
+ * JSON only: no local path, token, credential or conversation text.
+ */
+export interface SessionOpenBeforeInput {
+  reason: 'create' | 'resume'
+  sessionKind: 'chat' | 'child' | 'automation' | 'channel'
+  agent: string
+  project: { id: string; companyId?: string; repository?: { name: string; remoteHost?: string } }
+}
+
+/**
+ * What a handler may return. `env` may only name the hook's declared non-secret env (values are strings up to 8192
+ * characters without NUL); a secret is entered in Saycode and can never be returned. `mcpServers` picks which of the
+ * hook's declared servers to start this time (omitted = all of them). Anything else — an undeclared or secret name, an
+ * unknown key, a non-string value — makes Saycode drop this extension's whole injection for that session; the session
+ * still starts.
+ */
+export interface SessionOpenBeforeResult {
+  env?: Record<string, string>
+  mcpServers?: string[]
+}
+
+export type SessionOpenBeforeHandler = (input: SessionOpenBeforeInput) => SessionOpenBeforeResult | Promise<SessionOpenBeforeResult>
+
 export interface ExtensionContext {
   readonly extensionId: string
   /** Register during activate; handlers start/stop bounded background work and return promptly. */
@@ -114,6 +139,14 @@ export interface ExtensionContext {
   invokeCapability(permission: ExtensionPermission, action: string, args: JsonValue): Promise<JsonValue>
   readonly commands: {
     register(id: string, handler: ExtensionCommandHandler): void
+  }
+  /**
+   * Saycode 1.4.0+. Register, once and during activate, the handler for a session hook the manifest declares with
+   * `dynamic: true` (activation event `onSessionOpenBefore:<hookId>`). Any other id throws. Absent on an older
+   * Desktop, which also refuses a manifest that declares `sessionHooks`.
+   */
+  readonly sessionHooks?: {
+    onOpenBefore(hookId: string, handler: SessionOpenBeforeHandler): void
   }
 }
 
@@ -190,7 +223,11 @@ export type {
   ExtensionPermission,
   ExtensionProjectTemplateLocalization,
   ExtensionProjectTemplateContribution,
+  ExtensionSessionHookContribution,
+  ExtensionSessionHookEnv,
+  ExtensionSessionHookMcpServer,
   ExtensionSettingContribution,
+  ExtensionWorktreeHookContribution,
   MachineCommandParameter,
   MachineCommandProfile,
   MachineCommandsDeclaration,
