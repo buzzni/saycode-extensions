@@ -9,7 +9,7 @@ import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
 import { layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo } from '../lib/captions.mjs'
-import { loadConfig, loadEnv, loadTts, saveUserEnv, userConfigDir } from '../lib/config.mjs'
+import { loadConfig, loadEnv, loadTts, repositoryEnvFile, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
 import { LOOKS } from '../lib/looks.mjs'
 import { changeTempo, detectCuts, extractFrame, probe, rhythmReport, run, tightenSpeech } from '../lib/media.mjs'
@@ -21,8 +21,8 @@ const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--off
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
-# 보통은 shorts-director init --ltx-url <주소> --tts-url <주소> 로 이 PC 에 한 번 저장하면 된다
-# (~/.config/shorts-director/.env). 토큰은 ~/.config/shorts-director/tts-token 에 한 줄로 둔다.
+# 보통은 작업 환경이 저장소 루트 .env 에 써 주거나, shorts-director init --ltx-url <주소> --tts-url <주소> 로
+# 이 PC 에 한 번 저장하면 된다(~/.config/shorts-director/.env). 토큰은 ~/.config/shorts-director/tts-token 에 한 줄로 둔다.
 LTX_URL=http://<영상 서버>:8010
 QWEN_TTS_URL=http://<음성 서버>:8765
 # QWEN_TTS_TOKEN=
@@ -121,6 +121,8 @@ async function doctor() {
   }
   await probeTool('ffmpeg', 'ffmpeg', ['-version'])
   await probeTool('macOS 글자 렌더러(osascript)', 'osascript', ['-e', '1'])
+  const repositoryEnv = await repositoryEnvFile(root)
+  console.log(`· 저장소 루트 .env: ${repositoryEnv ?? '찾지 못함(.git 이 있는 상위 폴더가 없다)'}`)
   if (config.fake) {
     results.push([true, '가짜 백엔드 모드(fake: true) — 서버는 확인하지 않는다'])
   } else {

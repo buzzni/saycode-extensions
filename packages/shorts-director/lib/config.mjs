@@ -53,18 +53,21 @@ export async function loadTts(root, { home = homedir() } = {}) {
   const urlSource = source('QWEN_TTS_URL')
   const tokenSource = source('QWEN_TTS_TOKEN') ?? (layers.tokenFile ? 'tokenFile' : undefined)
   if (PROJECT_LAYERS.includes(urlSource) && tokenSource && !PROJECT_LAYERS.includes(tokenSource)) {
-    throw new Error('프로젝트 .env 가 음성 서버 주소를 바꿨다 — 이 PC 의 토큰을 그 주소로 보내지 않는다. 그 서버를 쓰려면 프로젝트 .env 에 QWEN_TTS_TOKEN 도 둔다.')
+    const where = urlSource === 'repository' ? '저장소 루트' : '작업 폴더'
+    throw new Error(`프로젝트 .env(${where})가 음성 서버 주소를 정했다 — 다른 곳의 토큰을 그 주소로 보내지 않는다. 그 서버를 쓰려면 주소를 둔 곳에 QWEN_TTS_TOKEN 도 둔다.`)
   }
-  const env = await loadEnv(root, { home })
-  return { url: env.QWEN_TTS_URL, token: env.QWEN_TTS_TOKEN }
+  // 판정한 층의 값을 그대로 쓴다 — 다시 합치면 판정과 다른 층의 값이 섞일 수 있다.
+  const value = (key, layer) => layer && (layers[layer] ?? {})[key]
+  return { url: value('QWEN_TTS_URL', urlSource), token: tokenSource === 'tokenFile' ? layers.tokenFile : value('QWEN_TTS_TOKEN', tokenSource) }
 }
 
 async function readLayers(root, home) {
   return {
     shell: pick(process.env, KEYS),
-    project: await readEnvFile(join(root, '.env')),
-    repository: await readRepositoryEnv(root),
-    user: await readEnvFile(join(userConfigDir(home), '.env')),
+    // 빈 값(KEY=)은 pick 이 버린다 — 아래 층의 값을 가리지도, 토큰 출처 판정을 비껴가지도 않는다.
+    project: pick(await readEnvFile(join(root, '.env')), KEYS),
+    repository: pick(await readEnvFile(await repositoryEnvFile(root)), KEYS),
+    user: pick(await readEnvFile(join(userConfigDir(home), '.env')), KEYS),
     tokenFile: await readTokenFile(home),
   }
 }
@@ -92,13 +95,12 @@ export async function saveUserEnv(values, { home = homedir() } = {}) {
   return added.map(([key]) => key)
 }
 
-// 작업 폴더를 품은 저장소 루트(.git 이 있는 가장 가까운 상위 폴더)의 .env. 작업 환경이 서버 주소·토큰을 여기에 써 준다.
-// 작업 폴더가 곧 루트면 프로젝트 .env 와 같은 파일이라 읽지 않고, 저장소 밖이면 상위 폴더의 .env 를 읽지 않는다.
-async function readRepositoryEnv(root) {
-  const start = resolve(root)
-  for (let directory = start; ; directory = dirname(directory)) {
-    if (await exists(join(directory, '.git'))) return directory === start ? {} : readEnvFile(join(directory, '.env'))
-    if (dirname(directory) === directory) return {}
+// 작업 폴더를 품은 저장소 루트(.git 이 있는 가장 가까운 폴더)의 .env 경로. 작업 환경이 서버 주소·토큰을 여기에 써 준다.
+// 저장소 밖이면 없다 — 상위 폴더의 아무 .env 나 읽지 않는다.
+export async function repositoryEnvFile(root) {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (await exists(join(directory, '.git'))) return join(directory, '.env')
+    if (dirname(directory) === directory) return undefined
   }
 }
 
@@ -112,6 +114,7 @@ async function exists(path) {
 }
 
 async function readEnvFile(file) {
+  if (!file) return {}
   try {
     return parseEnv(await readFile(file, 'utf8'))
   } catch (error) {

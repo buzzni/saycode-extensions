@@ -31,7 +31,7 @@ npx -y @buzzni/shorts-director status     # status.md
   This writes `~/.config/shorts-director/.env` (mode 600, missing keys only). The TTS bearer token goes in
   `~/.config/shorts-director/tts-token` (one line). A `.env` at the repository root (the nearest parent folder with `.git`) overrides the machine files key by
   key, the work folder's `.env` overrides that, and shell environment variables override all of them. A voice
-  server address set in either project `.env` only gets a token from a project `.env`, never the machine's.
+  server address set in either project `.env` only gets a token from a project `.env`, never from the machine files or the shell.
 - `"fake": true` in `config/settings.json` rehearses the whole flow without either server.
 
 ## What it enforces
