@@ -122,7 +122,8 @@ async function doctor() {
   await probeTool('ffmpeg', 'ffmpeg', ['-version'])
   await probeTool('macOS 글자 렌더러(osascript)', 'osascript', ['-e', '1'])
   const repositoryEnv = await repositoryEnvFile(root)
-  console.log(`· 저장소 루트 .env: ${repositoryEnv ?? '찾지 못함(.git 이 있는 상위 폴더가 없다)'}`)
+  const repositoryNote = repositoryEnv && !await exists(repositoryEnv) ? ' (파일 없음)' : ''
+  console.log(`· 저장소 루트 .env: ${repositoryEnv ? `${repositoryEnv}${repositoryNote}` : '찾지 못함(.git 이 있는 상위 폴더가 없다)'}`)
   if (config.fake) {
     results.push([true, '가짜 백엔드 모드(fake: true) — 서버는 확인하지 않는다'])
   } else {

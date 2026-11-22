@@ -121,6 +121,15 @@ test('a shell token is not sent to a voice server address that the repository ro
   await assert.rejects(loadTts(work, { home }), /저장소 루트/)
 }))
 
+test('a work folder .env that sets the voice server address does not get the repository root token', () => withDirs(async ({ home, project }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await mkdir(join(project, '.git'))
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://org:8765\nQWEN_TTS_TOKEN=org-token\n')
+  await writeFile(join(work, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\n')
+  await assert.rejects(loadTts(work, { home }), /작업 폴더/)
+}))
+
 test('doctor says which repository root .env it reads, or that it found none', () => withDirs(async ({ home, project }) => {
   const work = join(project, 'shorts', 'demo')
   await mkdir(join(work, 'config'), { recursive: true })
@@ -129,6 +138,9 @@ test('doctor says which repository root .env it reads, or that it found none', (
     .then(({ stdout }) => stdout, (error) => error.stdout)
   assert.match(await doctor(), /저장소 루트 \.env: 찾지 못함/)
   await mkdir(join(project, '.git'))
+  assert.match(await doctor(), /저장소 루트 \.env: .*\(파일 없음\)/)
+  await writeFile(join(project, '.env'), 'LTX_URL=http://repo:8010\n')
+  assert.doesNotMatch(await doctor(), /파일 없음/)
   assert.match(await doctor(), new RegExp(`저장소 루트 \\.env: .*${join('project', '.env').replace('.', '\\.')}`))
 }))
 

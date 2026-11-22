@@ -31,7 +31,7 @@ export async function loadConfig(root) {
 }
 
 const KEYS = ['LTX_URL', 'QWEN_TTS_URL', 'QWEN_TTS_TOKEN']
-// 프로젝트 쪽 파일. 여기서 바꾼 음성 서버 주소에는 PC 쪽 토큰을 보내지 않는다.
+// 프로젝트 쪽 파일. 여기서 정한 음성 서버 주소에는 그 파일의 토큰만 보낸다 — PC 쪽 토큰도, 다른 프로젝트 파일의 토큰도 보내지 않는다.
 const PROJECT_LAYERS = ['project', 'repository']
 
 export function userConfigDir(home = homedir()) {
@@ -52,7 +52,7 @@ export async function loadTts(root, { home = homedir() } = {}) {
   const source = (key) => ['shell', 'project', 'repository', 'user'].find((layer) => layers[layer][key])
   const urlSource = source('QWEN_TTS_URL')
   const tokenSource = source('QWEN_TTS_TOKEN') ?? (layers.tokenFile ? 'tokenFile' : undefined)
-  if (PROJECT_LAYERS.includes(urlSource) && tokenSource && !PROJECT_LAYERS.includes(tokenSource)) {
+  if (PROJECT_LAYERS.includes(urlSource) && tokenSource && tokenSource !== urlSource) {
     const where = urlSource === 'repository' ? '저장소 루트' : '작업 폴더'
     throw new Error(`프로젝트 .env(${where})가 음성 서버 주소를 정했다 — 다른 곳의 토큰을 그 주소로 보내지 않는다. 그 서버를 쓰려면 주소를 둔 곳에 QWEN_TTS_TOKEN 도 둔다.`)
   }
