@@ -42,6 +42,24 @@ test('a project .env overrides the PC-level config key by key, and the shell ove
   assert.equal(env.QWEN_TTS_URL, 'http://shell:8765')
 }))
 
+test('the repository root .env is read under the work folder .env and over the PC-level config', () => withDirs(async ({ home, project, userEnv }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await writeFile(join(project, '.git'), 'gitdir: /elsewhere/.git/worktrees/demo\n')
+  await writeFile(userEnv, 'LTX_URL=http://pc:8010\nQWEN_TTS_URL=http://pc:8765\n')
+  await writeFile(join(project, '.env'), 'LTX_URL=http://repo:8010\nQWEN_TTS_URL=http://repo:8765\nQWEN_TTS_TOKEN=repo-token\n')
+  await writeFile(join(work, '.env'), 'LTX_URL=http://work:8010\n')
+  assert.deepEqual(await loadEnv(work, { home }), { LTX_URL: 'http://work:8010', QWEN_TTS_URL: 'http://repo:8765', QWEN_TTS_TOKEN: 'repo-token' })
+  assert.deepEqual(await loadTts(work, { home }), { url: 'http://repo:8765', token: 'repo-token' })
+}))
+
+test('a .env above the work folder is not read when no repository root encloses it', () => withDirs(async ({ home, project }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await writeFile(join(project, '.env'), 'LTX_URL=http://stray:8010\n')
+  assert.deepEqual(await loadEnv(work, { home }), {})
+}))
+
 test('the token file is the last fallback for the TTS token', () => withDirs(async ({ home, project }) => {
   await writeFile(join(home, '.config', 'shorts-director', 'tts-token'), 'file-token\n')
   assert.equal((await loadEnv(project, { home })).QWEN_TTS_TOKEN, 'file-token')
@@ -70,6 +88,60 @@ test('the PC token is never sent to a voice server address that a project .env c
   await assert.rejects(loadTts(project, { home }), /프로젝트 \.env/)
   await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\nQWEN_TTS_TOKEN=project-token\n')
   assert.deepEqual(await loadTts(project, { home }), { url: 'http://elsewhere:8765', token: 'project-token' })
+}))
+
+test('the PC token is never sent to a voice server address that the repository root .env changed', () => withDirs(async ({ home, project, userEnv }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await mkdir(join(project, '.git'))
+  await writeFile(userEnv, 'QWEN_TTS_URL=http://pc:8765\n')
+  await writeFile(join(home, '.config', 'shorts-director', 'tts-token'), 'pc-token\n')
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\n')
+  await assert.rejects(loadTts(work, { home }), /프로젝트 \.env/)
+}))
+
+test('an empty line in a project .env neither hides a value below it nor lets the PC token through', () => withDirs(async ({ home, project, userEnv }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await mkdir(join(project, '.git'))
+  await writeFile(userEnv, 'LTX_URL=http://pc:8010\n')
+  await writeFile(join(home, '.config', 'shorts-director', 'tts-token'), 'pc-token\n')
+  await writeFile(join(project, '.env'), 'LTX_URL=\nQWEN_TTS_URL=http://elsewhere:8765\nQWEN_TTS_TOKEN=repo-token\n')
+  await writeFile(join(work, '.env'), 'QWEN_TTS_TOKEN=\n')
+  assert.equal((await loadEnv(work, { home })).LTX_URL, 'http://pc:8010')
+  assert.deepEqual(await loadTts(work, { home }), { url: 'http://elsewhere:8765', token: 'repo-token' })
+}))
+
+test('a shell token is not sent to a voice server address that the repository root .env set', () => withDirs(async ({ home, project }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await mkdir(join(project, '.git'))
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\n')
+  process.env.QWEN_TTS_TOKEN = 'shell-token'
+  await assert.rejects(loadTts(work, { home }), /저장소 루트/)
+}))
+
+test('a work folder .env that sets the voice server address does not get the repository root token', () => withDirs(async ({ home, project }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(work, { recursive: true })
+  await mkdir(join(project, '.git'))
+  await writeFile(join(project, '.env'), 'QWEN_TTS_URL=http://org:8765\nQWEN_TTS_TOKEN=org-token\n')
+  await writeFile(join(work, '.env'), 'QWEN_TTS_URL=http://elsewhere:8765\n')
+  await assert.rejects(loadTts(work, { home }), /작업 폴더/)
+}))
+
+test('doctor says which repository root .env it reads, or that it found none', () => withDirs(async ({ home, project }) => {
+  const work = join(project, 'shorts', 'demo')
+  await mkdir(join(work, 'config'), { recursive: true })
+  await writeFile(join(work, 'config', 'settings.json'), JSON.stringify({ fake: true }))
+  const doctor = () => exec(process.execPath, [cli, 'doctor'], { cwd: work, env: { ...process.env, HOME: home } })
+    .then(({ stdout }) => stdout, (error) => error.stdout)
+  assert.match(await doctor(), /저장소 루트 \.env: 찾지 못함/)
+  await mkdir(join(project, '.git'))
+  assert.match(await doctor(), /저장소 루트 \.env: .*\(파일 없음\)/)
+  await writeFile(join(project, '.env'), 'LTX_URL=http://repo:8010\n')
+  assert.doesNotMatch(await doctor(), /파일 없음/)
+  assert.match(await doctor(), new RegExp(`저장소 루트 \\.env: .*${join('project', '.env').replace('.', '\\.')}`))
 }))
 
 test('the final frame rate follows the generated video, so no frame is shown twice', () => withDirs(async ({ project }) => {
