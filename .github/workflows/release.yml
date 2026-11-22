@@ -114,7 +114,7 @@ jobs:
           --title "$GITHUB_REF_NAME"
 
   publish-sdk:
-    # The SDK is the only package published to a public registry (ADR-046); first-party extensions ship as
+    # The SDK (ADR-046) and the shorts-director CLI are the packages published to a public registry; first-party extensions ship as
     # release artifacts above. Runs only after the artifact release passes. The already-published skip makes
     # "Re-run failed jobs" on this job idempotent; a full re-run of an existing tag still fails earlier, in
     # the release job's `gh release create`.
@@ -147,3 +147,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm run publish:sdk
+      - name: Publish shorts-director to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm run publish:shorts-director
