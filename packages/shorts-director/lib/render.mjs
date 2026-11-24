@@ -12,6 +12,7 @@ import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
 import { materialPath } from './takeState.mjs'
+import { COVER_Y } from './post.mjs'
 
 // pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
 const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
@@ -76,6 +77,28 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   ])
   const placement = mode === 'final' ? await checkPlacement({ root, base, work, captions, config, checkFile }) : []
   return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits, placement }
+}
+
+// 표지: 글자를 얹기 전의 조립 화면(base)에서 cover.at 시각의 한 장을 뽑아, 훅 모양의 문구를 얹는다. 등장 동작 없이 한 장만 그린다.
+// 프로필 격자가 가운데 3:4 만 보여 주므로 문구의 기본 자리는 위쪽 제목 자리(12%)가 아니라 그 안쪽이다.
+export async function renderCover({ root, plan, config, base, out }) {
+  const work = join(root, '.work', 'cover')
+  await rm(work, { recursive: true, force: true })
+  await mkdir(join(work, 'captions'), { recursive: true })
+  const frame = join(work, 'frame.png')
+  await ffmpeg(['-ss', String(plan.cover.at), '-i', base, '-frames:v', '1', frame])
+  const { text, emphasis, label, look, position } = plan.cover
+  const event = {
+    text, role: 'hook', start: 0, end: 1,
+    ...(emphasis ? { emphasis } : {}),
+    ...(label ? { label } : {}),
+    look: { ...look, entrance: 'none' },
+    position: { ...position, y: position?.y ?? COVER_Y },
+  }
+  const [caption] = await renderCaptions([event], join(work, 'captions'), config, plan.look)
+  await mkdir(join(root, 'out'), { recursive: true })
+  await ffmpeg(['-i', frame, '-i', caption.pattern.replace('%02d', '00'), '-filter_complex', '[0:v][1:v]overlay=0:0', '-frames:v', '1', '-q:v', '2', out])
+  return out
 }
 
 export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240 } = {}) {

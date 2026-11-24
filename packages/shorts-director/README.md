@@ -16,6 +16,8 @@ npx -y @buzzni/shorts-director animatic   # storyboard draft out/draft.mp4
 npx -y @buzzni/shorts-director takes submit && npx -y @buzzni/shorts-director takes wait
 npx -y @buzzni/shorts-director render     # out/final.mp4
 npx -y @buzzni/shorts-director sheet      # out/contact.png
+npx -y @buzzni/shorts-director post       # out/post.md (per-platform copy) and out/cover.jpg
+npx -y @buzzni/shorts-director voice --variant b && npx -y @buzzni/shorts-director render --variant b   # out/final-b.mp4
 npx -y @buzzni/shorts-director status     # status.md
 ```
 
@@ -78,3 +80,19 @@ npx -y @buzzni/shorts-director status     # status.md
 - The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
   between 1.0x and 1.15x framing at every planned shot (punch-in), and `render` reports the real cut count and the
   longest unbroken stretch.
+- Every `render` also writes `out/viewer.md`: shot by shot, the planned picture, the words on screen and what is heard,
+  with no intent or reasoning — what a fresh reviewer gets together with the contact sheet to judge the finished cut.
+- Post copy: `plan.post` holds the title, description or caption and hashtags for `shorts`, `reels` and `tiktok`.
+  `check` refuses what the upload forms refuse (Shorts title over 100 characters or more than 15 hashtags — YouTube
+  ignores them all —, more than 5 Reels hashtags, captions over 2,200 / 4,000 characters) and warns about a Shorts
+  title over about 40 characters or a Reels/TikTok first line over 40 (both cut off in the feed). Numbers in the copy
+  need a `facts` source like the script. `post` writes `out/post.md`; nothing is posted.
+- Cover: `plan.cover: { at, text, emphasis?, label?, position?, look? }` takes the caption-free frame at `at` seconds
+  from the last render and draws the text in the hook style, by default inside the centre 3:4 that the Instagram
+  profile grid shows, to `out/cover.jpg`.
+- Variants: `plan.variants: [{ id, hypothesis, moments: { <id>: { caption, asides, subtitles } }, narration: { <line>: text }, hook?, post?, cover? }]`
+  change only words, so every take is reused. `voice --variant <id>` re-records only the changed lines,
+  `render --variant <id>` writes `out/final-<id>.mp4`, `out/viewer-<id>.md` and `out/text-check-<id>.json`, and
+  `sheet`/`post --variant <id>` follow. `check` refuses a variant that touches a take field and needs a hypothesis;
+  it warns when a variant changes more than one scene (compare one thing at a time) and checks the merged plan,
+  reporting only what the variant adds.

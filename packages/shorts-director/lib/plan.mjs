@@ -6,7 +6,9 @@ import { posix } from 'node:path'
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
 import { FONTS, MUSIC } from './assets.mjs'
 import { LOOKS, designFor, designProblems, readability } from './looks.mjs'
+import { postIssues, postTexts } from './post.mjs'
 import { SFX_KINDS } from './sfx.mjs'
+import { applyVariant, variantIssues } from './variants.mjs'
 
 const MAX_SHOT_SECONDS = 4
 const SECONDS_PER_CUT = 3
@@ -149,7 +151,24 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     warn('ending.tail', '구독·좋아요 요청으로 마무리하지 않는다 — 감정이 가장 높은 지점에서 자른다.', last.id)
   }
 
+  issues.push(...postIssues(plan))
+  checkVariants(plan, take, issues)
+
   return { ok: !issues.some((issue) => issue.level === 'error'), issues }
+}
+
+// 변형마다 합친 판을 기획처럼 검증하고, 기획 자체에 이미 있는 문제는 빼고 그 변형이 새로 만든 것만 알린다.
+function checkVariants(plan, take, issues) {
+  const own = variantIssues(plan)
+  issues.push(...own)
+  const key = (issue) => `${issue.level}|${issue.code}|${issue.where ?? ''}|${issue.message}`
+  const base = new Set(issues.map(key))
+  for (const variant of plan.variants ?? []) {
+    if (own.some((issue) => issue.level === 'error' && issue.where === `variant ${variant?.id || '?'}`)) continue
+    for (const issue of validatePlan(applyVariant(plan, variant.id), { take }).issues) {
+      if (!base.has(key(issue))) issues.push({ ...issue, where: issue.where ? `${variant.id}/${issue.where}` : `variant ${variant.id}` })
+    }
+  }
 }
 
 // 0~3초 3중 훅, 8~12초 중반 리훅, 결말(정점·루프·단일 CTA), 플랫폼 길이, 상투어, 출처 없는 숫자, 자막 길이.
@@ -195,7 +214,7 @@ function checkStructure(plan, moments, total, error, warn) {
     warn('script.slop', '인사·예고("안녕하세요", "오늘은 ~에 대해")·나열 접속사("첫째", "또한", "따라서")·느낌표 남발을 뺀다.')
   }
   const sourced = (plan.facts ?? []).map((fact) => String(fact.text ?? '')).join(' ')
-  const unsourced = texts.flatMap((text) => text.match(NUMBER) ?? []).filter((number) => !sourced.includes(number.replace(/\s+/g, '').replace(/퍼센트/, '%')) && !sourced.includes(number))
+  const unsourced = [...texts, ...postTexts(plan)].flatMap((text) => text.match(NUMBER) ?? []).filter((number) => !sourced.includes(number.replace(/\s+/g, '').replace(/퍼센트/, '%')) && !sourced.includes(number))
   if (unsourced.length) {
     warn('claim.unsourced', `출처 없는 숫자: ${[...new Set(unsourced)].join(', ')} — 확인한 값은 plan.facts 에 { text, source } 로 적고, 아니면 뺀다.`)
   }
