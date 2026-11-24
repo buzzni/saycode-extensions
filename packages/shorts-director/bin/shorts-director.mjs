@@ -162,18 +162,22 @@ async function check() {
 }
 
 async function voice() {
-  const plan = await loadPlan()
+  await recordNarration(await loadPlan(), { directory: join('audio', 'narration'), output: join('audio', 'narration.json') })
+}
+
+// 내레이션을 읽어 침묵을 자르고 빠르기를 맞춘 뒤 실측 길이로 배치한다. directory 에 줄마다 wav, output 에 배치(JSON)를 쓴다.
+async function recordNarration(plan, { directory, output }) {
   const config = await loadConfig(root)
   const tts = config.fake ? {} : await loadTts(root)
   const speak = config.fake ? fakeSpeech : qwenSpeech({ baseUrl: tts.url, token: tts.token })
-  await mkdir(join(root, 'audio', 'narration'), { recursive: true })
+  await mkdir(join(root, directory), { recursive: true })
   const measured = []
   for (const [index, line] of (plan.narration ?? []).entries()) {
     const name = String(index).padStart(2, '0')
-    const raw = join(root, 'audio', 'narration', `${name}.raw.wav`)
-    const file = join('audio', 'narration', `${name}.wav`)
+    const raw = join(root, directory, `${name}.raw.wav`)
+    const file = join(directory, `${name}.wav`)
     await speak(raw, { text: line.text, language: config.voice.language, speaker: line.speaker ?? config.voice.speaker })
-    const tight = join(root, 'audio', 'narration', `${name}.tight.wav`)
+    const tight = join(root, directory, `${name}.tight.wav`)
     await tightenSpeech(raw, tight)
     const tempo = speechTempo(line.text, (await probe(tight)).duration, { target: config.voice.syllablesPerSecond, max: config.voice.maxTempo })
     await changeTempo(tight, join(root, file), tempo)
@@ -192,7 +196,7 @@ async function voice() {
   const lines = layoutNarration(measured, { start: config.voice.start, gap: config.voice.gap })
   const total = planSeconds(plan)
   const end = lines.at(-1)?.end ?? 0
-  await writeFile(join(root, 'audio', 'narration.json'), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
+  await writeFile(join(root, output), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
   console.log(`✓ 내레이션 ${lines.length}줄 · 끝 ${end}초 / 영상 ${total}초`)
   for (const scene of scenesLongerThanSpeech(plan, lines)) {
     console.log(`! ${scene.id} 장면이 말보다 ${scene.idle}초 길다 — 빈 소리 구간이 된다. 테이크를 만들기 전에 장면을 줄이거나 말을 늘린다.`)

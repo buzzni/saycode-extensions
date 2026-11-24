@@ -17,9 +17,9 @@ import { materialPath } from './takeState.mjs'
 const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
 const VISION = fileURLToPath(new URL('./vision.jxa.js', import.meta.url))
 
-export async function renderVideo({ root, plan, config, mode, narration = [], out }) {
+export async function renderVideo({ root, plan, config, mode, narration = [], out, name = mode, checkFile = 'text-check.json' }) {
   const { width, height, fps } = config
-  const work = join(root, '.work', mode)
+  const work = join(root, '.work', name)
   await rm(work, { recursive: true, force: true })
   await mkdir(join(work, 'captions'), { recursive: true })
 
@@ -74,7 +74,7 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     out,
   ])
-  const placement = mode === 'final' ? await checkPlacement({ root, base, work, captions, config }) : []
+  const placement = mode === 'final' ? await checkPlacement({ root, base, work, captions, config, checkFile }) : []
   return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits, placement }
 }
 
@@ -304,7 +304,7 @@ function sampleTimes(start, end) {
   return Array.from({ length: count }, (_, index) => (count === 1 ? first : first + ((last - first) * index) / (count - 1)))
 }
 
-async function checkPlacement({ root, base, work, captions, config }) {
+async function checkPlacement({ root, base, work, captions, config, checkFile }) {
   const placed = captions.filter((caption) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
   if (placed.length === 0) return []
   // 문구가 떠 있는 동안 화면이 움직이므로 등장 직후부터 사라지기 직전까지 약 0.8초마다(최대 5장) 본다 — 두 장만 보면
@@ -348,7 +348,7 @@ async function checkPlacement({ root, base, work, captions, config }) {
     }),
   }))
   await mkdir(join(root, 'out'), { recursive: true })
-  await writeFile(join(root, 'out', 'text-check.json'), `${JSON.stringify(report, null, 2)}\n`)
+  await writeFile(join(root, 'out', checkFile), `${JSON.stringify(report, null, 2)}\n`)
   return report.filter((entry) => entry.problems.length)
 }
 
