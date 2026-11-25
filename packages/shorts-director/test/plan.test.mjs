@@ -335,3 +335,23 @@ test('a product video names its brand out loud at least twice, so viewers rememb
   plan.moments[2].dialogue = [{ speaker: 'He', text: '응, 데이터라이즈.' }]
   assert.ok(!codes(plan).includes('brand.mentions'), 'spoken forms of a latin brand name count')
 })
+
+test('a hook tournament: up to eight options, conflict and reaction mechanisms, and the chosen one is the best scored', () => {
+  const plan = goodPlan()
+  plan.hook.options = [
+    ...goodPlan().hook.options,
+    { line: '팀장이 내 보고서를 그대로 돌려보냈다', mechanism: 'conflict', question: '왜 돌려보냈지?', frame: '돌려받은 서류를 든 손', score: 81 },
+    { line: '(숫자를 보고 굳는 얼굴)', mechanism: 'reaction', question: '뭘 봤길래?', frame: '모니터를 보다 굳는 얼굴', score: 74 },
+    { line: 'a', mechanism: 'gap', question: 'b?' },
+    { line: 'c', mechanism: 'loss', question: 'd?' },
+    { line: 'e', mechanism: 'proof', question: 'f?' },
+  ]
+  plan.hook.chosen = 3
+  assert.ok(!codes(plan).includes('hook.options'), 'eight options are allowed')
+  assert.ok(!codes(plan).includes('hook.mechanism'), 'conflict and reaction are known mechanisms')
+  assert.ok(!codes(plan).includes('hook.score'))
+  plan.hook.chosen = 4
+  assert.ok(codes(plan).includes('hook.score'), 'picking a lower scored option than the best one is flagged')
+  plan.hook.options.push({ line: 'g', mechanism: 'gap', question: 'h?' })
+  assert.ok(codes(plan).includes('hook.options'), 'more than eight is too many to judge')
+})

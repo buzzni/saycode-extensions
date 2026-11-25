@@ -39,8 +39,9 @@ npx -y @buzzni/shorts-director status     # status.md
 
 ## What it enforces
 
-- Plan rules: 3–4 hook candidates from at least three different mechanisms (loss, gap, hot_take, situation,
-  proof), each with the single question it plants; a cut every ~3 seconds; no title-card opening; takes of 1–5
+- Plan rules: 3–8 hook candidates from at least three different mechanisms (loss, gap, hot_take, situation,
+  proof, conflict, reaction), each with the single question it plants and optionally its opening frame and a score
+  from a judge who does not know the plan (a warning when a lower scored hook is chosen); a cut every ~3 seconds; no title-card opening; takes of 1–5
   seconds; no subtitle or caption words in video prompts (they make LTX draw fake lettering).
 - Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
   `beat: "rehook"` scene lands 25–45% of the way in; the ending is a peak, a loop or exactly one CTA; the length
