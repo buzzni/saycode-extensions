@@ -39,9 +39,12 @@ npx -y @buzzni/shorts-director status     # status.md
 
 ## What it enforces
 
-- Plan rules: 3–4 hook candidates from at least three different mechanisms (loss, gap, hot_take, situation,
-  proof), each with the single question it plants; a cut every ~3 seconds; no title-card opening; takes of 1–5
+- Plan rules: 3–8 hook candidates from at least three different mechanisms (loss, gap, hot_take, situation,
+  proof, conflict, reaction), each with the single question it plants and optionally its opening frame and a score
+  from a judge who does not know the plan (a warning when a lower scored hook is chosen); a cut every ~3 seconds; no title-card opening; takes of 1–5
   seconds; no subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Pace warnings: photos and cards running more than six seconds in a row (a slideshow); `voice` warns when the first
+  spoken line ends after three seconds (the hook is not fully heard).
 - Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
   `beat: "rehook"` scene lands 25–45% of the way in; the ending is a peak, a loop or exactly one CTA; the length
   suits the `platform` (shorts / reels / tiktok).
@@ -67,6 +70,8 @@ npx -y @buzzni/shorts-director status     # status.md
   narration subtitles change in one-line pieces of about fifteen characters timed to the speech. Fonts are Korean
   SIL OFL fonts (Pretendard and Google Fonts `ofl/`, pinned by checksum) downloaded to `~/.config/shorts-director/fonts/`;
   without them the system font is used. Every look keeps text-on-box contrast at 4.5:1 or more.
+- `plan.subtitle_look` overrides the look for narration and dialogue subtitles only (for example a translucent
+  `fill` plate so subtitles stay readable over a full-screen screenshot); `check` validates it like a caption look.
 - One caption can differ from its look: `caption.look` overrides font, colours, box, outline, size or entrance, and
   `caption.position` moves it (`y` from the top, `x` left/center/right); `check` refuses unknown fonts and unreadable
   colours. After `render`, each on-screen caption's drawn box is compared with the faces and the main subject that

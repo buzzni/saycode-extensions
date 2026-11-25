@@ -11,6 +11,7 @@ import { SFX_KINDS } from './sfx.mjs'
 import { applyVariant, variantIssues } from './variants.mjs'
 
 const MAX_SHOT_SECONDS = 4
+const MAX_STILL_RUN = 6
 const SECONDS_PER_CUT = 3
 const NARRATION_CHARS_PER_SECOND = 6
 const TARGET_TOLERANCE = 0.2
@@ -25,8 +26,11 @@ const NUMBERS_IN_PROMPT = /(\d[\d,.]*\s*(원|만원|달러|%|퍼센트))|([₩$�
 // 장면 id 는 파일 이름(takes/<id>.mp4, jobs/…)이 된다. 경로 문자를 막는다.
 const MOMENT_ID = /^[A-Za-z0-9_-]{1,40}$/
 const COLOR = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/
-// 훅 메커니즘: 손실 회피, 정보 격차, 통념 반박, 구체적 상황·POV, 결과·증거 선공개. 후보는 서로 다른 메커니즘 3개 이상.
-export const HOOK_MECHANISMS = ['loss', 'gap', 'hot_take', 'situation', 'proof']
+// 훅 메커니즘: 손실 회피, 정보 격차, 통념 반박, 구체적 상황·POV, 결과·증거 선공개, 상대가 있는 갈등·대립,
+// 날것의 감정 반응(놀람·당황). 후보는 서로 다른 메커니즘 3개 이상.
+export const HOOK_MECHANISMS = ['loss', 'gap', 'hot_take', 'situation', 'proof', 'conflict', 'reaction']
+// 훅 토너먼트: 후보를 넉넉히 만들어 기획 의도를 모르는 평가자가 점수(score)를 매기게 한다. 8개를 넘으면 비교가 흐려진다.
+const HOOK_OPTIONS = [3, 8]
 // 플랫폼별 업계 권장 길이(초). 플랫폼 공식 기준이 아니라 경고만 한다.
 const PLATFORM_SECONDS = { shorts: [15, 60], reels: [15, 90], tiktok: [15, 35] }
 const ENDINGS = ['peak', 'loop', 'cta']
@@ -60,6 +64,15 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
   }
 
+  if (plan.subtitle_look !== undefined) {
+    const problems = designProblems(plan.subtitle_look, FONTS.map((font) => font.name))
+    if (problems.length) error('subtitle_look', `자막 look: ${problems.join(' · ')}`)
+    else {
+      const unreadable = readability(designFor(plan.look, 'narration', plan.subtitle_look))
+      if (unreadable) warn('subtitle_look.contrast', `자막: ${unreadable}`)
+    }
+  }
+
   for (const moment of plan.moments ?? []) {
     const placed = [
       ...(moment.caption ? [{ ...moment.caption, role: moment.caption.role ?? 'title' }] : []),
@@ -75,8 +88,8 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   }
 
   const options = plan.hook?.options
-  if (!Array.isArray(options) || options.length < 3 || options.length > 4 || !options.every((option) => option?.line && option?.question)) {
-    error('hook.options', '훅 후보는 3~4개이고, 각각 { line(첫 문장), mechanism, question(시청자 머릿속에 남는 단 하나의 질문) } 이다.')
+  if (!Array.isArray(options) || options.length < HOOK_OPTIONS[0] || options.length > HOOK_OPTIONS[1] || !options.every((option) => option?.line && option?.question)) {
+    error('hook.options', `훅 후보는 ${HOOK_OPTIONS[0]}~${HOOK_OPTIONS[1]}개이고, 각각 { line(첫 문장), mechanism, question(시청자 머릿속에 남는 단 하나의 질문), frame?(0초 화면), score?(평가자 점수) } 이다.`)
   } else {
     const mechanisms = options.map((option) => option.mechanism)
     if (mechanisms.some((mechanism) => !HOOK_MECHANISMS.includes(mechanism)) || new Set(mechanisms).size < 3) {
@@ -84,6 +97,12 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     }
     if (!Number.isInteger(plan.hook.chosen) || plan.hook.chosen < 0 || plan.hook.chosen >= options.length) {
       error('hook.chosen', '훅 후보 중 무엇을 골랐는지 hook.chosen 에 남긴다.')
+    } else {
+      const scores = options.map((option) => Number(option.score)).filter(Number.isFinite)
+      const chosenScore = Number(options[plan.hook.chosen].score)
+      if (scores.length && Number.isFinite(chosenScore) && chosenScore < Math.max(...scores)) {
+        warn('hook.score', `평가자 점수가 더 높은 훅(${Math.max(...scores)}점)이 있는데 ${chosenScore}점 후보를 골랐다 — 1위를 기본판으로, 2위를 변형으로 쓴다. 다르게 고른 이유는 status.md 메모에 적는다.`)
+      }
     }
   }
 
@@ -126,6 +145,17 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     if (moment.kind === 'photo' && !inMaterials(moment.file)) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
+  }
+
+  // 사진·카드만 6초 넘게 이어지면 슬라이드 쇼가 된다(실측: 끝 14초가 정지 화면이라 리듬 5.8/10). 사이에 움직이는 테이크를 끼운다.
+  let still = 0
+  let longestStill = 0
+  for (const moment of moments) {
+    still = moment.kind === 'take' ? 0 : still + Number(moment.seconds || 0)
+    longestStill = Math.max(longestStill, still)
+  }
+  if (longestStill > MAX_STILL_RUN) {
+    warn('pace.stills', `사진·카드가 ${round(longestStill)}초 이어진다 — ${MAX_STILL_RUN}초를 넘으면 슬라이드 쇼로 보인다. 사이에 사람·사물이 움직이는 테이크를 끼우거나 정지 화면을 줄인다.`)
   }
 
   const total = planSeconds(plan)

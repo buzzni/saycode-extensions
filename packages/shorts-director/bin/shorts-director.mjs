@@ -8,7 +8,7 @@ import { FONTS, MUSIC, ensureAsset } from '../lib/assets.mjs'
 import { fakeSpeech, fakeVideoBackend } from '../lib/backends/fake.mjs'
 import { LTX_TAKE_SECONDS, ltxVideoBackend } from '../lib/backends/ltx.mjs'
 import { qwenSpeech } from '../lib/backends/qwen-tts.mjs'
-import { layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo } from '../lib/captions.mjs'
+import { hookLineOverrun, layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo } from '../lib/captions.mjs'
 import { loadConfig, loadEnv, loadTts, repositoryEnvFile, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
 import { LOOKS } from '../lib/looks.mjs'
@@ -219,6 +219,8 @@ async function recordNarration(plan, { directory, output, reuse = [], again = ne
   const end = lines.at(-1)?.end ?? 0
   await writeFile(join(root, output), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
   console.log(`✓ 내레이션 ${lines.length}줄 · 끝 ${end}초 / 영상 ${total}초`)
+  const hookLine = hookLineOverrun(plan, lines)
+  if (hookLine) console.log(`! 첫 줄이 ${hookLine.end}초에 끝난다 — "${hookLine.text}" 훅은 3초 안에 다 들려야 한다. 한 호흡(12음절 안팎)으로 줄이고 나머지는 다음 줄로 넘긴다.`)
   for (const scene of scenesLongerThanSpeech(plan, lines)) {
     console.log(`! ${scene.id} 장면이 말보다 ${scene.idle}초 길다 — 빈 소리 구간이 된다. 테이크를 만들기 전에 장면을 줄이거나 말을 늘린다.`)
   }

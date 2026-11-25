@@ -335,3 +335,44 @@ test('a product video names its brand out loud at least twice, so viewers rememb
   plan.moments[2].dialogue = [{ speaker: 'He', text: '응, 데이터라이즈.' }]
   assert.ok(!codes(plan).includes('brand.mentions'), 'spoken forms of a latin brand name count')
 })
+
+test('a hook tournament: up to eight options, conflict and reaction mechanisms, and the chosen one is the best scored', () => {
+  const plan = goodPlan()
+  plan.hook.options = [
+    ...goodPlan().hook.options,
+    { line: '팀장이 내 보고서를 그대로 돌려보냈다', mechanism: 'conflict', question: '왜 돌려보냈지?', frame: '돌려받은 서류를 든 손', score: 81 },
+    { line: '(숫자를 보고 굳는 얼굴)', mechanism: 'reaction', question: '뭘 봤길래?', frame: '모니터를 보다 굳는 얼굴', score: 74 },
+    { line: 'a', mechanism: 'gap', question: 'b?' },
+    { line: 'c', mechanism: 'loss', question: 'd?' },
+    { line: 'e', mechanism: 'proof', question: 'f?' },
+  ]
+  plan.hook.chosen = 3
+  assert.ok(!codes(plan).includes('hook.options'), 'eight options are allowed')
+  assert.ok(!codes(plan).includes('hook.mechanism'), 'conflict and reaction are known mechanisms')
+  assert.ok(!codes(plan).includes('hook.score'))
+  plan.hook.chosen = 4
+  assert.ok(codes(plan).includes('hook.score'), 'picking a lower scored option than the best one is flagged')
+  plan.hook.options.push({ line: 'g', mechanism: 'gap', question: 'h?' })
+  assert.ok(codes(plan).includes('hook.options'), 'more than eight is too many to judge')
+})
+
+test('subtitle_look is checked like a caption look', () => {
+  const plan = goodPlan()
+  plan.subtitle_look = { fill: 'navy' }
+  assert.ok(codes(plan).includes('subtitle_look'))
+  plan.subtitle_look = { fill: '#000000B3' }
+  assert.ok(!codes(plan).includes('subtitle_look'))
+})
+
+test('more than six seconds of photos and cards in a row reads as a slideshow', () => {
+  const plan = goodPlan()
+  assert.ok(!codes(plan).includes('pace.stills'), 'a 3s photo and a 3s card apart from each other are fine')
+  plan.moments.splice(4, 0, { id: 'm4b', kind: 'photo', file: 'materials/b.jpg', seconds: 2, shots: shots(1, 2) }, { id: 'm4c', kind: 'card', seconds: 2, shots: shots(1, 2), caption: { text: '추가', role: 'info' } })
+  plan.moments.find((moment) => moment.id === 'm5').seconds = 3
+  plan.moments.find((moment) => moment.id === 'm5').shots = shots(1, 3)
+  plan.moments.find((moment) => moment.id === 'm5').kind = 'photo'
+  plan.moments.find((moment) => moment.id === 'm5').file = 'materials/c.jpg'
+  const issue = validatePlan(plan).issues.find((item) => item.code === 'pace.stills')
+  assert.ok(issue, 'photo 3s + photo 2s + card 2s + photo 3s = 10s of stills')
+  assert.match(issue.message, /10초/)
+})

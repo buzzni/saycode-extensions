@@ -68,6 +68,15 @@ export function scenesLongerThanSpeech(plan, lines, { tolerance = 0.4 } = {}) {
   return idle
 }
 
+// 훅은 처음 3초다. 첫 줄이 그보다 길면 3초 안에 질문이 다 들리지 않는다(실측: 5초짜리 첫 문장이 "3초 안에 다 안 들어온다").
+const HOOK_SECONDS_SPOKEN = 3
+
+export function hookLineOverrun(plan, lines) {
+  const first = lines[0]
+  if (!first || Number(first.end) <= HOOK_SECONDS_SPOKEN + 0.05) return undefined
+  return { end: round(Number(first.end)), text: first.text }
+}
+
 // 앞 장면의 말이 제 줄이 있는 다음 장면까지 넘어가면, 앞 줄의 자막 끝이 다음 장면 화면(다른 문구) 위에 뜨고 다음 줄이 늦게 시작한다.
 // 다음 장면에 제 줄이 없으면 앞 줄이 이어 말하는 것으로 보고 알리지 않는다. 0.1초 안쪽은 눈에 띄지 않는다.
 export function speechPastScene(plan, lines, { tolerance = 0.1 } = {}) {
@@ -145,6 +154,8 @@ export function captionBox(event, { width, height }) {
 
 export function captionEvents(plan, narration = []) {
   const events = []
+  // plan.subtitle_look: 자막(내레이션·대사)만 묶음 디자인을 덮어쓴다 — 화면 가득한 캡처 위에서도 읽히게 판(fill)을 까는 데 쓴다.
+  const subtitleLook = plan.subtitle_look ? { look: plan.subtitle_look } : {}
   let cursor = 0
   for (const moment of plan.moments ?? []) {
     const start = cursor
@@ -176,13 +187,13 @@ export function captionEvents(plan, narration = []) {
     }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))
-      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)) })
+      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)), ...subtitleLook })
     }
     cursor = end
   }
   if (plan.subtitles !== false) {
     for (const line of narration) {
-      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end })
+      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end, ...subtitleLook })
     }
   }
   return events
