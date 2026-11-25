@@ -45,6 +45,8 @@ npx -y @buzzni/shorts-director status     # status.md
 - Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
   `beat: "rehook"` scene lands 25–45% of the way in; the ending is a peak, a loop or exactly one CTA; the length
   suits the `platform` (shorts / reels / tiktok).
+- Brand warning: with `plan.brand` (a name, or `{ name, spoken: [...] }` for how it is read aloud), `check` warns when the
+  brand is heard fewer than twice in narration and dialogue — on-screen text alone is not remembered.
 - Script warnings: AI-script filler (greetings, "today we'll…", list connectives) and numbers (%, prices,
   multiples, head counts) that have no `facts` entry with a source.
 - Warning for signage-heavy places (convenience stores, stations, shops, billboards…) without a blurred background:
