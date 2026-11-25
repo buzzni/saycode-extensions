@@ -11,6 +11,7 @@ import { SFX_KINDS } from './sfx.mjs'
 import { applyVariant, variantIssues } from './variants.mjs'
 
 const MAX_SHOT_SECONDS = 4
+const MAX_STILL_RUN = 6
 const SECONDS_PER_CUT = 3
 const NARRATION_CHARS_PER_SECOND = 6
 const TARGET_TOLERANCE = 0.2
@@ -144,6 +145,17 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     if (moment.kind === 'photo' && !inMaterials(moment.file)) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
+  }
+
+  // 사진·카드만 6초 넘게 이어지면 슬라이드 쇼가 된다(실측: 끝 14초가 정지 화면이라 리듬 5.8/10). 사이에 움직이는 테이크를 끼운다.
+  let still = 0
+  let longestStill = 0
+  for (const moment of moments) {
+    still = moment.kind === 'take' ? 0 : still + Number(moment.seconds || 0)
+    longestStill = Math.max(longestStill, still)
+  }
+  if (longestStill > MAX_STILL_RUN) {
+    warn('pace.stills', `사진·카드가 ${round(longestStill)}초 이어진다 — ${MAX_STILL_RUN}초를 넘으면 슬라이드 쇼로 보인다. 사이에 사람·사물이 움직이는 테이크를 끼우거나 정지 화면을 줄인다.`)
   }
 
   const total = planSeconds(plan)

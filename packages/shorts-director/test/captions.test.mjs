@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { captionBox, captionEvents, layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo, subtitleChunks, wrapLine } from '../lib/captions.mjs'
+import { captionBox, captionEvents, hookLineOverrun, layoutNarration, scenesLongerThanSpeech, speechPastScene, speechTempo, subtitleChunks, wrapLine } from '../lib/captions.mjs'
 
 test('narration lines are laid out back to back from measured durations with a breath gap', () => {
   const timed = layoutNarration([{ text: '하나', seconds: 1.2 }, { text: '둘', seconds: 0.8 }], { start: 0.5, gap: 0.3 })
@@ -174,4 +174,11 @@ test('plan.subtitle_look puts a plate under every narration and dialogue subtitl
   for (const role of ['narration', 'dialogue']) {
     assert.deepEqual(events.find((event) => event.role === role).look, { fill: '#000000B3', shape: 'rounded' }, role)
   }
+})
+
+test('the first spoken line has to land inside the three-second hook', () => {
+  const plan = { moments: [{ id: 'm1', seconds: 4 }, { id: 'm2', seconds: 3 }] }
+  assert.equal(hookLineOverrun(plan, [{ text: '짧게.', start: 0.2, end: 2.6, moment: 'm1' }]), undefined)
+  assert.deepEqual(hookLineOverrun(plan, [{ text: '매출 빠졌다고 쿠폰부터 뿌리면, 마진만 날아가요.', start: 0.2, end: 4.9, moment: 'm1' }]), { end: 4.9, text: '매출 빠졌다고 쿠폰부터 뿌리면, 마진만 날아가요.' })
+  assert.equal(hookLineOverrun(plan, []), undefined)
 })

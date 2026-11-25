@@ -43,6 +43,8 @@ npx -y @buzzni/shorts-director status     # status.md
   proof, conflict, reaction), each with the single question it plants and optionally its opening frame and a score
   from a judge who does not know the plan (a warning when a lower scored hook is chosen); a cut every ~3 seconds; no title-card opening; takes of 1–5
   seconds; no subtitle or caption words in video prompts (they make LTX draw fake lettering).
+- Pace warnings: photos and cards running more than six seconds in a row (a slideshow); `voice` warns when the first
+  spoken line ends after three seconds (the hook is not fully heard).
 - Structure warnings: the first scene carries the hook in picture, sound and a short (≤16 character) caption; a
   `beat: "rehook"` scene lands 25–45% of the way in; the ending is a peak, a loop or exactly one CTA; the length
   suits the `platform` (shorts / reels / tiktok).

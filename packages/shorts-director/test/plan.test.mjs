@@ -363,3 +363,16 @@ test('subtitle_look is checked like a caption look', () => {
   plan.subtitle_look = { fill: '#000000B3' }
   assert.ok(!codes(plan).includes('subtitle_look'))
 })
+
+test('more than six seconds of photos and cards in a row reads as a slideshow', () => {
+  const plan = goodPlan()
+  assert.ok(!codes(plan).includes('pace.stills'), 'a 3s photo and a 3s card apart from each other are fine')
+  plan.moments.splice(4, 0, { id: 'm4b', kind: 'photo', file: 'materials/b.jpg', seconds: 2, shots: shots(1, 2) }, { id: 'm4c', kind: 'card', seconds: 2, shots: shots(1, 2), caption: { text: '추가', role: 'info' } })
+  plan.moments.find((moment) => moment.id === 'm5').seconds = 3
+  plan.moments.find((moment) => moment.id === 'm5').shots = shots(1, 3)
+  plan.moments.find((moment) => moment.id === 'm5').kind = 'photo'
+  plan.moments.find((moment) => moment.id === 'm5').file = 'materials/c.jpg'
+  const issue = validatePlan(plan).issues.find((item) => item.code === 'pace.stills')
+  assert.ok(issue, 'photo 3s + photo 2s + card 2s + photo 3s = 10s of stills')
+  assert.match(issue.message, /10초/)
+})
