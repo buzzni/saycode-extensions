@@ -142,6 +142,13 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     if (moment.kind === 'card' && moment.background !== undefined && !COLOR.test(String(moment.background))) {
       error('card.background', '배경색은 0xRRGGBB 또는 색 이름(black 등)만 쓴다.', moment.id)
     }
+    if (moment.highlights !== undefined) {
+      const inside = (box) => [box?.x, box?.y, box?.w, box?.h].every((value) => Number.isFinite(Number(value)))
+        && box.x >= 0 && box.y >= 0 && box.w > 0 && box.h > 0 && box.x + box.w <= 1 && box.y + box.h <= 1
+      if (moment.kind !== 'photo' || !Array.isArray(moment.highlights) || !moment.highlights.every(inside)) {
+        error('photo.highlight', '강조(highlights)는 사진 장면에만, 사진 안쪽 상자 [{ x, y, w, h }](사진 폭·높이의 비율, 0~1)로 적는다.', moment.id)
+      }
+    }
     if (moment.kind === 'photo' && !inMaterials(moment.file)) {
       error('photo.real', '카메라 무브(줌·팬)는 materials/ 의 실물 사진에만 쓴다 — 생성 이미지로 시간을 채우면 슬라이드쇼가 된다.', moment.id)
     }
