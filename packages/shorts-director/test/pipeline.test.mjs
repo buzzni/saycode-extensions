@@ -204,6 +204,37 @@ test('voice keeps a recording whose line did not change, and --fresh records aga
   }
 })
 
+test('a photo highlight marks the row with a yellow box and the camera pushes in toward it', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 180_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-highlight-'))
+  try {
+    await mkdir(join(root, 'materials'), { recursive: true })
+    await mkdir(join(root, 'config'), { recursive: true })
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=white:s=540x960', '-frames:v', '1', join(root, 'materials/ui.png')])
+    const script = plan()
+    script.moments[1].file = 'materials/ui.png'
+    script.moments[1].highlights = [{ x: 0.1, y: 0.6, w: 0.8, h: 0.08 }]
+    await writeFile(join(root, 'plan.json'), JSON.stringify(script, null, 2))
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    await run(root, 'animatic')
+    // 4초에 시작하는 사진 장면: 처음엔 강조 줄(위에서 60~68%)이 제자리에서 노랗고, 카메라가 그쪽으로 다가가 끝(6.5초)에는 화면 가운데로 온다.
+    const pixel = async (at, y) => {
+      const { stdout } = await exec('ffmpeg', ['-v', 'error', '-ss', String(at), '-i', join(root, 'out/draft.mp4'), '-frames:v', '1', '-vf', `crop=4:4:134:${y},scale=1:1`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { encoding: 'buffer' })
+      return [...stdout]
+    }
+    const yellow = ([r, g, b]) => r > 200 && g > 170 && b < 170
+    assert.ok(yellow(await pixel(4.1, Math.round(480 * 0.64))), 'the highlighted row is yellow where it is')
+    // 화면 가장자리를 넘지 않게 다가가므로 끝에는 줄이 가운데 쪽(위에서 약 53~62%)으로 올라와 있다 — 처음엔 그 자리가 흰 바탕이다.
+    assert.ok(!yellow(await pixel(4.1, Math.round(480 * 0.56))), 'at first the row sits lower')
+    assert.ok(yellow(await pixel(6.5, Math.round(480 * 0.56))), 'the camera has moved the highlighted row toward the middle')
+    const [r2, g2, b2] = await pixel(6.5, Math.round(480 * 0.2))
+    assert.ok(r2 > 230 && g2 > 230 && b2 > 230, `the rest stays white: ${[r2, g2, b2]}`)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 // 두 그림에서 눈에 띄게(32 단계 넘게) 다른 화소의 비율.
 async function differingShare(left, right) {
   const gray = async (file) => (await exec('ffmpeg', ['-v', 'error', '-i', file, '-frames:v', '1', '-vf', 'format=gray', '-f', 'rawvideo', '-'], { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 })).stdout

@@ -376,3 +376,14 @@ test('more than six seconds of photos and cards in a row reads as a slideshow', 
   assert.ok(issue, 'photo 3s + photo 2s + card 2s + photo 3s = 10s of stills')
   assert.match(issue.message, /10초/)
 })
+
+test('a photo highlight is a box inside the picture, in fractions of the image', () => {
+  const plan = goodPlan()
+  const photo = plan.moments.find((moment) => moment.kind === 'photo')
+  photo.highlights = [{ x: 0.1, y: 0.4, w: 0.8, h: 0.06 }]
+  assert.ok(!codes(plan).includes('photo.highlight'))
+  photo.highlights = [{ x: 0.5, y: 0.4, w: 0.8, h: 0.06 }]
+  assert.ok(codes(plan).includes('photo.highlight'), 'a box running off the right edge')
+  plan.moments.find((moment) => moment.kind === 'take').highlights = [{ x: 0, y: 0, w: 0.5, h: 0.5 }]
+  assert.ok(codes(plan).includes('photo.highlight'), 'only photos take highlights')
+})

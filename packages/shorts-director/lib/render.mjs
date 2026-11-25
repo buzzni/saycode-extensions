@@ -284,13 +284,30 @@ async function renderSegment({ root, moment, mode, config, file, zooms }) {
   }
   if (moment.kind === 'photo') {
     const frames = Math.round(Number(moment.seconds) * fps)
-    const zoom = `scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps},setsar=1,${sameFormat}`
+    const zoom = `${highlightBoxes(moment.highlights)}scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},${photoMove(moment.highlights, frames, W, H, fps)},setsar=1,${sameFormat}`
     await ffmpeg(['-i', materialPath(root, moment.file), ...silence, '-map', '0:v', '-map', '1:a', '-vf', zoom, ...encode])
     return
   }
   const fallback = moment.kind === 'card' ? '0x111111' : '0x2a3442'
   const color = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/.test(String(moment.background ?? '')) ? moment.background : fallback
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
+}
+
+// 사진 위 강조(moments[].highlights, 사진 비율의 상자): 반투명 노란 판과 진한 테두리를 사진에 직접 그리고, 카메라는 가운데 대신
+// 첫 강조 상자 쪽으로 다가간다 — 캡처를 확대만 하면 어디를 보라는지 모른다(블라인드 비교에서 기준 영상의 형광 강조가 앞섰다).
+function highlightBoxes(highlights = []) {
+  return highlights.map((box) => {
+    const at = `x=iw*${box.x}:y=ih*${box.y}:w=iw*${box.w}:h=ih*${box.h}`
+    return `drawbox=${at}:color=0xFFD600@0.35:t=fill,drawbox=${at}:color=0xFFC400@0.95:t=6,`
+  }).join('')
+}
+
+function photoMove(highlights = [], frames, W, H, fps) {
+  const target = highlights[0]
+  if (!target) return `zoompan=z='min(zoom+0.0009,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${W}x${H}:fps=${fps}`
+  const cx = Number(target.x) + Number(target.w) / 2
+  const cy = Number(target.y) + Number(target.h) / 2
+  return `zoompan=z='min(zoom+0.0025,1.25)':x='max(0,min(iw-iw/zoom,iw*${cx}-iw/zoom/2))':y='max(0,min(ih-ih/zoom,ih*${cy}-ih/zoom/2))':d=${frames}:s=${W}x${H}:fps=${fps}`
 }
 
 // 이어 찍은 테이크는 인물을 지키려고 컷 없이 한 번에 찍는다. 이어지는 장면들의 기획 컷 경계마다 화면 배율을 1.0↔1.15 로
