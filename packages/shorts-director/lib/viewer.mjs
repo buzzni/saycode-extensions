@@ -23,7 +23,7 @@ export function viewerScript(plan, narration = [], { label = '완성본', sheet 
   return [
     `# 시청자에게 닿는 것 — ${plan.title ?? '숏폼'} (${label})`,
     '',
-    `이것이 영상의 전부다. 화면 칸은 기획한 묘사라, 실제 화면은 ${sheet} 로 본다(${every}초 간격, 왼쪽 위부터 0초·${every}초·${round(every * 2)}초…).`,
+    `이것이 영상의 전부다. 화면 칸은 기획한 묘사라, 실제 화면은 ${sheet} 로 본다(${every}초 간격, 왼쪽 위부터 0초·${every}초·${round(every * 2)}초…, 칸마다 왼쪽 위에 시각이 적혀 있다).`,
     '자막은 들리는 말과 같은 글이 화면 아래에 뜬다.',
     '',
     '| 시각 | 화면 | 화면 글자 | 들리는 말 |',

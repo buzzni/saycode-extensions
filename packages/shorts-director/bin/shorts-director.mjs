@@ -166,13 +166,18 @@ async function check() {
 
 async function voice() {
   const cut = await loadCut()
-  // 변형은 기본판과 글이 같은 줄을 다시 읽지 않고 기본판 녹음을 쓴다 — 바뀐 줄만 새로 읽는다.
-  const reuse = cut.id ? await readFile(join(root, 'audio', 'narration.json'), 'utf8').then((text) => JSON.parse(text).lines, () => []) : []
-  await recordNarration(cut.plan, { directory: cut.voiceDirectory, output: cut.narrationFile, reuse })
+  // 글·목소리·빠르기 설정이 같은 줄은 다시 읽지 않는다. TTS 는 같은 문장도 읽을 때마다 길이가 크게 달라(실측 2.8~6.9초) 한 줄을
+  // 고칠 때마다 전부 다시 읽으면 맞춰 둔 다른 줄이 흔들린다. 변형은 기본판 녹음도 쓴다. --fresh [줄,줄] 은 그 줄(없으면 전부)을 새로 읽는다.
+  const previous = async (file) => readFile(join(root, file), 'utf8').then((text) => JSON.parse(text).lines ?? [], () => [])
+  const reuse = [...await previous(cut.narrationFile), ...(cut.id ? await previous(join('audio', 'narration.json')) : [])]
+  const fresh = optionValue('--fresh')
+  const again = !flags.has('--fresh') ? new Set() : /^\d+(,\d+)*$/.test(fresh ?? '') ? new Set(fresh.split(',').map(Number)) : 'all'
+  await recordNarration(cut.plan, { directory: cut.voiceDirectory, output: cut.narrationFile, reuse: again === 'all' ? [] : reuse, again: again === 'all' ? new Set() : again })
 }
 
 // 내레이션을 읽어 침묵을 자르고 빠르기를 맞춘 뒤 실측 길이로 배치한다. directory 에 줄마다 wav, output 에 배치(JSON)를 쓴다.
-async function recordNarration(plan, { directory, output, reuse = [] }) {
+// reuse 의 녹음 중 같은 voice 키(글·목소리·설정)인 것은 다시 읽지 않는다. again 의 줄 번호는 키가 같아도 새로 읽는다.
+async function recordNarration(plan, { directory, output, reuse = [], again = new Set() }) {
   const config = await loadConfig(root)
   const tts = config.fake ? {} : await loadTts(root)
   const speak = config.fake ? fakeSpeech : qwenSpeech({ baseUrl: tts.url, token: tts.token })
@@ -181,16 +186,19 @@ async function recordNarration(plan, { directory, output, reuse = [] }) {
   for (const [index, line] of (plan.narration ?? []).entries()) {
     const name = String(index).padStart(2, '0')
     const minStart = line.moment ? momentStart(plan, line.moment) + config.voice.start : undefined
-    const same = reuse[index]
-    if (same?.text === line.text && await exists(join(root, same.file))) {
-      measured.push({ text: line.text, file: same.file, seconds: same.seconds, tempo: same.tempo, ...(line.moment ? { moment: line.moment } : {}), ...(minStart === undefined ? {} : { minStart }) })
-      console.log(`↺ ${name} ${same.seconds}초 (기본판 녹음) — ${line.text}`)
+    const speaker = line.speaker ?? config.voice.speaker
+    const key = sha256(JSON.stringify([line.text, speaker, config.voice.language, config.voice.syllablesPerSecond, config.voice.maxTempo])).slice(0, 12)
+    const same = again.has(index) ? undefined : await firstExisting(reuse.filter((entry) => entry.voice === key))
+    if (same) {
+      measured.push({ text: line.text, file: same.file, seconds: same.seconds, tempo: same.tempo, voice: key, ...(line.moment ? { moment: line.moment } : {}), ...(minStart === undefined ? {} : { minStart }) })
+      console.log(`↺ ${name} ${same.seconds}초 (${same.file.startsWith(directory) ? '이전 녹음' : '기본판 녹음'}) — ${line.text}`)
       continue
     }
-    const raw = join(root, directory, `${name}.raw.wav`)
-    const file = join(directory, `${name}.wav`)
-    await speak(raw, { text: line.text, language: config.voice.language, speaker: line.speaker ?? config.voice.speaker })
-    const tight = join(root, directory, `${name}.tight.wav`)
+    // 파일 이름에 키를 넣는다 — 줄 순서가 바뀌어도 아직 쓰는 다른 줄의 녹음을 덮어쓰지 않게.
+    const raw = join(root, directory, `${name}-${key}.raw.wav`)
+    const file = join(directory, `${name}-${key}${again.has(index) ? `-${Date.now().toString(36)}` : ''}.wav`)
+    await speak(raw, { text: line.text, language: config.voice.language, speaker })
+    const tight = join(root, directory, `${name}-${key}.tight.wav`)
     await tightenSpeech(raw, tight)
     const tempo = speechTempo(line.text, (await probe(tight)).duration, { target: config.voice.syllablesPerSecond, max: config.voice.maxTempo })
     await changeTempo(tight, join(root, file), tempo)
@@ -198,6 +206,7 @@ async function recordNarration(plan, { directory, output, reuse = [] }) {
     measured.push({
       text: line.text,
       file,
+      voice: key,
       seconds: Math.round((await probe(join(root, file))).duration * 1000) / 1000,
       tempo: Math.round(tempo * 100) / 100,
       ...(line.moment ? { moment: line.moment } : {}),
@@ -435,8 +444,9 @@ async function forgetTakes(store, momentId) {
 async function sheet() {
   const cut = await loadCut()
   const input = flags.has('--draft') ? join('out', 'draft.mp4') : cut.final
-  await contactSheet(join(root, input), join(root, cut.sheet))
-  console.log(`✓ ${cut.sheet} — 글자 겹침·안전 영역·가짜 글자·인물 일관성을 본다`)
+  const { times, columns } = await contactSheet(join(root, input), join(root, cut.sheet), { config: await loadConfig(root), root })
+  console.log(`✓ ${cut.sheet} — 글자 겹침·안전 영역·가짜 글자·인물 일관성을 본다. 칸마다 시각을 왼쪽 위에 적었다:`)
+  for (let row = 0; row * columns < times.length; row += 1) console.log(`  ${row + 1}행: ${times.slice(row * columns, (row + 1) * columns).map((at) => `${at}초`).join(' · ')}`)
 }
 
 // 올릴 글(out/post.md)과 표지(out/cover.jpg). 게시는 하지 않는다 — 사람이 검수하고 올린다.
@@ -457,8 +467,11 @@ async function post() {
     const base = [join(root, '.work', `final${cut.suffix}`, 'base.mp4'), join(root, '.work', 'final', 'base.mp4')]
     const source = (await Promise.all(base.map(exists))).findIndex(Boolean)
     if (source < 0) throw Object.assign(new Error('표지를 뽑을 조립 결과가 없다 — render 를 먼저 한다'), { exitCode: 2 })
-    await renderCover({ root, plan, config: await loadConfig(root), base: base[source], out: join(root, cut.cover) })
+    const { problems } = await renderCover({ root, plan, config: await loadConfig(root), base: base[source], out: join(root, cut.cover) })
     console.log(`✓ ${cut.cover} — ${plan.cover.at}초 화면에 "${plan.cover.text}". 피드·프로필 격자(가운데 3:4)에서 읽히는지 본다`)
+    const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
+    const issues = problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
+    console.log(issues.length ? `! 표지 문구 "${plan.cover.text}" — ${issues.join(', ')}. cover.position(y·x)이나 look 으로 옮기거나 cover.at 을 바꾸고 post 를 다시 한다.` : '  표지 문구: 얼굴·주인공 가림 없음')
   }
 }
 
@@ -557,6 +570,11 @@ async function loadCut() {
 function printJobs(jobs) {
   if (jobs.length === 0) return console.log('테이크 작업이 없다')
   for (const job of jobs) console.log(`${job.momentId}\t${job.state}\t${job.backend}\t${job.remoteId ?? ''}`)
+}
+
+async function firstExisting(entries) {
+  for (const entry of entries) if (entry.file && await exists(join(root, entry.file))) return entry
+  return undefined
 }
 
 async function exists(path) {

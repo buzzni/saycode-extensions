@@ -52,7 +52,9 @@ npx -y @buzzni/shorts-director status     # status.md
   connection never generates the same take twice.
 - `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.
 - Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
-  1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
+  1.25x) and measured before it is laid out 0.1 seconds apart. A line whose text, voice and tempo settings did not
+  change keeps its recording (TTS length varies a lot between takes of the same sentence), so editing one line does
+  not move the others; `voice --fresh` records every line again and `voice --fresh 0,3` only those lines. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated, and lines that run on into the next scene's own line
   (their subtitle would end over the next scene).
 - Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
@@ -80,6 +82,7 @@ npx -y @buzzni/shorts-director status     # status.md
 - The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
   between 1.0x and 1.15x framing at every planned shot (punch-in), and `render` reports the real cut count and the
   longest unbroken stretch.
+- `sheet` labels every tile of the contact sheet with its time and prints the grid, so a reviewer never miscounts tiles.
 - Every `render` also writes `out/viewer.md`: shot by shot, the planned picture, the words on screen and what is heard,
   with no intent or reasoning — what a fresh reviewer gets together with the contact sheet to judge the finished cut.
 - Post copy: `plan.post` holds the title, description or caption and hashtags for `shorts`, `reels` and `tiktok`.
@@ -89,7 +92,7 @@ npx -y @buzzni/shorts-director status     # status.md
   need a `facts` source like the script. `post` writes `out/post.md`; nothing is posted.
 - Cover: `plan.cover: { at, text, emphasis?, label?, position?, look? }` takes the caption-free frame at `at` seconds
   from the last render and draws the text in the hook style, by default inside the centre 3:4 that the Instagram
-  profile grid shows, to `out/cover.jpg`.
+  profile grid shows, to `out/cover.jpg`. The cover text gets the same face and subject check as on-screen captions.
 - Variants: `plan.variants: [{ id, hypothesis, moments: { <id>: { caption, asides, subtitles } }, narration: { <line>: text }, hook?, post?, cover? }]`
   change only words, so every take is reused. `voice --variant <id>` re-records only the changed lines,
   `render --variant <id>` writes `out/final-<id>.mp4`, `out/viewer-<id>.md` and `out/text-check-<id>.json`, and

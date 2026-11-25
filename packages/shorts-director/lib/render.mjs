@@ -98,14 +98,44 @@ export async function renderCover({ root, plan, config, base, out }) {
   const [caption] = await renderCaptions([event], join(work, 'captions'), config, plan.look)
   await mkdir(join(root, 'out'), { recursive: true })
   await ffmpeg(['-i', frame, '-i', caption.pattern.replace('%02d', '00'), '-filter_complex', '[0:v][1:v]overlay=0:0', '-frames:v', '1', '-q:v', '2', out])
-  return out
+  // 화면 문구와 같은 가림 검사를 받는다 — 표지는 한 장이라 그 화면만 본다.
+  const [found] = await findOnScreen([frame], [1], config)
+  const problems = caption.bounds ? textProblems({ box: fromTop(caption.bounds, config.width, config.height), ...found }) : []
+  return { out, problems }
 }
 
-export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240 } = {}) {
+// 접촉 시트의 칸 시각: 0초부터 every 초 간격. 칸마다 그 시각을 작은 칩으로 적는다 — 시각 없이 칸을 세면 한 칸씩 밀려 1.5초
+// 어긋난 판정이 나왔다(완성본 점검 실측). config 가 없으면(글자 렌더러 없이) 시각을 적지 않는다.
+export function sheetTimes(duration, every = 1.5) {
+  return Array.from({ length: Math.max(1, Math.ceil(duration / every)) }, (_, index) => round(index * every))
+}
+
+export async function contactSheet(input, out, { every = 1.5, columns = 6, tileWidth = 240, config, root } = {}) {
   const { duration } = await probe(input)
-  const rows = Math.max(1, Math.ceil(Math.ceil(duration / every) / columns))
-  await ffmpeg(['-i', input, '-vf', `fps=1/${every},scale=${tileWidth}:-2,tile=${columns}x${rows}:padding=4:color=white`, '-frames:v', '1', out])
-  return out
+  const times = sheetTimes(duration, every)
+  const rows = Math.max(1, Math.ceil(times.length / columns))
+  const tile = `fps=1/${every},scale=${tileWidth}:-2,tile=${columns}x${rows}:padding=4:color=white`
+  if (!config) {
+    await ffmpeg(['-i', input, '-vf', tile, '-frames:v', '1', out])
+    return { out, times, columns }
+  }
+  const work = join(root, '.work', 'sheet')
+  await rm(work, { recursive: true, force: true })
+  await mkdir(work, { recursive: true })
+  const events = times.map((at) => ({
+    text: `${at}초`, role: 'info', start: Math.max(0, at - every / 2), end: at + every / 2,
+    position: { y: 0.05, x: 'left' }, look: { entrance: 'none', size: 1.5 },
+  }))
+  const labels = await renderCaptions(events, work, config, undefined)
+  const filters = []
+  let video = '0:v'
+  labels.forEach((label, index) => {
+    filters.push(`[${video}][${index + 1}:v]overlay=0:0:enable='between(t,${round(label.start)},${round(label.end - 0.001)})'[l${index}]`)
+    video = `l${index}`
+  })
+  filters.push(`[${video}]${tile}[sheet]`)
+  await ffmpeg(['-i', input, ...labels.flatMap((label) => ['-i', label.pattern.replace('%02d', '00')]), '-filter_complex', filters.join(';'), '-map', '[sheet]', '-frames:v', '1', out])
+  return { out, times, columns }
 }
 
 // 배경음: 목록의 CC0 곡(track)은 이 PC 에 받아 두고 완성본 음량(-14 LUFS)에 맞춘다. materials/ 의 파일은 사용자가 정한 크기 그대로.
