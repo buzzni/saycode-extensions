@@ -191,7 +191,8 @@ export function captionEvents(plan, narration = []) {
 // 내레이션 한 줄을 한 줄짜리 자막 조각으로 나눈다. 쉼표·마침표에서 먼저 끊고, 그래도 넓으면 띄어쓰기에서 고르게 나눈다.
 // 조각 시각은 음절 수에 비례해 나눈다(TTS 가 글자 시각을 주지 않는다).
 export function subtitleChunks(line, { maxWidth = SUBTITLE_WIDTH } = {}) {
-  const clauses = String(line.text).match(/[^,.?!…]+[,.?!…]*/g)?.map((clause) => clause.trim()).filter(Boolean) ?? []
+  // 숫자 사이의 마침표·쉼표(2.8배, 12,985명)는 문장부호가 아니다 — 거기서 끊으면 "ROAS 2." / "8배" 로 갈린다.
+  const clauses = String(line.text).match(/(?:[^,.?!…]|(?<=\d)[.,](?=\d))+[,.?!…]*/g)?.map((clause) => clause.trim()).filter(Boolean) ?? []
   const pieces = []
   for (const clause of clauses) pieces.push(...splitClause(clause, maxWidth))
   for (let index = 0; index < pieces.length - 1; index += 1) {
