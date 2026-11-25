@@ -17,7 +17,7 @@ test('a caption over a face moves to the nearest spot that covers no face', () =
   const result = choosePlacement({ box: hook, faces: [face], subjects: [], range })
   assert.equal(result.moved, true)
   assert.deepEqual(textProblems({ box: result.box, faces: [face] }), [], `covers at most what render tolerates: ${JSON.stringify(result.box)}`)
-  assert.ok(result.box.y - hook.y < 0.15, 'and moves no further than needed')
+  assert.ok(result.box.y - hook.y < 0.2, 'and moves only just past the face')
   assert.equal(result.scale, 1)
 })
 
@@ -41,4 +41,11 @@ test('the main subject counts too, so a caption moves off the product', () => {
   const product = { x: 0.2, y: 0.05, w: 0.6, h: 0.3 }
   const result = choosePlacement({ box: hook, faces: [], subjects: [product], range })
   assert.equal(result.moved, true)
+})
+
+test('when there is room, the caption clears the face with a margin instead of stopping at what render tolerates', () => {
+  // 얼굴 아래에 빈 자리가 충분하다 — 턱에 걸친 채(15% 이하) 멈추지 않고 얼굴 둘레까지 비운다.
+  const face = { x: 0.4, y: 0.1, w: 0.2, h: 0.12 }
+  const result = choosePlacement({ box: { x: 0.2, y: 0.17, w: 0.6, h: 0.08 }, faces: [face], subjects: [], range })
+  assert.ok(result.box.y >= face.y + face.h, `below the chin: ${JSON.stringify(result.box)}`)
 })

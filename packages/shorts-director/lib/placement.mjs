@@ -6,6 +6,9 @@ import { textProblems } from './textcheck.mjs'
 
 const STEP = 0.01
 const SCALES = [1, 0.85, 0.7]
+// 옮길 때는 render 가 봐주는 만큼(얼굴 15%)만 비키지 않는다 — 턱·이마에 걸친 문구는 사람 눈에 여전히 얼굴을 가린다(블라인드 평가
+// 실측). 얼굴을 둘레까지 비우는 자리가 있으면 그곳을, 없을 때만 render 기준을 넘지 않는 자리를 고른다.
+const FACE_MARGIN = 0.15
 
 export function choosePlacement({ box, faces = [], subjects = [], range }) {
   if (!blocking(box, faces, subjects)) return { moved: false, box, scale: 1 }
@@ -13,11 +16,10 @@ export function choosePlacement({ box, faces = [], subjects = [], range }) {
   for (const scale of SCALES) {
     const sized = resize(box, scale)
     const options = heights(sized, range).map((y) => ({ ...sized, y }))
+    const roomy = faces.map((face) => grow(face, FACE_MARGIN))
     const clear = options.filter((option) => !blocking(option, faces, subjects))
-    if (clear.length) {
-      const nearest = clear.reduce((best, option) => (Math.abs(option.y - box.y) < Math.abs(best.y - box.y) ? option : best))
-      return { moved: true, box: round(nearest), scale }
-    }
+    const spacious = clear.filter((option) => roomy.every((face) => overlap(option, face) === 0))
+    if (clear.length) return { moved: true, box: round(nearest(spacious.length ? spacious : clear, box)), scale }
     for (const option of options) {
       const cost = covered(option, faces, subjects)
       if (!fallback || cost < fallback.cost - 1e-9 || (Math.abs(cost - fallback.cost) < 1e-9 && Math.abs(option.y - box.y) < Math.abs(fallback.box.y - box.y))) {
@@ -43,6 +45,14 @@ function heights(box, [low, high]) {
   const ys = []
   for (let centre = low; centre <= high + 1e-9; centre += STEP) ys.push(centre - box.h / 2)
   return ys
+}
+
+function nearest(options, box) {
+  return options.reduce((best, option) => (Math.abs(option.y - box.y) < Math.abs(best.y - box.y) ? option : best))
+}
+
+function grow(box, margin) {
+  return { x: box.x - box.w * margin, y: box.y - box.h * margin, w: box.w * (1 + 2 * margin), h: box.h * (1 + 2 * margin) }
 }
 
 function resize(box, scale) {
