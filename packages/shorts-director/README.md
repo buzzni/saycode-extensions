@@ -16,6 +16,7 @@ npx -y @buzzni/shorts-director animatic   # storyboard draft out/draft.mp4
 npx -y @buzzni/shorts-director takes submit && npx -y @buzzni/shorts-director takes wait
 npx -y @buzzni/shorts-director render     # out/final.mp4
 npx -y @buzzni/shorts-director sheet      # out/contact.png
+npx -y @buzzni/shorts-director cover      # out/cover-candidates.png: three moments worth a cover
 npx -y @buzzni/shorts-director post       # out/post.md (per-platform copy) and out/cover.jpg
 npx -y @buzzni/shorts-director voice --variant b && npx -y @buzzni/shorts-director render --variant b   # out/final-b.mp4
 npx -y @buzzni/shorts-director status     # status.md
@@ -73,6 +74,9 @@ npx -y @buzzni/shorts-director status     # status.md
   shows, the sliver of person at that edge is followed down to where it ends; estimated heads are narrowed to the
   largest patch of skin colour inside them, so hair and hats are not counted as face); covering more than 15% of a face or 25% of the subject's middle, or
   touching the side edges, is reported (also in `out/text-check.json`) so the caption can be moved and re-rendered.
+  A caption without a `position` is moved first: when its default spot covers a face or the subject, `render` puts it at
+  the nearest height that does not (shrinking the text only when every height would), between the platform UI and the
+  subtitle band, and prints where it went. A caption with a `position` stays where it was put.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of
   your own works too: `plan.music: { file: "materials/…" }`.
@@ -92,7 +96,10 @@ npx -y @buzzni/shorts-director status     # status.md
   need a `facts` source like the script. `post` writes `out/post.md`; nothing is posted.
 - Cover: `plan.cover: { at, text, emphasis?, label?, position?, look? }` takes the caption-free frame at `at` seconds
   from the last render and draws the text in the hook style, by default inside the centre 3:4 that the Instagram
-  profile grid shows, to `out/cover.jpg`. The cover text gets the same face and subject check as on-screen captions.
+  profile grid shows, to `out/cover.jpg`. The cover text gets the same face and subject check as on-screen captions
+  and, without a `position.y`, the same automatic move inside the grid. `cover` looks at the caption-free cut every half
+  second and shows the three moments with the largest, sharpest detected face (else the main object), apart in time and
+  away from cuts, in `out/cover-candidates.png`.
 - Variants: `plan.variants: [{ id, hypothesis, moments: { <id>: { caption, asides, subtitles } }, narration: { <line>: text }, hook?, post?, cover? }]`
   change only words, so every take is reused. `voice --variant <id>` re-records only the changed lines,
   `render --variant <id>` writes `out/final-<id>.mp4`, `out/viewer-<id>.md` and `out/text-check-<id>.json`, and

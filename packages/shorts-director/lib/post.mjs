@@ -13,7 +13,7 @@ const TAGS_SUGGESTED = 5
 const FIRST_LINE_SHOWN = 40
 const COVER_TEXT_MAX = 16
 // 인스타그램 프로필 격자는 9:16 표지의 가운데 3:4 만 보인다(위아래 약 12.5% 씩 잘림). 글자는 그 안에 둔다.
-const COVER_GRID = [0.2, 0.75]
+export const COVER_GRID = [0.2, 0.75]
 export const COVER_Y = 0.3
 
 export function postIssues(plan) {

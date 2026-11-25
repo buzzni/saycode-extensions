@@ -15,12 +15,12 @@ import { LOOKS } from '../lib/looks.mjs'
 import { changeTempo, detectCuts, extractFrame, probe, rhythmReport, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { postIssues, postMarkdown } from '../lib/post.mjs'
-import { contactSheet, renderCover, renderVideo } from '../lib/render.mjs'
+import { contactSheet, coverCandidates, renderCover, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
 import { applyVariant } from '../lib/variants.mjs'
 import { viewerScript } from '../lib/viewer.mjs'
 
-const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice [--variant ID]|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render [--variant ID]|sheet [--draft|--variant ID]|post [--variant ID]|cuts <file>|status|music|looks|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice [--variant ID]|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render [--variant ID]|sheet [--draft|--variant ID]|cover [--variant ID]|post [--variant ID]|cuts <file>|status|music|looks|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
@@ -35,7 +35,7 @@ const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { init, doctor, check, voice, animatic, takes, render, sheet, post, cuts, status, music, looks }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cover, post, cuts, status, music, looks }
 
 try {
   if (command === '--version' || command === '-v') {
@@ -261,6 +261,9 @@ async function render() {
   console.log(`  컷 ${rhythm.cuts}개(기획 ${rhythm.planned}개) · 가장 긴 장면 ${rhythm.longest.seconds}초(${rhythm.longest.start}~${rhythm.longest.end}초)`)
   if (rhythm.longest.seconds > 4) console.log(`! ${rhythm.longest.start}~${rhythm.longest.end}초가 한 화면으로 ${rhythm.longest.seconds}초 이어진다 — 장면을 나누거나 클로즈업·사진·문구 화면을 끼운다.`)
   if (rhythm.cuts < rhythm.planned * 0.6) console.log('! 기획한 컷보다 실제 컷이 적다 — 이어 찍은 장면이 한 화면처럼 보이는지 확인한다.')
+  for (const entry of result.moved) {
+    console.log(`  자동 배치: ${entry.start}초 "${entry.text}" — 얼굴·주인공을 비켜 위에서 ${entry.from} → ${entry.to}${entry.scale === 1 ? '' : ` (글자 ${Math.round(entry.scale * 100)}%)`}. 그 자리가 싫으면 caption.position 을 적는다`)
+  }
   const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
   for (const entry of result.placement) {
     const issues = entry.problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
@@ -449,6 +452,27 @@ async function sheet() {
   for (let row = 0; row * columns < times.length; row += 1) console.log(`  ${row + 1}행: ${times.slice(row * columns, (row + 1) * columns).map((at) => `${at}초`).join(' · ')}`)
 }
 
+// 표지 후보: 얼굴·주인공이 크고 선명한 순간 셋을 시각과 함께 보인다(out/cover-candidates.png). 하나를 골라 plan.cover.at 에 적는다.
+async function cover() {
+  const cut = await loadCut()
+  const source = await renderedBase(cut)
+  const out = join('out', `cover-candidates${cut.suffix}.png`)
+  const picks = await coverCandidates({ root, plan: cut.plan, config: await loadConfig(root), base: source, out: join(root, out) })
+  if (picks.length === 0) throw new Error('표지로 쓸 만한 얼굴·주인공 장면을 찾지 못했다 — 직접 cover.at 을 고른다')
+  const WHAT = { face: '얼굴', subject: '주인공 사물' }
+  for (const pick of picks) console.log(`· ${pick.at}초 — ${WHAT[pick.kind]} 화면의 ${Math.round(pick.area * 100)}%`)
+  console.log(`✓ ${out} — 셋을 이미지로 보고 영상이 무엇인지(주제 사물·결과) 가장 잘 보이는 순간을 cover.at 에 적는다`)
+}
+
+// 글자를 얹기 전의 조립 화면. 변형도 테이크가 같으니 기본판 조립 결과를 쓸 수 있다.
+async function renderedBase(cut) {
+  for (const name of [`final${cut.suffix}`, 'final']) {
+    const file = join(root, '.work', name, 'base.mp4')
+    if (await exists(file)) return file
+  }
+  throw Object.assign(new Error('표지를 뽑을 조립 결과가 없다 — render 를 먼저 한다'), { exitCode: 2 })
+}
+
 // 올릴 글(out/post.md)과 표지(out/cover.jpg). 게시는 하지 않는다 — 사람이 검수하고 올린다.
 async function post() {
   const cut = await loadCut()
@@ -463,12 +487,9 @@ async function post() {
     console.log(`✓ ${cut.post} — 플랫폼별 제목·설명·해시태그. 검수한 뒤 사람이 올린다`)
   }
   if (plan.cover) {
-    // 표지는 글자를 얹기 전의 화면에서 뽑는다. 변형도 테이크가 같으니 기본판 조립 결과를 쓸 수 있다.
-    const base = [join(root, '.work', `final${cut.suffix}`, 'base.mp4'), join(root, '.work', 'final', 'base.mp4')]
-    const source = (await Promise.all(base.map(exists))).findIndex(Boolean)
-    if (source < 0) throw Object.assign(new Error('표지를 뽑을 조립 결과가 없다 — render 를 먼저 한다'), { exitCode: 2 })
-    const { problems } = await renderCover({ root, plan, config: await loadConfig(root), base: base[source], out: join(root, cut.cover) })
+    const { problems, moved } = await renderCover({ root, plan, config: await loadConfig(root), base: await renderedBase(cut), out: join(root, cut.cover) })
     console.log(`✓ ${cut.cover} — ${plan.cover.at}초 화면에 "${plan.cover.text}". 피드·프로필 격자(가운데 3:4)에서 읽히는지 본다`)
+    if (moved) console.log(`  자동 배치: 표지 문구 — 얼굴·주인공을 비켜 위에서 ${moved.from} → ${moved.to}${moved.scale === 1 ? '' : ` (글자 ${Math.round(moved.scale * 100)}%)`}. 그 자리가 싫으면 cover.position 을 적는다`)
     const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
     const issues = problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
     console.log(issues.length ? `! 표지 문구 "${plan.cover.text}" — ${issues.join(', ')}. cover.position(y·x)이나 look 으로 옮기거나 cover.at 을 바꾸고 post 를 다시 한다.` : '  표지 문구: 얼굴·주인공 가림 없음')

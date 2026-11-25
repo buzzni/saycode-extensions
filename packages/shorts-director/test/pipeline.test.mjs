@@ -152,6 +152,10 @@ test('a variant changes only words: no new take, its own narration, final, viewe
     await run(root, 'sheet', '--variant', 'b')
     assert.ok(await exists(join(root, 'out/contact-b.png')))
 
+    // 가짜 영상(색 막대)에는 얼굴이 없다 — 후보가 있으면 시각이 적힌 그림을, 없으면 직접 고르라는 안내를 낸다.
+    const candidates = await run(root, 'cover').then((result) => result.stdout, (error) => error.stderr)
+    assert.match(candidates, /cover-candidates\.png|직접 cover\.at 을 고른다/)
+
     const post = await run(root, 'post')
     assert.match(post.stdout, /out\/post\.md/)
     assert.match(post.stdout, /표지 문구: 얼굴·주인공 가림 없음/, 'the cover text is checked against faces like on-screen captions')

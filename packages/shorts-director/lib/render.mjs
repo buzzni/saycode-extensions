@@ -12,7 +12,9 @@ import { userConfigDir } from './config.mjs'
 import { ffmpeg, probe, run } from './media.mjs'
 import { SFX_KINDS, sfxEvents } from './sfx.mjs'
 import { materialPath } from './takeState.mjs'
-import { COVER_Y } from './post.mjs'
+import { pickCoverMoments } from './coverPick.mjs'
+import { choosePlacement } from './placement.mjs'
+import { COVER_GRID, COVER_Y } from './post.mjs'
 
 // pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
 const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
@@ -37,7 +39,14 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', base])
 
   const events = [...(mode === 'draft' ? storyboardEvents(plan) : []), ...captionEvents(plan, narration)]
-  const captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
+  let captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
+  let seen = new Map()
+  let moved = []
+  if (mode === 'final') {
+    seen = await lookOnScreen({ base, work, captions, config })
+    moved = autoPlace({ events, captions, seen, config, look: plan.look })
+    if (moved.length) captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
+  }
   const total = segmentsSeconds(plan)
 
   const inputs = []
@@ -75,8 +84,8 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
     '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
     out,
   ])
-  const placement = mode === 'final' ? await checkPlacement({ root, base, work, captions, config, checkFile }) : []
-  return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits, placement }
+  const placement = mode === 'final' ? await checkPlacement({ root, captions, seen, config, checkFile }) : []
+  return { out, seconds: total, captions: captions.length, sounds: sounds.length, edits: framing.edits, placement, moved }
 }
 
 // 표지: 글자를 얹기 전의 조립 화면(base)에서 cover.at 시각의 한 장을 뽑아, 훅 모양의 문구를 얹는다. 등장 동작 없이 한 장만 그린다.
@@ -95,13 +104,59 @@ export async function renderCover({ root, plan, config, base, out }) {
     look: { ...look, entrance: 'none' },
     position: { ...position, y: position?.y ?? COVER_Y },
   }
-  const [caption] = await renderCaptions([event], join(work, 'captions'), config, plan.look)
+  // 화면 문구와 같은 가림 검사를 받는다 — 표지는 한 장이라 그 화면만 본다. 자리를 정하지 않았으면(position.y 없음) 가릴 때
+  // 프로필 격자(가운데 3:4) 안에서 가리지 않는 높이로 옮긴다.
+  const [found] = await findOnScreen([frame], [1], config)
+  let [caption] = await renderCaptions([event], join(work, 'captions'), config, plan.look)
+  let moved
+  if (position?.y === undefined && caption.bounds) {
+    const box = fromTop(caption.bounds, config.width, config.height)
+    const choice = choosePlacement({ box, ...found, range: COVER_GRID })
+    if (choice.moved) {
+      event.position = { ...position, y: Math.round((choice.box.y + choice.box.h / 2) * 1000) / 1000 }
+      if (choice.scale !== 1) event.look = { ...event.look, size: Math.round((designFor(plan.look, 'hook', event.look)?.size ?? 1) * choice.scale * 100) / 100 }
+      moved = { from: Math.round((box.y + box.h / 2) * 100) / 100, to: event.position.y, scale: choice.scale }
+      ;[caption] = await renderCaptions([event], join(work, 'captions'), config, plan.look)
+    }
+  }
   await mkdir(join(root, 'out'), { recursive: true })
   await ffmpeg(['-i', frame, '-i', caption.pattern.replace('%02d', '00'), '-filter_complex', '[0:v][1:v]overlay=0:0', '-frames:v', '1', '-q:v', '2', out])
-  // 화면 문구와 같은 가림 검사를 받는다 — 표지는 한 장이라 그 화면만 본다.
-  const [found] = await findOnScreen([frame], [1], config)
   const problems = caption.bounds ? textProblems({ box: fromTop(caption.bounds, config.width, config.height), ...found }) : []
-  return { out, problems }
+  return { out, problems, moved }
+}
+
+// 표지 후보: 글자 없는 조립 화면을 0.5초마다 보고 얼굴(없으면 주인공 사물)이 크고 선명한 순간 count 개를 골라, 시각을 적은 한 장
+// (out/cover-candidates.png)으로 보인다. 컷 앞뒤는 섞인 화면이라 뺀다(coverPick.mjs).
+const COVER_SAMPLE_EVERY = 0.5
+
+export async function coverCandidates({ root, plan, config, base, out, count = 3 }) {
+  const work = join(root, '.work', 'cover-pick')
+  await rm(work, { recursive: true, force: true })
+  await mkdir(work, { recursive: true })
+  await mkdir(join(work, 'labels'), { recursive: true })
+  // 찾기는 작은 그림으로 한다(위치는 화면 비율이라 같다). 후보 그림은 원래 크기에서 다시 뽑는다.
+  await ffmpeg(['-i', base, '-vf', `fps=${1 / COVER_SAMPLE_EVERY},scale=360:-2`, join(work, 'f-%03d.png')])
+  const { stdout } = await run('ffmpeg', ['-hide_banner', '-v', 'error', '-i', base, '-vf', `fps=${1 / COVER_SAMPLE_EVERY},blurdetect,metadata=mode=print:file=-`, '-f', 'null', '-'])
+  const blurs = [...stdout.matchAll(/lavfi\.blur=([\d.]+)/g)].map((match) => Number(match[1]))
+  const stills = blurs.map((_, index) => join(work, `f-${String(index + 1).padStart(3, '0')}.png`))
+  const found = await findOnScreen(stills, stills.map(() => 1), config)
+  const samples = found.map((seen, index) => ({ at: round(index * COVER_SAMPLE_EVERY), faces: seen.detectedFaces, subjects: seen.subjects, blur: blurs[index] }))
+  const picks = pickCoverMoments(samples, { count, cuts: punchIns(plan).edits })
+  if (picks.length === 0) return picks
+  const labels = await renderCaptions(picks.map((pick) => ({
+    text: `${pick.at}초`, role: 'info', start: 0, end: 1, position: { y: 0.05, x: 'left' }, look: { entrance: 'none', size: 1.5 },
+  })), join(work, 'labels'), config, undefined)
+  const frames = []
+  for (const pick of picks) {
+    frames.push(join(work, `pick-${pick.at}.png`))
+    await ffmpeg(['-ss', String(pick.at), '-i', base, '-frames:v', '1', frames.at(-1)])
+  }
+  const inputs = picks.flatMap((_, index) => ['-i', frames[index], '-i', labels[index].pattern.replace('%02d', '00')])
+  const tiles = picks.map((_, index) => `[${index * 2}:v][${index * 2 + 1}:v]overlay=0:0,scale=360:-2,pad=iw+8:ih:4:0:white[t${index}]`)
+  await mkdir(join(root, 'out'), { recursive: true })
+  const stack = picks.length > 1 ? `${picks.map((_, index) => `[t${index}]`).join('')}hstack=inputs=${picks.length}` : '[t0]null'
+  await ffmpeg([...inputs, '-filter_complex', `${tiles.join(';')};${stack}`, '-frames:v', '1', out])
+  return picks
 }
 
 // 접촉 시트의 칸 시각: 0초부터 every 초 간격. 칸마다 그 시각을 작은 칩으로 적는다 — 시각 없이 칸을 세면 한 칸씩 밀려 1.5초
@@ -377,18 +432,24 @@ async function findOnScreen(stills, sampled, config) {
   return sampled.map((count) => {
     const mine = scenes.slice(next, next + count)
     next += count
-    return { faces: mine.flatMap(faces), subjects: mine.flatMap((scene) => scene.subjects).map((subject) => fromTop(subject)) }
+    return {
+      faces: mine.flatMap(faces),
+      // 어림한 잘린 머리를 뺀, 실제로 감지된 얼굴(표지 후보 고르기용). 가림 검사는 어림한 머리까지 본다.
+      detectedFaces: mine.flatMap((scene) => scene.faces.map((face) => fromTop(face))),
+      subjects: mine.flatMap((scene) => scene.subjects).map((subject) => fromTop(subject)),
+    }
   })
 }
 
-async function checkPlacement({ root, base, work, captions, config, checkFile }) {
-  const placed = captions.filter((caption) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
-  if (placed.length === 0) return []
-  // 문구가 떠 있는 동안 화면이 움직이므로 등장 직후부터 사라지기 직전까지 약 0.8초마다(최대 5장) 본다 — 두 장만 보면
-  // 그 사이에 지나가는 클로즈업을 놓쳤다(리뷰 훅 1.8초).
+// 화면 문구(자막 띠 제외)가 떠 있는 동안의 글자 없는 화면에서 얼굴·주인공 사물을 찾는다. 문구(이벤트 번호)마다 { faces, subjects }.
+// 화면이 움직이므로 등장 직후부터 사라지기 직전까지 약 0.8초마다(최대 5장) 본다 — 두 장만 보면 그 사이에 지나가는 클로즈업을
+// 놓쳤다(리뷰 훅 1.8초).
+async function lookOnScreen({ base, work, captions, config }) {
+  const placed = [...captions.entries()].filter(([, caption]) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
+  if (placed.length === 0) return new Map()
   const stills = []
   const sampled = []
-  for (const [index, caption] of placed.entries()) {
+  for (const [index, caption] of placed) {
     const moments = sampleTimes(caption.start, caption.end)
     sampled.push(moments.length)
     for (const [order, at] of moments.entries()) {
@@ -398,17 +459,36 @@ async function checkPlacement({ root, base, work, captions, config, checkFile })
     }
   }
   const found = await findOnScreen(stills, sampled, config)
-  const report = placed.map((caption, index) => ({
-    text: caption.text,
-    role: caption.role,
-    start: caption.start,
-    box: fromTop(caption.bounds, config.width, config.height),
-    problems: textProblems({
-      box: fromTop(caption.bounds, config.width, config.height),
-      faces: found[index].faces,
-      subjects: found[index].subjects,
-    }),
-  }))
+  return new Map(placed.map(([index], order) => [index, found[order]]))
+}
+
+// 자리를 정하지 않은 문구(position 없음)가 얼굴·주인공을 가리면 가리지 않는 가장 가까운 높이로 옮긴다(placement.mjs).
+// events 의 position·look.size 를 고쳐 두고, 옮긴 것을 돌려준다 — 고친 events 로 글자를 다시 그린다.
+const POSITION_RANGE = [0.08, 0.7]
+
+function autoPlace({ events, captions, seen, config, look }) {
+  const moved = []
+  for (const [index, found] of seen) {
+    const event = events[index]
+    if (event.position !== undefined || event.card) continue
+    const box = fromTop(captions[index].bounds, config.width, config.height)
+    const choice = choosePlacement({ box, ...found, range: POSITION_RANGE })
+    if (!choice.moved) continue
+    event.position = { y: Math.round((choice.box.y + choice.box.h / 2) * 1000) / 1000 }
+    if (choice.scale !== 1) event.look = { ...event.look, size: Math.round((designFor(look, event.role, event.look)?.size ?? 1) * choice.scale * 100) / 100 }
+    moved.push({ text: event.text, start: event.start, from: Math.round((box.y + box.h / 2) * 100) / 100, to: event.position.y, scale: choice.scale })
+  }
+  return moved
+}
+
+// 결과는 out/text-check.json 과 render 출력으로 남기고, 남은 가림은 에이전트가 caption.position·look 으로 옮겨 다시 render 한다.
+async function checkPlacement({ root, captions, seen, config, checkFile }) {
+  const report = [...seen].map(([index, found]) => {
+    const caption = captions[index]
+    const box = fromTop(caption.bounds, config.width, config.height)
+    return { text: caption.text, role: caption.role, start: caption.start, box, problems: textProblems({ box, ...found }) }
+  })
+  if (report.length === 0) return []
   await mkdir(join(root, 'out'), { recursive: true })
   await writeFile(join(root, 'out', checkFile), `${JSON.stringify(report, null, 2)}\n`)
   return report.filter((entry) => entry.problems.length)
