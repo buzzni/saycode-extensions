@@ -95,6 +95,14 @@ test('narration subtitles change in one-line pieces of about fifteen characters,
   assert.deepEqual(long.map((piece) => piece.text), ['미니 건조대는 창가에 세워 걸고', '다 마르면 납작하게 접어 틈새에 쏙'], 'a one-syllable word goes with the word it modifies')
 })
 
+test('a decimal point or a thousands comma inside a number never splits a subtitle piece', () => {
+  const pieces = subtitleChunks({ text: '데이터라이즈 집계로 ROAS 2.8배, 일반 캠페인 대비요.', start: 0, end: 4 })
+  assert.ok(pieces.some((piece) => piece.text.includes('2.8배')), JSON.stringify(pieces.map((piece) => piece.text)))
+  assert.ok(pieces.every((piece) => !/\d[.,]$/.test(piece.text)), 'no piece ends on a number cut in half')
+  const thousands = subtitleChunks({ text: '구매 위험 고객 12,985명에게 보냈어요.', start: 0, end: 3 })
+  assert.ok(thousands.some((piece) => piece.text.includes('12,985명')), JSON.stringify(thousands.map((piece) => piece.text)))
+})
+
 test('captions carry their look: boxed hook with an emphasised word and a label, a chip for info, one-line subtitles low in the frame', () => {
   const size = { width: 1080, height: 1920 }
   const events = captionEvents({ moments: [

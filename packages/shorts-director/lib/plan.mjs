@@ -151,10 +151,26 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     warn('ending.tail', '구독·좋아요 요청으로 마무리하지 않는다 — 감정이 가장 높은 지점에서 자른다.', last.id)
   }
 
+  checkBrand(plan, warn)
   issues.push(...postIssues(plan))
   checkVariants(plan, take, issues)
 
   return { ok: !issues.some((issue) => issue.level === 'error'), issues }
+}
+
+// 제품·서비스 영상은 브랜드 이름을 말로 두 번 넘게 들려준다 — 블라인드 비교에서 이름이 한 번도 들리지 않은 영상이
+// 브랜드 기억 4/10 을 받았고(상대 8), 점검 의견을 고치다 이름이 빠진 것이었다. 화면 글자는 말로 치지 않는다.
+// plan.brand 는 이름 하나, 또는 { name, spoken: [읽는 형태…] } (영문 이름을 한글로 읽을 때).
+const BRAND_SPOKEN_MIN = 2
+
+function checkBrand(plan, warn) {
+  if (!plan.brand) return
+  const forms = typeof plan.brand === 'string' ? [plan.brand] : [plan.brand.name, ...(plan.brand.spoken ?? [])].filter(Boolean)
+  const spoken = [...(plan.narration ?? []).map((line) => line.text), ...(plan.moments ?? []).flatMap((moment) => (moment.dialogue ?? []).map((line) => line.text))]
+  const count = spoken.reduce((sum, text) => sum + forms.reduce((found, form) => found + String(text ?? '').split(String(form)).length - 1, 0), 0)
+  if (count < BRAND_SPOKEN_MIN) {
+    warn('brand.mentions', `브랜드 이름(${forms.join('·')})이 말로 ${count}번 들린다 — 훅 근처와 끝(CTA)에서 한 번씩, 두 번 넘게 말한다. 화면 글자만으로는 기억에 남지 않는다.`)
+  }
 }
 
 // 변형마다 합친 판을 기획처럼 검증하고, 기획 자체에 이미 있는 문제는 빼고 그 변형이 새로 만든 것만 알린다.

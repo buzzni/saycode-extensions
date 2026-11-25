@@ -316,3 +316,22 @@ test('total length far from the target is flagged', () => {
   plan.target_seconds = 60
   assert.ok(codes(plan).includes('length.target'))
 })
+
+test('a product video names its brand out loud at least twice, so viewers remember what it was', () => {
+  const plan = goodPlan()
+  plan.brand = '데이터라이즈'
+  assert.ok(codes(plan).includes('brand.mentions'), 'brand never spoken')
+  plan.narration = [
+    { text: '데이터라이즈 에이전트한테 한 줄만 물으면 돼요.', moment: 'm1' },
+    { text: '데이터라이즈, 30일 무료예요.', moment: 'm7' },
+  ]
+  assert.ok(!codes(plan).includes('brand.mentions'))
+  // 화면 글자는 말로 치지 않는다 — 소리로 들려야 기억에 남는다. 대사(dialogue)는 센다.
+  plan.narration = [{ text: '한 줄만 물으면 돼요.', moment: 'm1' }]
+  plan.moments[0].caption = { text: '데이터라이즈', role: 'hook' }
+  plan.moments[1].dialogue = [{ speaker: 'She', text: '데이터라이즈 써 봤어?' }]
+  assert.ok(codes(plan).includes('brand.mentions'), 'one spoken mention is not enough')
+  plan.brand = { name: 'Datarize', spoken: ['데이터라이즈'] }
+  plan.moments[2].dialogue = [{ speaker: 'He', text: '응, 데이터라이즈.' }]
+  assert.ok(!codes(plan).includes('brand.mentions'), 'spoken forms of a latin brand name count')
+})
