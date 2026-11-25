@@ -327,6 +327,30 @@ function sampleTimes(start, end) {
   return Array.from({ length: count }, (_, index) => (count === 1 ? first : first + ((last - first) * index) / (count - 1)))
 }
 
+// AppKit 좌표(아래에서 잰 픽셀)를 위에서 잰 0~1 비율로.
+function fromTop(rect, width = 1, height = 1) {
+  return { x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height }
+}
+
+// 글자 없는 화면 여러 장에서 얼굴·주인공 사물을 찾는다. sampled 는 문구마다 몇 장을 봤는지 — 문구마다 { faces, subjects } 를 돌려준다.
+async function findOnScreen(stills, sampled, config) {
+  const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
+  const scenes = JSON.parse(stdout)
+  await findMirroredFaces(scenes, stills, fromTop)
+  // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변·옆 가장자리에 닿아 잘린 것으로 보이는 머리를 함께 본다.
+  const faces = (scene) => {
+    const detected = [...scene.faces.map((face) => fromTop(face)), ...(scene.mirrored ?? [])]
+    const hands = (scene.hands ?? []).map((hand) => fromTop(hand))
+    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands, skin: scene.skin })]
+  }
+  let next = 0
+  return sampled.map((count) => {
+    const mine = scenes.slice(next, next + count)
+    next += count
+    return { faces: mine.flatMap(faces), subjects: mine.flatMap((scene) => scene.subjects).map((subject) => fromTop(subject)) }
+  })
+}
+
 async function checkPlacement({ root, base, work, captions, config, checkFile }) {
   const placed = captions.filter((caption) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
   if (placed.length === 0) return []
@@ -343,22 +367,7 @@ async function checkPlacement({ root, base, work, captions, config, checkFile })
       stills.push(still)
     }
   }
-  const { stdout } = await run('osascript', ['-l', 'JavaScript', VISION, ...stills])
-  const scenes = JSON.parse(stdout)
-  const fromTop = (rect, width = 1, height = 1) => ({ x: rect.x / width, y: 1 - (rect.y + rect.h) / height, w: rect.w / width, h: rect.h / height })
-  await findMirroredFaces(scenes, stills, fromTop)
-  // 얼굴은 감지된 것과, 감지되지 않았지만 사람 영역이 화면 윗변·옆 가장자리에 닿아 잘린 것으로 보이는 머리를 함께 본다.
-  const faces = (scene) => {
-    const detected = [...scene.faces.map((face) => fromTop(face)), ...(scene.mirrored ?? [])]
-    const hands = (scene.hands ?? []).map((hand) => fromTop(hand))
-    return [...detected, ...croppedHeads(scene.person, detected, { aspect: config.width / config.height, hands, skin: scene.skin })]
-  }
-  let next = 0
-  const found = sampled.map((count) => {
-    const mine = scenes.slice(next, next + count)
-    next += count
-    return { faces: mine.flatMap(faces), subjects: mine.flatMap((scene) => scene.subjects).map((subject) => fromTop(subject)) }
-  })
+  const found = await findOnScreen(stills, sampled, config)
   const report = placed.map((caption, index) => ({
     text: caption.text,
     role: caption.role,
