@@ -63,6 +63,15 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
     error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
   }
 
+  if (plan.subtitle_look !== undefined) {
+    const problems = designProblems(plan.subtitle_look, FONTS.map((font) => font.name))
+    if (problems.length) error('subtitle_look', `자막 look: ${problems.join(' · ')}`)
+    else {
+      const unreadable = readability(designFor(plan.look, 'narration', plan.subtitle_look))
+      if (unreadable) warn('subtitle_look.contrast', `자막: ${unreadable}`)
+    }
+  }
+
   for (const moment of plan.moments ?? []) {
     const placed = [
       ...(moment.caption ? [{ ...moment.caption, role: moment.caption.role ?? 'title' }] : []),

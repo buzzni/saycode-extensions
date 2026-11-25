@@ -68,6 +68,8 @@ npx -y @buzzni/shorts-director status     # status.md
   narration subtitles change in one-line pieces of about fifteen characters timed to the speech. Fonts are Korean
   SIL OFL fonts (Pretendard and Google Fonts `ofl/`, pinned by checksum) downloaded to `~/.config/shorts-director/fonts/`;
   without them the system font is used. Every look keeps text-on-box contrast at 4.5:1 or more.
+- `plan.subtitle_look` overrides the look for narration and dialogue subtitles only (for example a translucent
+  `fill` plate so subtitles stay readable over a full-screen screenshot); `check` validates it like a caption look.
 - One caption can differ from its look: `caption.look` overrides font, colours, box, outline, size or entrance, and
   `caption.position` moves it (`y` from the top, `x` left/center/right); `check` refuses unknown fonts and unreadable
   colours. After `render`, each on-screen caption's drawn box is compared with the faces and the main subject that

@@ -145,6 +145,8 @@ export function captionBox(event, { width, height }) {
 
 export function captionEvents(plan, narration = []) {
   const events = []
+  // plan.subtitle_look: 자막(내레이션·대사)만 묶음 디자인을 덮어쓴다 — 화면 가득한 캡처 위에서도 읽히게 판(fill)을 까는 데 쓴다.
+  const subtitleLook = plan.subtitle_look ? { look: plan.subtitle_look } : {}
   let cursor = 0
   for (const moment of plan.moments ?? []) {
     const start = cursor
@@ -176,13 +178,13 @@ export function captionEvents(plan, narration = []) {
     }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))
-      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)) })
+      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)), ...subtitleLook })
     }
     cursor = end
   }
   if (plan.subtitles !== false) {
     for (const line of narration) {
-      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end })
+      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end, ...subtitleLook })
     }
   }
   return events

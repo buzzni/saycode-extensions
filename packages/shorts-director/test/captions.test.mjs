@@ -167,3 +167,11 @@ test('a caption can be placed by hand: vertical centre as a share of the height 
   assert.ok(Math.abs(centreFromTop - 0.18) < 0.01, `centre at 18% (${centreFromTop})`)
   assert.equal(box.align, 'left')
 })
+
+test('plan.subtitle_look puts a plate under every narration and dialogue subtitle, so a full-screen screenshot stays readable', () => {
+  const plan = { subtitle_look: { fill: '#000000B3', shape: 'rounded' }, moments: [{ id: 'm1', seconds: 3, subtitles: [{ text: '대사', at: 0, seconds: 1 }] }] }
+  const events = captionEvents(plan, [{ text: '말 한 줄.', start: 0, end: 1 }])
+  for (const role of ['narration', 'dialogue']) {
+    assert.deepEqual(events.find((event) => event.role === role).look, { fill: '#000000B3', shape: 'rounded' }, role)
+  }
+})

@@ -355,3 +355,11 @@ test('a hook tournament: up to eight options, conflict and reaction mechanisms, 
   plan.hook.options.push({ line: 'g', mechanism: 'gap', question: 'h?' })
   assert.ok(codes(plan).includes('hook.options'), 'more than eight is too many to judge')
 })
+
+test('subtitle_look is checked like a caption look', () => {
+  const plan = goodPlan()
+  plan.subtitle_look = { fill: 'navy' }
+  assert.ok(codes(plan).includes('subtitle_look'))
+  plan.subtitle_look = { fill: '#000000B3' }
+  assert.ok(!codes(plan).includes('subtitle_look'))
+})
