@@ -16,6 +16,9 @@ npx -y @buzzni/shorts-director animatic   # storyboard draft out/draft.mp4
 npx -y @buzzni/shorts-director takes submit && npx -y @buzzni/shorts-director takes wait
 npx -y @buzzni/shorts-director render     # out/final.mp4
 npx -y @buzzni/shorts-director sheet      # out/contact.png
+npx -y @buzzni/shorts-director cover      # out/cover-candidates.png: three moments worth a cover
+npx -y @buzzni/shorts-director post       # out/post.md (per-platform copy) and out/cover.jpg
+npx -y @buzzni/shorts-director voice --variant b && npx -y @buzzni/shorts-director render --variant b   # out/final-b.mp4
 npx -y @buzzni/shorts-director status     # status.md
 ```
 
@@ -50,7 +53,9 @@ npx -y @buzzni/shorts-director status     # status.md
   connection never generates the same take twice.
 - `moments[].from` chains a take from the previous take's last frame — the reliable way to keep the same person.
 - Narration is trimmed of leading, trailing and long inner silences, sped up toward 6.5 syllables a second (at most
-  1.25x) and measured before it is laid out 0.1 seconds apart. `voice` reports scenes that run well past their
+  1.25x) and measured before it is laid out 0.1 seconds apart. A line whose text, voice and tempo settings did not
+  change keeps its recording (TTS length varies a lot between takes of the same sentence), so editing one line does
+  not move the others; `voice --fresh` records every line again and `voice --fresh 0,3` only those lines. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated, and lines that run on into the next scene's own line
   (their subtitle would end over the next scene).
 - Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
@@ -69,6 +74,9 @@ npx -y @buzzni/shorts-director status     # status.md
   shows, the sliver of person at that edge is followed down to where it ends; estimated heads are narrowed to the
   largest patch of skin colour inside them, so hair and hats are not counted as face); covering more than 15% of a face or 25% of the subject's middle, or
   touching the side edges, is reported (also in `out/text-check.json`) so the caption can be moved and re-rendered.
+  A caption without a `position` is moved first: when its default spot covers a face or the subject, `render` puts it at
+  the nearest height that does not (shrinking the text only when every height would), between the platform UI and the
+  subtitle band, and prints where it went. A caption with a `position` stays where it was put.
 - Background music: `shorts-director music` lists public-domain (CC0) tracks from FreePD.com; `plan.music: { track }`
   downloads one to `~/.config/shorts-director/music/` on first render (checked by sha256) and levels it. A file of
   your own works too: `plan.music: { file: "materials/…" }`.
@@ -78,3 +86,23 @@ npx -y @buzzni/shorts-director status     # status.md
 - The final frame rate follows the generated video, so no frame is shown twice. Takes chained with `from` alternate
   between 1.0x and 1.15x framing at every planned shot (punch-in), and `render` reports the real cut count and the
   longest unbroken stretch.
+- `sheet` labels every tile of the contact sheet with its time and prints the grid, so a reviewer never miscounts tiles.
+- Every `render` also writes `out/viewer.md`: shot by shot, the planned picture, the words on screen and what is heard,
+  with no intent or reasoning — what a fresh reviewer gets together with the contact sheet to judge the finished cut.
+- Post copy: `plan.post` holds the title, description or caption and hashtags for `shorts`, `reels` and `tiktok`.
+  `check` refuses what the upload forms refuse (Shorts title over 100 characters or more than 15 hashtags — YouTube
+  ignores them all —, more than 5 Reels hashtags, captions over 2,200 / 4,000 characters) and warns about a Shorts
+  title over about 40 characters or a Reels/TikTok first line over 40 (both cut off in the feed). Numbers in the copy
+  need a `facts` source like the script. `post` writes `out/post.md`; nothing is posted.
+- Cover: `plan.cover: { at, text, emphasis?, label?, position?, look? }` takes the caption-free frame at `at` seconds
+  from the last render and draws the text in the hook style, by default inside the centre 3:4 that the Instagram
+  profile grid shows, to `out/cover.jpg`. The cover text gets the same face and subject check as on-screen captions
+  and, without a `position.y`, the same automatic move inside the grid. `cover` looks at the caption-free cut every half
+  second and shows the three moments with the largest, sharpest detected face (else the main object), apart in time and
+  away from cuts, in `out/cover-candidates.png`.
+- Variants: `plan.variants: [{ id, hypothesis, moments: { <id>: { caption, asides, subtitles } }, narration: { <line>: text }, hook?, post?, cover? }]`
+  change only words, so every take is reused. `voice --variant <id>` re-records only the changed lines,
+  `render --variant <id>` writes `out/final-<id>.mp4`, `out/viewer-<id>.md` and `out/text-check-<id>.json`, and
+  `sheet`/`post --variant <id>` follow. `check` refuses a variant that touches a take field and needs a hypothesis;
+  it warns when a variant changes more than one scene (compare one thing at a time) and checks the merged plan,
+  reporting only what the variant adds.

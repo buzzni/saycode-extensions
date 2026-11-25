@@ -91,8 +91,10 @@ test('the full pipeline renders a draft and a final short with fake backends', {
     const placement = JSON.parse(await readFile(join(root, 'out/text-check.json'), 'utf8'))
     assert.ok(placement.length >= 1 && placement.every((entry) => entry.box.w > 0 && entry.box.h > 0), 'every on-screen caption has its drawn box measured')
 
-    await run(root, 'sheet')
+    const sheet = await run(root, 'sheet')
     assert.ok(await exists(join(root, 'out/contact.png')))
+    assert.match(sheet.stdout, /칸마다 시각/, 'every tile is labelled with its time')
+    assert.match(sheet.stdout, /1행: 0초 · 1\.5초 · 3초/)
 
     await run(root, 'status')
     const status = await readFile(join(root, 'status.md'), 'utf8')
@@ -101,6 +103,115 @@ test('the full pipeline renders a draft and a final short with fake backends', {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('a variant changes only words: no new take, its own narration, final, viewer script, contact sheet, post copy and cover', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 300_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-variant-'))
+  try {
+    await mkdir(join(root, 'materials'), { recursive: true })
+    await mkdir(join(root, 'config'), { recursive: true })
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=orange:s=640x960', '-frames:v', '1', join(root, 'materials/photo.png')])
+    const withVariant = plan()
+    withVariant.post = { shorts: { title: '우산 없이 나온 날', text: '비 오는 퇴근길.', tags: ['퇴근길', '우산'] } }
+    withVariant.cover = { at: 1, text: '우산 없이 나온 날', emphasis: '우산' }
+    withVariant.variants = [{
+      id: 'b',
+      hypothesis: '손실형 첫 문장이 질문형보다 덜 넘긴다',
+      hook: 1,
+      moments: { m1: { caption: { text: '우산 없으면 손해', role: 'hook' } } },
+      narration: { 0: '우산 없으면 매일 손해예요.' },
+      post: { shorts: { title: '우산 없으면 손해', text: '비 오는 퇴근길.', tags: ['우산'] } },
+    }]
+    await writeFile(join(root, 'plan.json'), JSON.stringify(withVariant, null, 2))
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+
+    assert.match((await run(root, 'check')).stdout, /오류 0/)
+    await run(root, 'voice')
+    const variantVoice = await run(root, 'voice', '--variant', 'b')
+    assert.match(variantVoice.stdout, /↺ 01/, 'an unchanged line reuses the base recording')
+    const narration = JSON.parse(await readFile(join(root, 'audio/variants/b/narration.json'), 'utf8'))
+    assert.equal(narration.lines[0].text, '우산 없으면 매일 손해예요.')
+    assert.match(narration.lines[0].file, /audio\/variants\/b\//)
+    assert.match(narration.lines[1].file, /audio\/narration\//)
+
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    const jobs = (await run(root, 'takes', 'status')).stdout.trim().split('\n')
+    await run(root, 'render')
+    const rendered = await run(root, 'render', '--variant', 'b')
+    assert.match(rendered.stdout, /out\/final-b\.mp4/)
+    assert.match(rendered.stdout, /손실형 첫 문장이 질문형보다 덜 넘긴다/, 'the variant restates what it tests')
+    assert.deepEqual((await run(root, 'takes', 'status')).stdout.trim().split('\n'), jobs, 'no take was submitted for the variant')
+    const final = await probe(join(root, 'out/final-b.mp4'))
+    assert.ok(Math.abs(Number(final.format.duration) - 12) < 0.3, `variant duration ${final.format.duration}`)
+    assert.ok(await exists(join(root, 'out/text-check-b.json')))
+    assert.match(await readFile(join(root, 'out/viewer.md'), 'utf8'), /우산 없이 나왔다/)
+    const viewer = await readFile(join(root, 'out/viewer-b.md'), 'utf8')
+    assert.match(viewer, /우산 없으면 손해/)
+    assert.match(viewer, /out\/contact-b\.png/)
+
+    await run(root, 'sheet', '--variant', 'b')
+    assert.ok(await exists(join(root, 'out/contact-b.png')))
+
+    // 가짜 영상(색 막대)에는 얼굴이 없다 — 후보가 있으면 시각이 적힌 그림을, 없으면 직접 고르라는 안내를 낸다.
+    const candidates = await run(root, 'cover').then((result) => result.stdout, (error) => error.stderr)
+    assert.match(candidates, /cover-candidates\.png|직접 cover\.at 을 고른다/)
+
+    const post = await run(root, 'post')
+    assert.match(post.stdout, /out\/post\.md/)
+    assert.match(post.stdout, /표지 문구: 얼굴·주인공 가림 없음/, 'the cover text is checked against faces like on-screen captions')
+    assert.match(await readFile(join(root, 'out/post.md'), 'utf8'), /제목: 우산 없이 나온 날[\s\S]*#퇴근길 #우산/)
+    const cover = await probe(join(root, 'out/cover.jpg'))
+    assert.deepEqual([cover.streams[0].width, cover.streams[0].height], [270, 480])
+    assert.ok(await differingShare(join(root, 'out/cover.jpg'), join(root, '.work/cover/frame.png')) > 0.02, 'the cover text is drawn over the frame')
+    await run(root, 'post', '--variant', 'b')
+    assert.match(await readFile(join(root, 'out/post-b.md'), 'utf8'), /제목: 우산 없으면 손해[\s\S]*out\/cover-b\.jpg/)
+    assert.ok(await exists(join(root, 'out/cover-b.jpg')))
+
+    await run(root, 'status')
+    assert.match(await readFile(join(root, 'status.md'), 'utf8'), /변형 b[\s\S]*out\/final-b\.mp4/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('voice keeps a recording whose line did not change, and --fresh records again', { skip: !canRender && 'needs ffmpeg', timeout: 120_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-voice-'))
+  try {
+    await mkdir(join(root, 'config'), { recursive: true })
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+    const script = plan()
+    await writeFile(join(root, 'plan.json'), JSON.stringify(script, null, 2))
+    assert.match((await run(root, 'voice')).stdout, /✓ 00[\s\S]*✓ 01/)
+    const first = JSON.parse(await readFile(join(root, 'audio/narration.json'), 'utf8')).lines
+
+    const again = await run(root, 'voice')
+    assert.match(again.stdout, /↺ 00 .*이전 녹음[\s\S]*↺ 01 /, 'nothing changed, nothing is recorded again')
+    assert.deepEqual(JSON.parse(await readFile(join(root, 'audio/narration.json'), 'utf8')).lines.map((line) => line.file), first.map((line) => line.file))
+
+    script.narration[1].text = '오늘이 바로 그날이에요.'
+    await writeFile(join(root, 'plan.json'), JSON.stringify(script, null, 2))
+    const edited = await run(root, 'voice')
+    assert.match(edited.stdout, /↺ 00 [\s\S]*✓ 01 /, 'only the edited line is recorded')
+    const lines = JSON.parse(await readFile(join(root, 'audio/narration.json'), 'utf8')).lines
+    assert.equal(lines[0].file, first[0].file)
+    assert.notEqual(lines[1].file, first[1].file, 'a new recording never overwrites one that is still in use')
+    assert.ok(await exists(join(root, lines[1].file)))
+
+    assert.match((await run(root, 'voice', '--fresh', '0')).stdout, /✓ 00 [\s\S]*↺ 01 /, '--fresh <line> records that line again')
+    assert.match((await run(root, 'voice', '--fresh')).stdout, /✓ 00 [\s\S]*✓ 01 /, '--fresh records every line again')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+// 두 그림에서 눈에 띄게(32 단계 넘게) 다른 화소의 비율.
+async function differingShare(left, right) {
+  const gray = async (file) => (await exec('ffmpeg', ['-v', 'error', '-i', file, '-frames:v', '1', '-vf', 'format=gray', '-f', 'rawvideo', '-'], { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 })).stdout
+  const [a, b] = await Promise.all([gray(left), gray(right)])
+  let differ = 0
+  for (let index = 0; index < a.length; index += 1) if (Math.abs(a[index] - b[index]) > 32) differ += 1
+  return differ / a.length
+}
 
 // 카드 배경(어두운 단색) 위 가장 밝은 화소 — 글자가 있으면 흰색에 가깝다.
 async function brightestAt(file, seconds) {

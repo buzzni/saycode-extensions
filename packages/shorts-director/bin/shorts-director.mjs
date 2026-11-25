@@ -14,10 +14,13 @@ import { JobStore } from '../lib/jobs.mjs'
 import { LOOKS } from '../lib/looks.mjs'
 import { changeTempo, detectCuts, extractFrame, probe, rhythmReport, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
-import { contactSheet, renderVideo } from '../lib/render.mjs'
+import { postIssues, postMarkdown } from '../lib/post.mjs'
+import { contactSheet, coverCandidates, renderCover, renderVideo } from '../lib/render.mjs'
 import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeState.mjs'
+import { applyVariant } from '../lib/variants.mjs'
+import { viewerScript } from '../lib/viewer.mjs'
 
-const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render|sheet [--draft]|cuts <file>|status|music|looks|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice [--variant ID]|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render [--variant ID]|sheet [--draft|--variant ID]|cover [--variant ID]|post [--variant ID]|cuts <file>|status|music|looks|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
@@ -32,7 +35,7 @@ const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cuts, status, music, looks }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cover, post, cuts, status, music, looks }
 
 try {
   if (command === '--version' || command === '-v') {
@@ -162,26 +165,48 @@ async function check() {
 }
 
 async function voice() {
-  const plan = await loadPlan()
+  const cut = await loadCut()
+  // 글·목소리·빠르기 설정이 같은 줄은 다시 읽지 않는다. TTS 는 같은 문장도 읽을 때마다 길이가 크게 달라(실측 2.8~6.9초) 한 줄을
+  // 고칠 때마다 전부 다시 읽으면 맞춰 둔 다른 줄이 흔들린다. 변형은 기본판 녹음도 쓴다. --fresh [줄,줄] 은 그 줄(없으면 전부)을 새로 읽는다.
+  const previous = async (file) => readFile(join(root, file), 'utf8').then((text) => JSON.parse(text).lines ?? [], () => [])
+  const reuse = [...await previous(cut.narrationFile), ...(cut.id ? await previous(join('audio', 'narration.json')) : [])]
+  const fresh = optionValue('--fresh')
+  const again = !flags.has('--fresh') ? new Set() : /^\d+(,\d+)*$/.test(fresh ?? '') ? new Set(fresh.split(',').map(Number)) : 'all'
+  await recordNarration(cut.plan, { directory: cut.voiceDirectory, output: cut.narrationFile, reuse: again === 'all' ? [] : reuse, again: again === 'all' ? new Set() : again })
+}
+
+// 내레이션을 읽어 침묵을 자르고 빠르기를 맞춘 뒤 실측 길이로 배치한다. directory 에 줄마다 wav, output 에 배치(JSON)를 쓴다.
+// reuse 의 녹음 중 같은 voice 키(글·목소리·설정)인 것은 다시 읽지 않는다. again 의 줄 번호는 키가 같아도 새로 읽는다.
+async function recordNarration(plan, { directory, output, reuse = [], again = new Set() }) {
   const config = await loadConfig(root)
   const tts = config.fake ? {} : await loadTts(root)
   const speak = config.fake ? fakeSpeech : qwenSpeech({ baseUrl: tts.url, token: tts.token })
-  await mkdir(join(root, 'audio', 'narration'), { recursive: true })
+  await mkdir(join(root, directory), { recursive: true })
   const measured = []
   for (const [index, line] of (plan.narration ?? []).entries()) {
     const name = String(index).padStart(2, '0')
-    const raw = join(root, 'audio', 'narration', `${name}.raw.wav`)
-    const file = join('audio', 'narration', `${name}.wav`)
-    await speak(raw, { text: line.text, language: config.voice.language, speaker: line.speaker ?? config.voice.speaker })
-    const tight = join(root, 'audio', 'narration', `${name}.tight.wav`)
+    const minStart = line.moment ? momentStart(plan, line.moment) + config.voice.start : undefined
+    const speaker = line.speaker ?? config.voice.speaker
+    const key = sha256(JSON.stringify([line.text, speaker, config.voice.language, config.voice.syllablesPerSecond, config.voice.maxTempo])).slice(0, 12)
+    const same = again.has(index) ? undefined : await firstExisting(reuse.filter((entry) => entry.voice === key))
+    if (same) {
+      measured.push({ text: line.text, file: same.file, seconds: same.seconds, tempo: same.tempo, voice: key, ...(line.moment ? { moment: line.moment } : {}), ...(minStart === undefined ? {} : { minStart }) })
+      console.log(`↺ ${name} ${same.seconds}초 (${same.file.startsWith(directory) ? '이전 녹음' : '기본판 녹음'}) — ${line.text}`)
+      continue
+    }
+    // 파일 이름에 키를 넣는다 — 줄 순서가 바뀌어도 아직 쓰는 다른 줄의 녹음을 덮어쓰지 않게.
+    const raw = join(root, directory, `${name}-${key}.raw.wav`)
+    const file = join(directory, `${name}-${key}${again.has(index) ? `-${Date.now().toString(36)}` : ''}.wav`)
+    await speak(raw, { text: line.text, language: config.voice.language, speaker })
+    const tight = join(root, directory, `${name}-${key}.tight.wav`)
     await tightenSpeech(raw, tight)
     const tempo = speechTempo(line.text, (await probe(tight)).duration, { target: config.voice.syllablesPerSecond, max: config.voice.maxTempo })
     await changeTempo(tight, join(root, file), tempo)
     await rm(tight, { force: true })
-    const minStart = line.moment ? momentStart(plan, line.moment) + config.voice.start : undefined
     measured.push({
       text: line.text,
       file,
+      voice: key,
       seconds: Math.round((await probe(join(root, file))).duration * 1000) / 1000,
       tempo: Math.round(tempo * 100) / 100,
       ...(line.moment ? { moment: line.moment } : {}),
@@ -192,7 +217,7 @@ async function voice() {
   const lines = layoutNarration(measured, { start: config.voice.start, gap: config.voice.gap })
   const total = planSeconds(plan)
   const end = lines.at(-1)?.end ?? 0
-  await writeFile(join(root, 'audio', 'narration.json'), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
+  await writeFile(join(root, output), `${JSON.stringify({ lines, end, videoSeconds: total }, null, 2)}\n`)
   console.log(`✓ 내레이션 ${lines.length}줄 · 끝 ${end}초 / 영상 ${total}초`)
   for (const scene of scenesLongerThanSpeech(plan, lines)) {
     console.log(`! ${scene.id} 장면이 말보다 ${scene.idle}초 길다 — 빈 소리 구간이 된다. 테이크를 만들기 전에 장면을 줄이거나 말을 늘린다.`)
@@ -210,16 +235,24 @@ async function animatic() {
 }
 
 async function render() {
-  const plan = await loadPlan()
+  const cut = await loadCut()
+  const plan = cut.plan
   const config = await loadConfig(root)
   const entries = await resolveTakes(root, plan, config, await new JobStore(root).list())
   const missing = [...entries.values()].filter((entry) => !entry.done).map((entry) => entry.moment.id)
   if (missing.length) throw Object.assign(new Error(`지금 기획에 맞는 테이크가 아직 없다: ${missing.join(', ')} — takes submit / takes wait 를 먼저 한다`), { exitCode: 2 })
   // takes/ 의 파일이 지금 기획의 결과가 아니면(다른 버전) 그 작업의 결과로 되돌린다.
   for (const entry of entries.values()) await placeTake(entry.moment.id, entry.done)
-  const out = join(root, 'out', 'final.mp4')
-  const result = await renderVideo({ root, plan, config, mode: 'final', narration: await loadNarration(), out })
-  console.log(`✓ 완성본 ${result.seconds}초 → out/final.mp4 (검수 대기) · 효과음 ${result.sounds}개${plan.music ? '' : ' · 배경음 없음(plan.music)'}`)
+  if (cut.id && plan.narration?.length && !await exists(join(root, cut.narrationFile))) {
+    throw Object.assign(new Error(`${cut.label} 의 내레이션이 없다 — voice --variant ${cut.id} 를 먼저 한다`), { exitCode: 2 })
+  }
+  const narration = await loadNarration(cut.narrationFile)
+  const result = await renderVideo({ root, plan, config, mode: 'final', narration, out: join(root, cut.final), name: `final${cut.suffix}`, checkFile: `text-check${cut.suffix}.json` })
+  console.log(`✓ ${cut.label} ${result.seconds}초 → ${cut.final} (검수 대기) · 효과음 ${result.sounds}개${plan.music ? '' : ' · 배경음 없음(plan.music)'}`)
+  if (cut.hypothesis) console.log(`  비교할 것: ${cut.hypothesis}`)
+  await writeFile(join(root, cut.viewer), viewerScript(plan, narration, { label: cut.label, sheet: cut.sheet }))
+  console.log(`  ${cut.viewer} — 시청자에게 닿는 것(시간순 화면·글자·말). sheet 로 ${cut.sheet} 를 만든 뒤 완성본 시청자 점검에 함께 넘긴다`)
+  const out = join(root, cut.final)
   const planned = plan.moments.reduce((sum, moment) => sum + Math.max(1, (moment.shots ?? []).length), 0) - 1
   // 펀치인은 장면 점수가 낮아(실측 0.08~0.22) 감지 기준 0.3 에 걸리지 않는다 — 렌더러가 넣은 컷을 합쳐 센다.
   const detected = await detectCuts(out)
@@ -228,10 +261,13 @@ async function render() {
   console.log(`  컷 ${rhythm.cuts}개(기획 ${rhythm.planned}개) · 가장 긴 장면 ${rhythm.longest.seconds}초(${rhythm.longest.start}~${rhythm.longest.end}초)`)
   if (rhythm.longest.seconds > 4) console.log(`! ${rhythm.longest.start}~${rhythm.longest.end}초가 한 화면으로 ${rhythm.longest.seconds}초 이어진다 — 장면을 나누거나 클로즈업·사진·문구 화면을 끼운다.`)
   if (rhythm.cuts < rhythm.planned * 0.6) console.log('! 기획한 컷보다 실제 컷이 적다 — 이어 찍은 장면이 한 화면처럼 보이는지 확인한다.')
+  for (const entry of result.moved) {
+    console.log(`  자동 배치: ${entry.start}초 "${entry.text}" — 얼굴·주인공을 비켜 위에서 ${entry.from} → ${entry.to}${entry.scale === 1 ? '' : ` (글자 ${Math.round(entry.scale * 100)}%)`}. 그 자리가 싫으면 caption.position 을 적는다`)
+  }
   const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
   for (const entry of result.placement) {
     const issues = entry.problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
-    console.log(`! ${entry.start}초 "${entry.text}" — ${issues.join(', ')}. caption.position(y·x)이나 look 으로 옮기고 render 를 다시 한다(out/text-check.json).`)
+    console.log(`! ${entry.start}초 "${entry.text}" — ${issues.join(', ')}. caption.position(y·x)이나 look 으로 옮기고 render 를 다시 한다(out/text-check${cut.suffix}.json).`)
   }
   if (result.placement.length === 0) console.log('  화면 문구: 얼굴·주인공 가림 없음')
 }
@@ -409,9 +445,55 @@ async function forgetTakes(store, momentId) {
 }
 
 async function sheet() {
-  const input = join(root, 'out', flags.has('--draft') ? 'draft.mp4' : 'final.mp4')
-  await contactSheet(input, join(root, 'out', 'contact.png'))
-  console.log('✓ out/contact.png — 글자 겹침·안전 영역·가짜 글자·인물 일관성을 본다')
+  const cut = await loadCut()
+  const input = flags.has('--draft') ? join('out', 'draft.mp4') : cut.final
+  const { times, columns } = await contactSheet(join(root, input), join(root, cut.sheet), { config: await loadConfig(root), root })
+  console.log(`✓ ${cut.sheet} — 글자 겹침·안전 영역·가짜 글자·인물 일관성을 본다. 칸마다 시각을 왼쪽 위에 적었다:`)
+  for (let row = 0; row * columns < times.length; row += 1) console.log(`  ${row + 1}행: ${times.slice(row * columns, (row + 1) * columns).map((at) => `${at}초`).join(' · ')}`)
+}
+
+// 표지 후보: 얼굴·주인공이 크고 선명한 순간 셋을 시각과 함께 보인다(out/cover-candidates.png). 하나를 골라 plan.cover.at 에 적는다.
+async function cover() {
+  const cut = await loadCut()
+  const source = await renderedBase(cut)
+  const out = join('out', `cover-candidates${cut.suffix}.png`)
+  const picks = await coverCandidates({ root, plan: cut.plan, config: await loadConfig(root), base: source, out: join(root, out) })
+  if (picks.length === 0) throw new Error('표지로 쓸 만한 얼굴·주인공 장면을 찾지 못했다 — 직접 cover.at 을 고른다')
+  const WHAT = { face: '얼굴', subject: '주인공 사물' }
+  for (const pick of picks) console.log(`· ${pick.at}초 — ${WHAT[pick.kind]} 화면의 ${Math.round(pick.area * 100)}%`)
+  console.log(`✓ ${out} — 셋을 이미지로 보고 영상이 무엇인지(주제 사물·결과) 가장 잘 보이는 순간을 cover.at 에 적는다`)
+}
+
+// 글자를 얹기 전의 조립 화면. 변형도 테이크가 같으니 기본판 조립 결과를 쓸 수 있다.
+async function renderedBase(cut) {
+  for (const name of [`final${cut.suffix}`, 'final']) {
+    const file = join(root, '.work', name, 'base.mp4')
+    if (await exists(file)) return file
+  }
+  throw Object.assign(new Error('표지를 뽑을 조립 결과가 없다 — render 를 먼저 한다'), { exitCode: 2 })
+}
+
+// 올릴 글(out/post.md)과 표지(out/cover.jpg). 게시는 하지 않는다 — 사람이 검수하고 올린다.
+async function post() {
+  const cut = await loadCut()
+  const { plan } = cut
+  if (!plan.post && !plan.cover) throw new Error('plan.json 에 post(플랫폼별 제목·설명·해시태그)나 cover(표지 시각·문구)가 없다')
+  const problems = postIssues(plan)
+  for (const issue of problems) console.log(`${issue.level === 'error' ? '✗' : '!'} ${issue.code}${issue.where ? ` (${issue.where})` : ''}: ${issue.message}`)
+  if (problems.some((issue) => issue.level === 'error')) process.exit(1)
+  await mkdir(join(root, 'out'), { recursive: true })
+  if (plan.post) {
+    await writeFile(join(root, cut.post), postMarkdown(plan, { cover: cut.cover }))
+    console.log(`✓ ${cut.post} — 플랫폼별 제목·설명·해시태그. 검수한 뒤 사람이 올린다`)
+  }
+  if (plan.cover) {
+    const { problems, moved } = await renderCover({ root, plan, config: await loadConfig(root), base: await renderedBase(cut), out: join(root, cut.cover) })
+    console.log(`✓ ${cut.cover} — ${plan.cover.at}초 화면에 "${plan.cover.text}". 피드·프로필 격자(가운데 3:4)에서 읽히는지 본다`)
+    if (moved) console.log(`  자동 배치: 표지 문구 — 얼굴·주인공을 비켜 위에서 ${moved.from} → ${moved.to}${moved.scale === 1 ? '' : ` (글자 ${Math.round(moved.scale * 100)}%)`}. 그 자리가 싫으면 cover.position 을 적는다`)
+    const WHAT = { face: '얼굴을', subject: '주인공 사물 가운데를' }
+    const issues = problems.map((problem) => (problem.kind === 'edge' ? '화면 가장자리에 닿음' : `${WHAT[problem.kind]} ${Math.round(problem.share * 100)}% 가림`))
+    console.log(issues.length ? `! 표지 문구 "${plan.cover.text}" — ${issues.join(', ')}. cover.position(y·x)이나 look 으로 옮기거나 cover.at 을 바꾸고 post 를 다시 한다.` : '  표지 문구: 얼굴·주인공 가림 없음')
+  }
 }
 
 async function cuts() {
@@ -444,6 +526,8 @@ async function status() {
       `- ${await has('out/draft.mp4')} 애니매틱 (out/draft.mp4)`,
       `- ${done === all.length && all.length ? '✓' : '·'} 테이크 ${done}/${all.length}`,
       `- ${await has('out/final.mp4')} 완성본 (out/final.mp4, 검수 대기)`,
+      ...(plan.post || plan.cover ? [`- ${await has('out/post.md')} 올릴 글 (out/post.md${plan.cover ? ', out/cover.jpg' : ''})`] : []),
+      ...await Promise.all((plan.variants ?? []).map(async (variant) => `- ${await has(`out/final-${variant.id}.mp4`)} 변형 ${variant.id} (out/final-${variant.id}.mp4) — ${variant.hypothesis ?? ''}`)),
       '',
       '| 테이크 | 상태 |',
       '|---|---|',
@@ -478,17 +562,40 @@ async function loadPlan() {
   }
 }
 
-async function loadNarration() {
+async function loadNarration(file = join('audio', 'narration.json')) {
   try {
-    return JSON.parse(await readFile(join(root, 'audio', 'narration.json'), 'utf8')).lines
+    return JSON.parse(await readFile(join(root, file), 'utf8')).lines
   } catch {
     return []
   }
 }
 
+// --variant <id> 가 있으면 그 변형을 덮어쓴 기획과 그 변형의 파일 이름들, 없으면 기본판.
+async function loadCut() {
+  const plan = await loadPlan()
+  const id = optionValue('--variant')
+  if (flags.has('--variant') && !id) throw new Error('usage: --variant <plan.variants 의 id>')
+  if (!id) {
+    return { plan, suffix: '', label: '완성본', voiceDirectory: join('audio', 'narration'), narrationFile: join('audio', 'narration.json'),
+      final: join('out', 'final.mp4'), viewer: join('out', 'viewer.md'), sheet: join('out', 'contact.png'), post: join('out', 'post.md'), cover: join('out', 'cover.jpg') }
+  }
+  const variant = (plan.variants ?? []).find((item) => item.id === id)
+  if (!variant) throw new Error(`plan.variants 에 ${id} 가 없다 — 있는 변형: ${(plan.variants ?? []).map((item) => item.id).join(', ') || '없음'}`)
+  const suffix = `-${id}`
+  return { id, plan: applyVariant(plan, id), suffix, label: `변형 ${id}`, hypothesis: variant.hypothesis,
+    voiceDirectory: join('audio', 'variants', id), narrationFile: join('audio', 'variants', id, 'narration.json'),
+    final: join('out', `final${suffix}.mp4`), viewer: join('out', `viewer${suffix}.md`), sheet: join('out', `contact${suffix}.png`),
+    post: join('out', `post${suffix}.md`), cover: join('out', `cover${suffix}.jpg`) }
+}
+
 function printJobs(jobs) {
   if (jobs.length === 0) return console.log('테이크 작업이 없다')
   for (const job of jobs) console.log(`${job.momentId}\t${job.state}\t${job.backend}\t${job.remoteId ?? ''}`)
+}
+
+async function firstExisting(entries) {
+  for (const entry of entries) if (entry.file && await exists(join(root, entry.file))) return entry
+  return undefined
 }
 
 async function exists(path) {
