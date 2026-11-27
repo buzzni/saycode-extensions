@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
 
 import { subtitleChunks } from './captions.mjs'
-import { frames } from './formats.mjs'
+import { frameById, frames } from './formats.mjs'
 import { LOOKS } from './looks.mjs'
 import { ffmpeg } from './media.mjs'
-import { renderVideo } from './render.mjs'
+import { renderVideo, renderSvg } from './render.mjs'
 import { materialPath } from './takeState.mjs'
 
 const SECONDS = 1.2
@@ -51,9 +51,52 @@ export function choicePlan(plan, choice, stillName = `materials/still${extname(f
     moment.caption = { text: headline.text, role: 'hook', ...(headline.emphasis ? { emphasis: headline.emphasis } : {}) }
   } else {
     mini.format = { layout: 'band', frame: choice.frame, headline }
-    moment.badge = '1'
+    // 번호는 기획이 장면에 번호를 달았을 때만 — 썰·대화형 틀에 "1" 이 보이면 다른 영상처럼 보인다.
+    const badge = plan.moments?.find((candidate) => candidate.badge)?.badge
+    if (badge) moment.badge = badge
   }
   return mini
+}
+
+/** 사람이 읽는 이름: 틀 이름과 어디에 맞는지, 글자 묶음의 결. */
+export function choiceName(choice, list) {
+  const look = LOOKS[choice.look]?.suits?.split(' — ')[0] ?? choice.look
+  if (choice.frame === 'full') return { title: '꽉 찬 화면', detail: `영상이 화면을 꽉 채운다 · 글자 ${look}` }
+  const frame = frameById(choice.frame, list)
+  return { title: frame?.name ?? choice.frame, detail: `${frame?.suits ?? ''} · 글자 ${look}` }
+}
+
+const escapeXml = (text) => String(text).replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char])
+
+// 한 줄 약 14자로 끊는다(띄어쓰기에서).
+function wrap(text, width = 14) {
+  const lines = []
+  let line = ''
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    if (line && (line + ' ' + word).length > width) {
+      lines.push(line)
+      line = word
+    } else line = line ? `${line} ${word}` : word
+  }
+  if (line) lines.push(line)
+  return lines.slice(0, 4)
+}
+
+function placeholderSvg(text, { width, height }) {
+  const size = Math.round(width * 0.06)
+  const lines = wrap(text)
+  const top = Math.round(height / 2 - (lines.length * size * 1.4) / 2)
+  const rows = lines.map((line, index) => `<text x="${width / 2}" y="${top + (index + 1) * size * 1.4}" text-anchor="middle" font-family="Apple SD Gothic Neo" font-weight="600" font-size="${size}" fill="#E5E7EB">${escapeXml(line)}</text>`)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#4B5563"/><text x="${width / 2}" y="${Math.round(top - size)}" text-anchor="middle" font-family="Apple SD Gothic Neo" font-size="${Math.round(size * 0.7)}" fill="#9CA3AF">첫 장면 (영상 생성 전)</text>${rows.join('')}</svg>`
+}
+
+function labelSvg(label, name, width) {
+  const height = Math.round(width * 0.2)
+  const big = Math.round(height * 0.42)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#111827"/>`
+    + `<text x="${Math.round(width * 0.05)}" y="${Math.round(height * 0.6)}" font-family="Apple SD Gothic Neo" font-weight="800" font-size="${big}" fill="#FFD23F">${label}</text>`
+    + `<text x="${Math.round(width * 0.16)}" y="${Math.round(height * 0.52)}" font-family="Apple SD Gothic Neo" font-weight="700" font-size="${Math.round(big * 0.7)}" fill="#FFFFFF">${escapeXml(name.title)}</text>`
+    + `<text x="${Math.round(width * 0.16)}" y="${Math.round(height * 0.84)}" font-family="Apple SD Gothic Neo" font-size="${Math.round(big * 0.45)}" fill="#9CA3AF">${escapeXml(name.detail)}</text></svg>`
 }
 
 function firstPhoto(plan) {
@@ -70,7 +113,11 @@ async function writeStill(root, plan, work, stillName, config) {
   if (clip && await access(clip).then(() => true, () => false)) {
     return ffmpeg(['-ss', '1', '-i', clip, '-frames:v', '1', target])
   }
-  return ffmpeg(['-f', 'lavfi', '-i', `color=c=0x6b7280:s=${config.width}x${config.height}`, '-frames:v', '1', target])
+  // 실물 그림이 없으면 회색 판에 첫 장면 설명을 적는다 — 세 후보가 모두 빈 회색이면 비교가 안 된다.
+  const scene = plan.hook?.options?.[plan.hook.chosen]?.frame ?? plan.moments?.[0]?.place ?? plan.moments?.[0]?.caption?.text ?? ''
+  const svg = join(work, 'placeholder.svg')
+  await writeFile(svg, placeholderSvg(scene, config))
+  await renderSvg([{ svg, out: target, width: config.width, height: config.height }], work)
 }
 
 export async function renderChoices({ root, plan, config, choices, outDir }) {
@@ -83,9 +130,17 @@ export async function renderChoices({ root, plan, config, choices, outDir }) {
       await writeStill(root, plan, work, mini.moments[0].file, config)
       const video = join(work, 'choice.mp4')
       await renderVideo({ root: work, plan: mini, config, mode: 'final', out: video, name: 'choice' })
+      const frame = join(work, 'frame.png')
+      await ffmpeg(['-ss', String(SECONDS - 0.2), '-i', video, '-frames:v', '1', frame])
+      // 그림만 보이는 대화에서도 어느 것이 A 인지 알도록 아래에 이름표 띠를 붙인다.
+      const name = choiceName(choice)
+      const labelFile = join(work, 'label.svg')
+      const labelPng = join(work, 'label.png')
+      await writeFile(labelFile, labelSvg(choice.label, name, config.width))
+      await renderSvg([{ svg: labelFile, out: labelPng, width: config.width, height: Math.round(config.width * 0.2) }], work)
       const png = join(outDir, `${choice.label}.png`)
-      await ffmpeg(['-ss', String(SECONDS - 0.2), '-i', video, '-frames:v', '1', png])
-      results.push({ ...choice, png })
+      await ffmpeg(['-i', frame, '-i', labelPng, '-filter_complex', 'vstack=inputs=2', png])
+      results.push({ ...choice, ...name, png })
     } finally {
       await rm(work, { recursive: true, force: true })
     }
@@ -98,11 +153,10 @@ export async function choicesSheet(results, out) {
   await ffmpeg([...inputs, '-filter_complex', `hstack=inputs=${results.length}`, out])
 }
 
-export async function choicesPage(results, { frameNames = new Map(frames().map((frame) => [frame.id, frame.name])) } = {}) {
+export async function choicesPage(results) {
   const tiles = await Promise.all(results.map(async (result) => {
     const data = (await readFile(result.png)).toString('base64')
-    const what = result.frame === 'full' ? '전체 화면' : `띠형 · ${frameNames.get(result.frame) ?? result.frame} (${result.frame})`
-    return `<figure><img src="data:image/png;base64,${data}" alt="${result.label}"><figcaption><b>${result.label}</b> ${what} · 글자 ${result.look}</figcaption></figure>`
+    return `<figure><img src="data:image/png;base64,${data}" alt="${result.label} ${escapeXml(result.title)}"><figcaption><b>${result.label} ${escapeXml(result.title)}</b><br>${escapeXml(result.detail)}<br><small>${result.frame}/${result.look}</small></figcaption></figure>`
   }))
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>디자인 후보</title>
 <style>body{margin:0;background:var(--saycode-bg,#fff);color:var(--saycode-text,#1b1b1f);font:15px/1.5 var(--saycode-font,-apple-system,system-ui,sans-serif)}

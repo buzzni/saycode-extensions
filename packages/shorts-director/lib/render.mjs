@@ -300,6 +300,13 @@ async function renderSegment({ root, moment, mode, config, file, zooms }) {
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
 }
 
+/** SVG 여러 장을 PNG 로 그린다(AppKit). items: [{ svg, out, width, height }] */
+export async function renderSvg(items, work) {
+  const spec = join(work, `svg-${Date.now()}-${Math.round(Math.random() * 1e6)}.json`)
+  await writeFile(spec, JSON.stringify({ items }))
+  await run('osascript', ['-l', 'JavaScript', SVG, spec])
+}
+
 // 띠형: 틀 SVG 를 화면 크기로 그리고, 이어 붙인 장면을 창 자리에 둥근 모서리로 잘라 얹는다. 소리는 장면 것을 그대로 쓴다.
 async function composeBand({ band, content, out, work, config, seconds }) {
   const { width: W, height: H, fps } = config
@@ -308,9 +315,7 @@ async function composeBand({ band, content, out, work, config, seconds }) {
   const mask = join(work, 'window.png')
   const maskSvg = join(work, 'window.svg')
   await writeFile(maskSvg, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="#ffffff"/></svg>`)
-  const spec = join(work, 'svg.json')
-  await writeFile(spec, JSON.stringify({ items: [{ svg: band.svg, out: frame, width: W, height: H }, { svg: maskSvg, out: mask, width: w, height: h }] }))
-  await run('osascript', ['-l', 'JavaScript', SVG, spec])
+  await renderSvg([{ svg: band.svg, out: frame, width: W, height: H }, { svg: maskSvg, out: mask, width: w, height: h }], work)
   await ffmpeg([
     '-loop', '1', '-framerate', String(fps), '-i', frame,
     '-i', content,

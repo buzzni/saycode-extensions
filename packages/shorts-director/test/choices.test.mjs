@@ -37,7 +37,9 @@ test('each candidate shows this video: its headline, the first real picture and 
   assert.equal(band.look, 'review')
   assert.deepEqual(band.format, { layout: 'band', frame: 'steps-clean', headline: { text: '소금 언제 넣어요?', emphasis: '소금' } })
   assert.equal(band.moments[0].file, 'materials/still.jpg')
-  assert.equal(band.moments[0].badge, '1')
+  assert.equal(band.moments[0].badge, undefined, 'no number unless the plan numbers its scenes — a story frame should not show "1"')
+  const numbered = choicePlan({ ...plan, moments: plan.moments.map((moment, index) => ({ ...moment, badge: String(index + 1) })) }, { frame: 'steps-clean', look: 'clean' })
+  assert.equal(numbered.moments[0].badge, '1')
   assert.equal(band.moments[0].subtitles[0].text, '물 끓기 전에 소금을 넣으면')
   const full = choicePlan(plan, { frame: 'full', look: 'vlog' })
   assert.equal(full.format, undefined)
@@ -60,7 +62,11 @@ test('choices renders one picture per candidate, a side-by-side sheet and a labe
     }
     const html = await readFile(join(root, 'out/choices.html'), 'utf8')
     assert.match(html, /data:image\/png;base64,/)
-    assert.match(html, /steps-clean/)
+    assert.match(html, /꽉 찬 화면/, 'plain names, not only ids')
+    // 그림만 보이는 대화에서도 A·B·C 를 알아보게 이름표 띠를 아래에 붙인다 — 그래서 한 장이 화면보다 길다.
+    const { stdout: size } = await exec('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', join(root, 'out/choices/A.png')])
+    const [width, height] = size.trim().split(',').map(Number)
+    assert.ok(height > width * 16 / 9, `${width}x${height}`)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
