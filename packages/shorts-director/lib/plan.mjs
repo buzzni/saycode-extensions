@@ -5,6 +5,7 @@ import { posix } from 'node:path'
 
 import { LTX_TAKE_SECONDS } from './backends/ltx.mjs'
 import { FONTS, MUSIC } from './assets.mjs'
+import { LAYOUTS, bandRange, frames } from './formats.mjs'
 import { LOOKS, designFor, designProblems, readability } from './looks.mjs'
 import { postIssues, postTexts } from './post.mjs'
 import { SFX_KINDS } from './sfx.mjs'
@@ -28,6 +29,8 @@ const MOMENT_ID = /^[A-Za-z0-9_-]{1,40}$/
 const COLOR = /^(0x[0-9a-fA-F]{6}|[a-z]{3,20})$/
 // 훅 메커니즘: 손실 회피, 정보 격차, 통념 반박, 구체적 상황·POV, 결과·증거 선공개, 상대가 있는 갈등·대립,
 // 날것의 감정 반응(놀람·당황). 후보는 서로 다른 메커니즘 3개 이상.
+const BAND_HEADLINE_CHARS = 24
+const BADGE_CHARS = 4
 export const HOOK_MECHANISMS = ['loss', 'gap', 'hot_take', 'situation', 'proof', 'conflict', 'reaction']
 // 훅 토너먼트: 후보를 넉넉히 만들어 기획 의도를 모르는 평가자가 점수(score)를 매기게 한다. 8개를 넘으면 비교가 흐려진다.
 const HOOK_OPTIONS = [3, 8]
@@ -50,7 +53,7 @@ export function countTakes(plan) {
   return (plan.moments ?? []).filter((moment) => moment.kind === 'take').length
 }
 
-export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
+export function validatePlan(plan, { take = LTX_TAKE_SECONDS, frames: frameList } = {}) {
   const issues = []
   const error = (code, message, where) => issues.push({ level: 'error', code, message, ...(where ? { where } : {}) })
   const warn = (code, message, where) => issues.push({ level: 'warning', code, message, ...(where ? { where } : {}) })
@@ -63,6 +66,8 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   } else if (plan.music && !inMaterials(plan.music.file)) {
     error('music.file', '배경음 파일은 materials/ 에 둔다(사용 권리가 있는 음원만).')
   }
+
+  checkFormat(plan, frameList, error)
 
   if (plan.subtitle_look !== undefined) {
     const problems = designProblems(plan.subtitle_look, FONTS.map((font) => font.name))
@@ -193,6 +198,41 @@ export function validatePlan(plan, { take = LTX_TAKE_SECONDS } = {}) {
   checkVariants(plan, take, issues)
 
   return { ok: !issues.some((issue) => issue.level === 'error'), issues }
+}
+
+// 화면 형식: full(기본) 또는 band(가운데 창 + 영상 내내 남는 위 제목 + 아래 자막, 장르별 틀). 번호(badge)는 단계·순위처럼 짧게.
+function checkFormat(plan, frameList, error) {
+  const format = plan.format
+  if (format !== undefined) {
+    if (!LAYOUTS.includes(format?.layout)) error('format.layout', `화면 형식(format.layout)은 ${LAYOUTS.join(', ')} 중 하나다.`)
+    else if (format.layout === 'band') {
+      const list = frameList ?? frames()
+      const frame = list.find((candidate) => candidate.id === format.frame)
+      if (!frame) {
+        error('format.frame', `틀(format.frame)은 ${list.map((candidate) => candidate.id).join(', ')} 중 하나다 — shorts-director formats 로 본다.`)
+      } else {
+        // 창 밖에 둔 문구는 위 띠의 제목이나 아래 띠의 자막을 덮는다 — 전체 화면 기획의 위쪽 자리(0.12~0.2)를 그대로 옮겨 오면 생긴다.
+        const [low, high] = bandRange(frame)
+        for (const moment of plan.moments ?? []) {
+          for (const text of [moment.caption, ...(moment.asides ?? [])]) {
+            const y = Number(text?.position?.y)
+            if (text?.position?.y !== undefined && (y < low || y > high)) {
+              error('format.position', `"${text.text}" 의 position.y ${y} 가 창 밖이다 — 띠형에서는 ${round(low)}~${round(high)} 안에 둔다(위 띠는 제목, 아래 띠는 자막 자리).`, moment.id)
+            }
+          }
+        }
+      }
+      const hook = (plan.moments ?? [])[0]?.caption
+      const headline = format.headline?.text ?? (hook?.role === 'hook' ? hook.text : undefined)
+      if (!headline) error('format.headline', '띠형은 영상 내내 남는 위 제목이 있어야 한다 — format.headline.text 또는 첫 장면의 hook 문구.')
+      else if (String(headline).length > BAND_HEADLINE_CHARS) error('format.headline', `위 제목이 ${String(headline).length}자다 — ${BAND_HEADLINE_CHARS}자(두 줄) 이하로.`)
+    }
+  }
+  for (const moment of plan.moments ?? []) {
+    if (moment.badge !== undefined && (typeof moment.badge !== 'string' || !moment.badge.trim() || moment.badge.length > BADGE_CHARS)) {
+      error('badge', `번호(badge)는 ${BADGE_CHARS}자 이하 문자열이다(예: "1", "TOP3").`, moment.id)
+    }
+  }
 }
 
 // 제품·서비스 영상은 브랜드 이름을 말로 두 번 넘게 들려준다 — 블라인드 비교에서 이름이 한 번도 들리지 않은 영상이

@@ -20,6 +20,7 @@ npx -y @buzzni/shorts-director cover      # out/cover-candidates.png: three mome
 npx -y @buzzni/shorts-director post       # out/post.md (per-platform copy) and out/cover.jpg
 npx -y @buzzni/shorts-director voice --variant b && npx -y @buzzni/shorts-director render --variant b   # out/final-b.mp4
 npx -y @buzzni/shorts-director status     # status.md
+npx -y @buzzni/shorts-director formats    # screen formats (full / band) and the band frames
 ```
 
 ## Requirements
@@ -63,6 +64,15 @@ npx -y @buzzni/shorts-director status     # status.md
   not move the others; `voice --fresh` records every line again and `voice --fresh 0,3` only those lines. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated, and lines that run on into the next scene's own line
   (their subtitle would end over the next scene).
+- Screen format (`plan.format`): `full` (default) fills the screen with the picture — for shorts whose picture carries
+  the meaning. `band` puts each scene in a window in the middle of a genre frame, keeps `format.headline` (or the first
+  hook caption) in the top band for the whole video and the subtitles in the bottom band — for steps, lists, rankings,
+  data and app or product screens, where the words carry the meaning. Twelve frames ship as plain SVG (`frames/`, drawn
+  by AppKit, no text inside): brief-news, data-dark, steps-clean, recipe-note, review-verdict, ranking-pop,
+  product-showcase and app-device (tall window), vlog-diary, story-chat, calm-film and promo-burst. Headline, subtitles
+  and `moments[].badge` (a step or rank number on the window corner, up to four characters) take the frame's colours.
+  `check` refuses a caption `position` outside the window (it would cover the headline or subtitles), and captions
+  moved off a face stay inside the window.
 - Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
   ad, drama and calm each set the font, colours, box shape, outline, shadow, emphasis and entrance for every role
   (hook, title, info chip, subtitles, asides, label pill). The hook shows for its first three seconds with one

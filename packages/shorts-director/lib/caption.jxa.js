@@ -133,9 +133,12 @@ function styled(spec, item) {
   const padY = Math.round(size * (subtitleLike ? 0.2 : 0.38))
   const w = Math.ceil(measured.width) + (design.fill ? padX * 2 : 0)
   const h = Math.ceil(measured.height) + (design.fill ? padY * 2 : 0)
-  // 정렬: 가운데, 또는 좌우 여백(6%)에 붙인다.
+  // 정렬: 가운데, 좌우 여백(6%), 또는 정한 가운데 점(at — 띠형 틀의 번호 자리).
   const margin = Math.round(spec.width * 0.06)
-  const x = item.align === 'left' ? margin : item.align === 'right' ? spec.width - margin - w : Math.round((spec.width - w) / 2)
+  const x = item.align === 'left' ? margin
+    : item.align === 'right' ? spec.width - margin - w
+      : item.align === 'at' ? Math.round(item.cx - w / 2)
+        : Math.round((spec.width - w) / 2)
   const y = item.anchor === 'top' ? item.y + item.h - h : Math.round(item.y + item.h / 2 - h / 2)
   if (design.fill) box(x, y, w, h, radius(design.shape, size, h), color(design.fill), design.shadow ? softShadow(size) : undefined)
   const inner = design.fill ? $.NSMakeRect(x + padX, y + padY, w - padX * 2, h - padY * 2) : $.NSMakeRect(x - size, y, w + size * 2, h)

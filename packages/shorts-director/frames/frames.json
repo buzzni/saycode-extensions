@@ -1,0 +1,242 @@
+[
+  {
+    "id": "brief-news",
+    "name": "뉴스 브리핑",
+    "suits": "뉴스·속보·정책·수치 브리핑",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#FFD23F"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0B2545"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#C8102E"
+    },
+    "background": "#0B2545"
+  },
+  {
+    "id": "data-dark",
+    "name": "데이터 다크",
+    "suits": "재테크·경제·데이터",
+    "content": "square",
+    "radius": 12,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#2BFFA0"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0E161D"
+    },
+    "badge": {
+      "ink": "#04130C",
+      "fill": "#2BFFA0"
+    },
+    "background": "#080D12"
+  },
+  {
+    "id": "steps-clean",
+    "name": "단계 클린",
+    "suits": "튜토리얼·사용법·단계별 팁",
+    "content": "square",
+    "radius": 32,
+    "headline": {
+      "ink": "#0F1B2D",
+      "emphasis": "#1E4FD8"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "fill": "#1E4FD8"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#1E4FD8"
+    },
+    "background": "#F3F6FB"
+  },
+  {
+    "id": "recipe-note",
+    "name": "레시피 노트",
+    "suits": "요리·레시피",
+    "content": "square",
+    "radius": 20,
+    "headline": {
+      "ink": "#3B2A1A",
+      "emphasis": "#B23A22"
+    },
+    "subtitle": {
+      "ink": "#FFFDF5",
+      "fill": "#B23A22"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#5B7A1F"
+    },
+    "background": "#FBF3E0"
+  },
+  {
+    "id": "review-verdict",
+    "name": "리뷰 판정",
+    "suits": "리뷰·비교·판정",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#0A0A0A",
+      "emphasis": "#C4002B"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0A0A0A"
+    },
+    "badge": {
+      "ink": "#0A0A0A",
+      "fill": "#E8FF00"
+    },
+    "background": "#0A0A0A"
+  },
+  {
+    "id": "ranking-pop",
+    "name": "랭킹 팝",
+    "suits": "TOP N·순위·모음",
+    "content": "square",
+    "radius": 28,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#FFD23F"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#2A0A5E"
+    },
+    "badge": {
+      "ink": "#2A0A5E",
+      "fill": "#FFD23F"
+    },
+    "background": "#5A14C4"
+  },
+  {
+    "id": "product-showcase",
+    "name": "제품 쇼케이스",
+    "suits": "제품·앱 소개",
+    "content": "portrait",
+    "radius": 36,
+    "headline": {
+      "ink": "#1A1A1A",
+      "emphasis": "#8F5410"
+    },
+    "subtitle": {
+      "ink": "#1A1A1A",
+      "outline": "#FFFFFF"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#1A1A1A"
+    },
+    "background": "#F1F0EC"
+  },
+  {
+    "id": "app-device",
+    "name": "앱 디바이스",
+    "suits": "앱·서비스 화면 소개",
+    "content": "portrait",
+    "radius": 44,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#7DF9FF"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "fill": "#0B0B12D9"
+    },
+    "badge": {
+      "ink": "#0B0B12",
+      "fill": "#7DF9FF"
+    },
+    "background": "#24148A"
+  },
+  {
+    "id": "vlog-diary",
+    "name": "브이로그 다이어리",
+    "suits": "브이로그·일상·자취",
+    "content": "square",
+    "radius": 6,
+    "headline": {
+      "ink": "#3A2E2A",
+      "emphasis": "#C2334A"
+    },
+    "subtitle": {
+      "ink": "#3A2E2A",
+      "outline": "#FFFFFF"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#C2334A"
+    },
+    "background": "#EDE3CF"
+  },
+  {
+    "id": "story-chat",
+    "name": "스토리 챗",
+    "suits": "썰·상황극·POV",
+    "content": "square",
+    "radius": 28,
+    "headline": {
+      "ink": "#2B2350",
+      "emphasis": "#6D4AFF"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#6D4AFF"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#6D4AFF"
+    },
+    "background": "#E9E4FF"
+  },
+  {
+    "id": "calm-film",
+    "name": "캄 필름",
+    "suits": "감성·여행·공간·인테리어",
+    "content": "square",
+    "radius": 4,
+    "headline": {
+      "ink": "#2A2520",
+      "emphasis": "#85470F"
+    },
+    "subtitle": {
+      "ink": "#2A2520",
+      "outline": "#E7E0D3"
+    },
+    "badge": {
+      "ink": "#E7E0D3",
+      "fill": "#1C1917"
+    },
+    "background": "#E7E0D3"
+  },
+  {
+    "id": "promo-burst",
+    "name": "프로모 버스트",
+    "suits": "광고·혜택·이벤트",
+    "content": "square",
+    "radius": 24,
+    "headline": {
+      "ink": "#111111",
+      "emphasis": "#C00018"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#111111"
+    },
+    "badge": {
+      "ink": "#111111",
+      "fill": "#FFE600"
+    },
+    "background": "#F01E2C"
+  }
+]
