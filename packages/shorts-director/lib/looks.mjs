@@ -85,7 +85,8 @@ export const LOOKS = {
   },
 }
 
-const ROLE_KEY = { dialogue: 'narration' }
+// 화면 형식(formats.mjs)의 역할: 띠 제목은 훅 디자인을, 단계·순위 번호는 정보 칩 디자인을 바탕으로 틀의 색을 얹는다.
+const ROLE_KEY = { dialogue: 'narration', headline: 'hook', badge: 'info' }
 
 // 묶음의 역할 디자인 위에 문구 하나의 덮어쓰기(caption.look)를 얹는다. 정하지 않은 필드는 묶음을 따른다.
 export function designFor(look, role, override = {}) {

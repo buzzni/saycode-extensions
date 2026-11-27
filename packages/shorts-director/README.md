@@ -20,6 +20,8 @@ npx -y @buzzni/shorts-director cover      # out/cover-candidates.png: three mome
 npx -y @buzzni/shorts-director post       # out/post.md (per-platform copy) and out/cover.jpg
 npx -y @buzzni/shorts-director voice --variant b && npx -y @buzzni/shorts-director render --variant b   # out/final-b.mp4
 npx -y @buzzni/shorts-director status     # status.md
+npx -y @buzzni/shorts-director formats    # screen formats (full / band) and the band frames
+npx -y @buzzni/shorts-director choices steps-clean/clean full/vlog   # out/choices.png|html: design candidates with this video's headline
 ```
 
 ## Requirements
@@ -63,6 +65,19 @@ npx -y @buzzni/shorts-director status     # status.md
   not move the others; `voice --fresh` records every line again and `voice --fresh 0,3` only those lines. `voice` reports scenes that run well past their
   narration, so they can be shortened before any take is generated, and lines that run on into the next scene's own line
   (their subtitle would end over the next scene).
+- Screen format (`plan.format`): `full` (default) fills the screen with the picture — for shorts whose picture carries
+  the meaning. `band` puts each scene in a window in the middle of a genre frame, keeps `format.headline` (or the first
+  hook caption) in the top band for the whole video and the subtitles in the bottom band — for steps, lists, rankings,
+  data and app or product screens, where the words carry the meaning. Twenty-four frames ship as plain SVG (`frames/`,
+  drawn by AppKit, no text inside; `formats` lists them with what each suits): news, data, steps, recipe, review, ranking,
+  product and app screens, vlog, chat story, film, promo, quiz, versus, kids, pets, fitness, beauty, travel postcard,
+  light finance, magazine, retro pixel, local map and minimal — some with a tall window for screens and products. Headline, subtitles
+  and `moments[].badge` (a step or rank number on the window corner, up to four characters) take the frame's colours.
+  `check` refuses a caption `position` outside the window (it would cover the headline or subtitles), and captions
+  moved off a face stay inside the window.
+- Design interview: `choices <frame or full>/<look> …` (two to six candidates, lettered A, B, C…) renders each candidate
+  with this video's own headline, first real picture (or the first take) and first spoken line to `out/choices/<letter>.png`,
+  side by side in `out/choices.png` and labelled in `out/choices.html`, so the user can pick a design before any take is made.
 - Captions follow a genre look (`plan.look`, listed by `shorts-director looks`): clean, vlog, news, recipe, review,
   ad, drama and calm each set the font, colours, box shape, outline, shadow, emphasis and entrance for every role
   (hook, title, info chip, subtitles, asides, label pill). The hook shows for its first three seconds with one

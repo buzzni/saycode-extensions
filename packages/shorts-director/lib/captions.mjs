@@ -1,3 +1,5 @@
+import { bandSlots, frameDesigns } from './formats.mjs'
+
 // 화면 글자 배치. 안전 영역은 위 약 10%, 아래 약 18% — 플랫폼 UI(제목·버튼·설명)가 덮는 곳을 피한다.
 // 제목류는 상자에 담고 최대 2줄, 자막은 한 줄 조각으로 말에 맞춰 바꾼다.
 // ffmpeg 빌드마다 libass·drawtext 유무가 달라, 글자는 PNG 로 그려(caption.jxa.js) 겹친다.
@@ -11,6 +13,9 @@ const ROLES = {
   narration: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
   dialogue: { size: 0.028, anchor: 'subtitle', maxChars: 40, maxLines: 1, style: 'subtitle' },
   aside: { size: 0.03, anchor: 'aside', maxChars: 12, maxLines: 2, style: 'aside' },
+  // 띠형(formats.mjs): 영상 내내 남는 위 제목과 창 모서리의 단계·순위 번호.
+  headline: { size: 0.034, anchor: 'slot', maxChars: 13, maxLines: 2, style: 'box' },
+  badge: { size: 0.03, anchor: 'slot', maxChars: 4, maxLines: 1, style: 'box' },
   storyboard: { size: 0.026, anchor: 'center', maxChars: 22, maxLines: 5, style: 'plain' },
 }
 const TOP_MARGIN = 0.12
@@ -126,9 +131,11 @@ export function captionBox(event, { width, height }) {
   const lines = String(event.text).split('\n').flatMap((part) => wrapLine(part, role.maxChars, role.maxLines ?? 3)).slice(0, role.maxLines ?? 3)
   const fontSize = Math.round(height * role.size)
   const h = Math.ceil(lines.length * fontSize * LINE_HEIGHT)
-  const anchor = event.position?.y !== undefined ? 'custom' : role.anchor === 'upper' && event.card ? 'center' : role.anchor
+  const anchor = event.position?.y !== undefined ? 'custom' : event.slot ? 'slot' : role.anchor === 'upper' && event.card ? 'center' : role.anchor
   const y = anchor === 'custom'
     ? Math.round(height * (1 - Number(event.position.y)) - h / 2)
+    : anchor === 'slot'
+    ? Math.round(height * (1 - event.slot.center) - h / 2)
     : anchor === 'top'
     ? Math.round(height * (1 - TOP_MARGIN)) - h
     : anchor === 'subtitle'
@@ -146,21 +153,39 @@ export function captionBox(event, { width, height }) {
     h,
     style: role.style,
     anchor,
-    align: event.position?.x ?? 'center',
+    align: event.slot?.cx !== undefined && event.position?.x === undefined ? 'at' : event.position?.x ?? 'center',
+    ...(event.slot?.cx !== undefined ? { cx: Math.round(width * event.slot.cx) } : {}),
     ...(event.emphasis ? { emphasis: event.emphasis } : {}),
     ...(event.label ? { label: event.label } : {}),
   }
 }
 
-export function captionEvents(plan, narration = []) {
+// frame: 띠형이면 그 틀(formats.mjs). 위 제목은 영상 내내 남고 훅 상자를 대신한다 — 둘 다 그리면 같은 말이 두 번 뜬다.
+export function captionEvents(plan, narration = [], frame) {
   const events = []
+  const slots = frame ? bandSlots(frame) : undefined
+  const designs = frame ? frameDesigns(frame) : undefined
   // plan.subtitle_look: 자막(내레이션·대사)만 묶음 디자인을 덮어쓴다 — 화면 가득한 캡처 위에서도 읽히게 판(fill)을 까는 데 쓴다.
-  const subtitleLook = plan.subtitle_look ? { look: plan.subtitle_look } : {}
+  // 띠형에서는 틀 색을 먼저 깔고 subtitle_look 이 그 위를 덮는다.
+  const subtitleDesign = { ...designs?.subtitle, ...plan.subtitle_look }
+  const subtitleLook = Object.keys(subtitleDesign).length ? { look: subtitleDesign } : {}
+  const subtitleSlot = slots ? { slot: slots.subtitle } : {}
+  const total = round((plan.moments ?? []).reduce((sum, moment) => sum + Number(moment.seconds), 0))
+  if (frame) {
+    const hook = plan.moments?.[0]?.caption?.role === 'hook' ? plan.moments[0].caption : undefined
+    const headline = plan.format?.headline?.text ? plan.format.headline : hook
+    if (headline?.text) {
+      events.push({
+        text: headline.text, role: 'headline', start: 0, end: total, slot: slots.headline, look: designs.headline,
+        ...(headline.emphasis ? { emphasis: headline.emphasis } : {}),
+      })
+    }
+  }
   let cursor = 0
   for (const moment of plan.moments ?? []) {
     const start = cursor
     const end = round(cursor + Number(moment.seconds))
-    if (moment.caption?.text) {
+    if (moment.caption?.text && !(frame && moment.caption.role === 'hook')) {
       const { text, role = 'title', emphasis, label, look, position } = moment.caption
       events.push({
         text,
@@ -172,7 +197,11 @@ export function captionEvents(plan, narration = []) {
         ...(moment.kind === 'card' ? { card: true } : {}),
         ...(look ? { look } : {}),
         ...(position ? { position } : {}),
+        ...(slots && role === 'title' && !position ? { slot: slots.title } : {}),
       })
+    }
+    if (frame && moment.badge) {
+      events.push({ text: moment.badge, role: 'badge', start, end, slot: slots.badge, look: designs.badge })
     }
     for (const aside of moment.asides ?? []) {
       const asideStart = round(start + Number(aside.at ?? 0))
@@ -187,13 +216,13 @@ export function captionEvents(plan, narration = []) {
     }
     for (const line of moment.subtitles ?? []) {
       const lineStart = round(start + Number(line.at ?? 0))
-      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)), ...subtitleLook })
+      events.push({ text: line.text, role: 'dialogue', start: lineStart, end: round(lineStart + Number(line.seconds)), ...subtitleLook, ...subtitleSlot })
     }
     cursor = end
   }
   if (plan.subtitles !== false) {
     for (const line of narration) {
-      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end, ...subtitleLook })
+      for (const piece of subtitleChunks(line)) events.push({ text: piece.text, role: 'narration', start: piece.start, end: piece.end, ...subtitleLook, ...subtitleSlot })
     }
   }
   return events

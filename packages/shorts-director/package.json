@@ -1,13 +1,13 @@
 {
   "name": "@buzzni/shorts-director",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Shorts director toolkit for coding agents: plan checks, LTX video takes, Qwen TTS narration and ffmpeg assembly for vertical shorts.",
   "license": "MIT",
   "type": "module",
   "bin": {
     "shorts-director": "bin/shorts-director.mjs"
   },
-  "files": ["bin", "lib", "README.md", "LICENSE"],
+  "files": ["bin", "lib", "frames", "README.md", "LICENSE"],
   "engines": {
     "node": ">=20"
   },

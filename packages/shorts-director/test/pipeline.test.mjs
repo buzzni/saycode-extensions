@@ -235,6 +235,39 @@ test('a photo highlight marks the row with a yellow box and the camera pushes in
   }
 })
 
+test('a band format puts each scene in the frame window, with the frame around it and the headline band above', { skip: !canRender && 'needs ffmpeg and macOS osascript', timeout: 240_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sd-band-'))
+  try {
+    await mkdir(join(root, 'materials'), { recursive: true })
+    await mkdir(join(root, 'config'), { recursive: true })
+    await exec('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=orange:s=640x960', '-frames:v', '1', join(root, 'materials/photo.png')])
+    const script = plan()
+    script.format = { layout: 'band', frame: 'steps-clean', headline: { text: '비 오는 날 3단계', emphasis: '3단계' } }
+    script.moments.forEach((moment, index) => { moment.badge = String(index + 1) })
+    await writeFile(join(root, 'plan.json'), JSON.stringify(script, null, 2))
+    await writeFile(join(root, 'config/settings.json'), JSON.stringify({ fake: true, width: 270, height: 480, fps: 24 }))
+    assert.match((await run(root, 'check')).stdout, /오류 0/)
+    await run(root, 'voice')
+    await run(root, 'takes', 'submit')
+    await run(root, 'takes', 'wait')
+    await run(root, 'render')
+    const final = join(root, 'out/final.mp4')
+    const video = (await probe(final)).streams.find((stream) => stream.codec_type === 'video')
+    assert.deepEqual([video.width, video.height], [270, 480])
+    const pixel = async (at, x, y) => {
+      const { stdout } = await exec('ffmpeg', ['-v', 'error', '-ss', String(at), '-i', final, '-frames:v', '1', '-vf', `crop=2:2:${x}:${y},scale=1:1`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { encoding: 'buffer' })
+      return [...stdout]
+    }
+    const orange = ([r, g, b]) => r > 200 && g > 110 && g < 200 && b < 90
+    // 5초는 주황 사진 장면: 창(정사각, 위에서 22~74%) 가운데만 주황이고, 아래 UI 자리(위에서 90%)와 창 왼쪽 바깥 여백은 틀이다.
+    assert.ok(orange(await pixel(5, 200, 240)), 'the photo fills the window')
+    assert.ok(!orange(await pixel(5, 135, 440)), 'below the window is the frame, not the photo')
+    assert.ok(!orange(await pixel(5, 4, 240)), 'beside the window is the frame margin')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 // 두 그림에서 눈에 띄게(32 단계 넘게) 다른 화소의 비율.
 async function differingShare(left, right) {
   const gray = async (file) => (await exec('ffmpeg', ['-v', 'error', '-i', file, '-frames:v', '1', '-vf', 'format=gray', '-f', 'rawvideo', '-'], { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 })).stdout

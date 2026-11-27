@@ -1,9 +1,10 @@
 // 완성본에서 시청자에게 실제로 닿는 것만 시간순으로 적는다(out/viewer.md): 컷마다 화면, 그 시각의 화면 글자, 들리는 말.
 // 의도·이유는 적지 않는다 — 완성본 시청자 점검을 맡는 하위 에이전트가 작성자의 의도 없이 이 글과 접촉 시트만 보게 한다.
 import { captionEvents } from './captions.mjs'
+import { bandLayout } from './formats.mjs'
 
 export function viewerScript(plan, narration = [], { label = '완성본', sheet = 'out/contact.png', every = 1.5 } = {}) {
-  const screen = captionEvents({ ...plan, subtitles: false }, [])
+  const screen = captionEvents({ ...plan, subtitles: false }, [], bandLayout(plan)?.frame)
   const rows = []
   let cursor = 0
   for (const moment of plan.moments ?? []) {

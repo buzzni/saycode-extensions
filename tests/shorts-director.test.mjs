@@ -15,7 +15,7 @@ test('shorts-director is a public npm CLI package with an explicit file whitelis
   assert.equal(manifest.license, 'MIT')
   assert.deepEqual(manifest.publishConfig, { access: 'public' })
   assert.deepEqual(manifest.bin, { 'shorts-director': 'bin/shorts-director.mjs' })
-  assert.deepEqual(manifest.files, ['bin', 'lib', 'README.md', 'LICENSE'])
+  assert.deepEqual(manifest.files, ['bin', 'lib', 'frames', 'README.md', 'LICENSE'])
   const entry = await readFile(join(root, manifest.bin['shorts-director']), 'utf8')
   assert.ok(entry.startsWith('#!/usr/bin/env node\n'), 'the bin runs through npx')
   for (const file of manifest.files) await access(join(root, file))

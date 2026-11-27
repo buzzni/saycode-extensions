@@ -15,10 +15,12 @@ import { materialPath } from './takeState.mjs'
 import { pickCoverMoments } from './coverPick.mjs'
 import { choosePlacement } from './placement.mjs'
 import { COVER_GRID, COVER_Y } from './post.mjs'
+import { bandLayout, bandRange } from './formats.mjs'
 
 // pathname 은 퍼센트 인코딩이라 공백·한글이 든 설치 경로에서 깨진다.
 const JXA = fileURLToPath(new URL('./caption.jxa.js', import.meta.url))
 const VISION = fileURLToPath(new URL('./vision.jxa.js', import.meta.url))
+const SVG = fileURLToPath(new URL('./svg.jxa.js', import.meta.url))
 
 export async function renderVideo({ root, plan, config, mode, narration = [], out, name = mode, checkFile = 'text-check.json' }) {
   const { width, height, fps } = config
@@ -27,24 +29,29 @@ export async function renderVideo({ root, plan, config, mode, narration = [], ou
   await mkdir(join(work, 'captions'), { recursive: true })
 
   const framing = mode === 'final' ? punchIns(plan) : { zooms: new Map(), edits: [] }
+  // 띠형이면 장면을 틀의 창 크기로 만들고, 이어 붙인 뒤 틀 위에 얹는다.
+  const band = bandLayout(plan, config)
+  const segmentConfig = band ? { ...config, width: band.content.w, height: band.content.h } : config
   const segments = []
   for (const [index, moment] of plan.moments.entries()) {
     const file = join(work, `seg-${String(index).padStart(2, '0')}.mp4`)
-    await renderSegment({ root, moment, mode, config, file, zooms: framing.zooms.get(moment.id) })
+    await renderSegment({ root, moment, mode, config: segmentConfig, file, zooms: framing.zooms.get(moment.id) })
     segments.push(file)
   }
   const list = join(work, 'segments.txt')
   await writeFile(list, segments.map((file) => `file '${file.replaceAll("'", "'\\''")}'`).join('\n'))
   const base = join(work, 'base.mp4')
-  await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', base])
+  const joined = band ? join(work, 'content.mp4') : base
+  await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', joined])
+  if (band) await composeBand({ band, content: joined, out: base, work, config, seconds: segmentsSeconds(plan) })
 
-  const events = [...(mode === 'draft' ? storyboardEvents(plan) : []), ...captionEvents(plan, narration)]
+  const events = [...(mode === 'draft' ? storyboardEvents(plan) : []), ...captionEvents(plan, narration, band?.frame)]
   let captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
   let seen = new Map()
   let moved = []
   if (mode === 'final') {
     seen = await lookOnScreen({ base, work, captions, config })
-    moved = autoPlace({ events, captions, seen, config, look: plan.look })
+    moved = autoPlace({ events, captions, seen, config, look: plan.look, range: band ? bandRange(band.frame) : POSITION_RANGE })
     if (moved.length) captions = await renderCaptions(events, join(work, 'captions'), config, plan.look)
   }
   const total = segmentsSeconds(plan)
@@ -293,6 +300,34 @@ async function renderSegment({ root, moment, mode, config, file, zooms }) {
   await ffmpeg(['-f', 'lavfi', '-t', seconds, '-i', `color=c=${color}:s=${W}x${H}:r=${fps}`, ...silence, '-map', '0:v', '-map', '1:a', '-vf', sameFormat, ...encode])
 }
 
+/** SVG 여러 장을 PNG 로 그린다(AppKit). items: [{ svg, out, width, height }] */
+export async function renderSvg(items, work) {
+  const spec = join(work, `svg-${Date.now()}-${Math.round(Math.random() * 1e6)}.json`)
+  await writeFile(spec, JSON.stringify({ items }))
+  await run('osascript', ['-l', 'JavaScript', SVG, spec])
+}
+
+// 띠형: 틀 SVG 를 화면 크기로 그리고, 이어 붙인 장면을 창 자리에 둥근 모서리로 잘라 얹는다. 소리는 장면 것을 그대로 쓴다.
+async function composeBand({ band, content, out, work, config, seconds }) {
+  const { width: W, height: H, fps } = config
+  const { x, y, w, h, radius } = band.content
+  const frame = join(work, 'frame.png')
+  const mask = join(work, 'window.png')
+  const maskSvg = join(work, 'window.svg')
+  await writeFile(maskSvg, `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${radius}" ry="${radius}" fill="#ffffff"/></svg>`)
+  await renderSvg([{ svg: band.svg, out: frame, width: W, height: H }, { svg: maskSvg, out: mask, width: w, height: h }], work)
+  await ffmpeg([
+    '-loop', '1', '-framerate', String(fps), '-i', frame,
+    '-i', content,
+    '-loop', '1', '-framerate', String(fps), '-i', mask,
+    '-filter_complex', `[2:v]format=rgba,alphaextract[m];[1:v]format=rgba[c];[c][m]alphamerge[win];[0:v]format=rgba[bg];[bg][win]overlay=${x}:${y}:shortest=1,scale=out_range=tv:out_color_matrix=bt709,format=yuv420p[v]`,
+    '-map', '[v]', '-map', '1:a', '-t', String(seconds),
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(fps),
+    '-color_range', 'tv', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+    '-c:a', 'copy', out,
+  ])
+}
+
 // 사진 위 강조(moments[].highlights, 사진 비율의 상자): 반투명 노란 판과 진한 테두리를 사진에 직접 그리고, 카메라는 가운데 대신
 // 첫 강조 상자 쪽으로 다가간다 — 캡처를 확대만 하면 어디를 보라는지 모른다(블라인드 비교에서 기준 영상의 형광 강조가 앞섰다).
 function highlightBoxes(highlights = []) {
@@ -398,6 +433,8 @@ async function renderCaptions(events, directory, config, look) {
 // 화면 문구(자막 띠 제외)가 그 순간의 글자 없는 화면에서 얼굴·주인공 사물을 가리거나 가장자리를 넘는지 잰다.
 // 결과는 out/text-check.json 과 render 출력으로 남기고, 에이전트가 caption.position·look 으로 옮겨 다시 render 한다.
 const SUBTITLE_ROLES = new Set(['narration', 'dialogue'])
+// 자리가 정해진 글자(자막 띠, 띠형의 위 제목·번호)는 가림 검사로 옮기지 않는다.
+const FIXED_ROLES = new Set([...SUBTITLE_ROLES, 'headline', 'badge'])
 
 // 사람이 옆 가장자리에 닿은 장면은 잘린 쪽에 보이는 절반을 거울로 붙인 그림을 만들어 얼굴을 다시 찾는다 — 모자·후드를 써서
 // 윤곽으로 머리를 어림할 수 없는 옆으로 잘린 얼굴을 잡는다(textcheck.mirroredFaces).
@@ -462,7 +499,7 @@ async function findOnScreen(stills, sampled, config) {
 // 화면이 움직이므로 등장 직후부터 사라지기 직전까지 약 0.8초마다(최대 5장) 본다 — 두 장만 보면 그 사이에 지나가는 클로즈업을
 // 놓쳤다(리뷰 훅 1.8초).
 async function lookOnScreen({ base, work, captions, config }) {
-  const placed = [...captions.entries()].filter(([, caption]) => !SUBTITLE_ROLES.has(caption.role) && caption.bounds)
+  const placed = [...captions.entries()].filter(([, caption]) => !FIXED_ROLES.has(caption.role) && caption.bounds)
   if (placed.length === 0) return new Map()
   const stills = []
   const sampled = []
@@ -483,13 +520,13 @@ async function lookOnScreen({ base, work, captions, config }) {
 // events 의 position·look.size 를 고쳐 두고, 옮긴 것을 돌려준다 — 고친 events 로 글자를 다시 그린다.
 const POSITION_RANGE = [0.08, 0.7]
 
-function autoPlace({ events, captions, seen, config, look }) {
+function autoPlace({ events, captions, seen, config, look, range }) {
   const moved = []
   for (const [index, found] of seen) {
     const event = events[index]
     if (event.position !== undefined || event.card) continue
     const box = fromTop(captions[index].bounds, config.width, config.height)
-    const choice = choosePlacement({ box, ...found, range: POSITION_RANGE })
+    const choice = choosePlacement({ box, ...found, range })
     if (!choice.moved) continue
     event.position = { y: Math.round((choice.box.y + choice.box.h / 2) * 1000) / 1000 }
     if (choice.scale !== 1) event.look = { ...event.look, size: Math.round((designFor(look, event.role, event.look)?.size ?? 1) * choice.scale * 100) / 100 }

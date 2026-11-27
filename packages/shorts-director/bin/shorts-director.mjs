@@ -12,6 +12,8 @@ import { hookLineOverrun, layoutNarration, scenesLongerThanSpeech, speechPastSce
 import { loadConfig, loadEnv, loadTts, repositoryEnvFile, saveUserEnv, userConfigDir } from '../lib/config.mjs'
 import { JobStore } from '../lib/jobs.mjs'
 import { LOOKS } from '../lib/looks.mjs'
+import { frames } from '../lib/formats.mjs'
+import { writeChoices } from '../lib/choices.mjs'
 import { changeTempo, detectCuts, extractFrame, probe, rhythmReport, run, tightenSpeech } from '../lib/media.mjs'
 import { countTakes, planSeconds, validatePlan } from '../lib/plan.mjs'
 import { postIssues, postMarkdown } from '../lib/post.mjs'
@@ -20,7 +22,7 @@ import { ACTIVE_STATES, materialPath, resolveTakes, sha256 } from '../lib/takeSt
 import { applyVariant } from '../lib/variants.mjs'
 import { viewerScript } from '../lib/viewer.mjs'
 
-const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice [--variant ID]|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render [--variant ID]|sheet [--draft|--variant ID]|cover [--variant ID]|post [--variant ID]|cuts <file>|status|music|looks|--version>'
+const USAGE = 'usage: shorts-director <init [--ltx-url URL --tts-url URL] [--offline]|doctor|check|voice [--variant ID]|animatic|takes submit|takes poll|takes wait [--minutes N]|takes forget <id>|takes status|render [--variant ID]|sheet [--draft|--variant ID]|cover [--variant ID]|post [--variant ID]|cuts <file>|status|music|looks|formats|choices <frame/look> <frame/look>…|--version>'
 const PACKAGE = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const IGNORED = ['.env', 'knowledge/', '.work/', 'stills/', 'takes/', 'audio/', 'out/', 'jobs/']
 const ENV_EXAMPLE = `# 이 프로젝트에서만 다른 서버를 쓸 때만 .env 로 복사해 채운다(.env 는 커밋하지 않는다).
@@ -35,7 +37,7 @@ const [command, ...rest] = process.argv.slice(2)
 const flags = new Set(rest.filter((arg) => arg.startsWith('--')))
 const args = rest.filter((arg) => !arg.startsWith('--'))
 
-const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cover, post, cuts, status, music, looks }
+const commands = { init, doctor, check, voice, animatic, takes, render, sheet, cover, post, cuts, status, music, looks, formats, choices }
 
 try {
   if (command === '--version' || command === '-v') {
@@ -97,6 +99,22 @@ async function fetchFonts() {
 async function looks() {
   console.log('글자 디자인 묶음 — plan.json 에 "look": "<id>" 로 고른다(없으면 clean). 묶음의 글꼴(SIL OFL)은 처음 render 할 때 받는다')
   for (const [id, look] of Object.entries(LOOKS)) console.log(`${id.padEnd(8)}${look.suits}`)
+}
+
+// 화면 형식. full(기본, 그림이 뜻을 실을 때) 또는 band(가운데 창 + 영상 내내 남는 위 제목 + 아래 자막, 글자가 뜻을 실을 때)와 그 틀.
+async function formats() {
+  console.log('화면 형식 — 그림이 뜻을 실으면 full(기본, 생략), 글자가 뜻을 실으면(단계·목록·정보·앱 화면) band')
+  console.log('  "format": { "layout": "band", "frame": "<id>", "headline": { "text": "영상 내내 남는 제목", "emphasis": "낱말" } }')
+  console.log('  장면마다 "badge": "1" 로 창 모서리에 단계·순위 번호를 띄운다')
+  console.log('band 틀:')
+  for (const frame of frames()) console.log(`${frame.id.padEnd(18)}${frame.content === 'portrait' ? '세로 창 ' : '정사각 창'}  ${frame.suits}`)
+}
+
+// 인터뷰용 디자인 비교: 후보(<틀 id 또는 full>/<look>)마다 이 영상의 위 제목·첫 그림·첫 말 한 줄을 얹은 한 장.
+async function choices() {
+  const results = await writeChoices({ root, plan: await loadPlan(), config: await loadConfig(root), args: rest })
+  for (const result of results) console.log(`${result.label} · ${result.frame === 'full' ? '전체 화면' : result.frame} · ${result.look} → out/choices/${result.label}.png`)
+  console.log('✓ out/choices.png (나란히) · out/choices.html (이름표 붙은 비교 화면) — 인터뷰 선택지의 A·B·C 와 같다')
 }
 
 // 기획에서 고를 수 있는 배경음(CC0) 목록. 곡은 처음 render 할 때 이 PC 에 받는다.
