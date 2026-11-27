@@ -238,5 +238,245 @@
       "fill": "#FFE600"
     },
     "background": "#F01E2C"
+  },
+  {
+    "id": "quiz-show",
+    "name": "퀴즈 쇼",
+    "suits": "퀴즈·OX·맞혀보세요",
+    "content": "square",
+    "radius": 28,
+    "headline": {
+      "ink": "#14213D",
+      "emphasis": "#C81E3A"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#14213D"
+    },
+    "badge": {
+      "ink": "#14213D",
+      "fill": "#FFD23F"
+    },
+    "background": "#12B3AE"
+  },
+  {
+    "id": "versus-stage",
+    "name": "대결 무대",
+    "suits": "A vs B 비교·대결",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#FFE14D"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0B0B10"
+    },
+    "badge": {
+      "ink": "#0B0B10",
+      "fill": "#FFE14D"
+    },
+    "background": "#8E1023"
+  },
+  {
+    "id": "kids-pastel",
+    "name": "키즈 파스텔",
+    "suits": "육아·키즈·교육",
+    "content": "square",
+    "radius": 40,
+    "headline": {
+      "ink": "#3D3A5C",
+      "emphasis": "#C92A62"
+    },
+    "subtitle": {
+      "ink": "#3D3A5C",
+      "outline": "#FFFFFF"
+    },
+    "badge": {
+      "ink": "#3D3A5C",
+      "fill": "#FFD66B"
+    },
+    "background": "#DDEFFF"
+  },
+  {
+    "id": "pet-paws",
+    "name": "펫 포우",
+    "suits": "반려동물·강아지·고양이",
+    "content": "square",
+    "radius": 36,
+    "headline": {
+      "ink": "#4A2E14",
+      "emphasis": "#B93A0E"
+    },
+    "subtitle": {
+      "ink": "#FFF6E8",
+      "fill": "#6B3F1D"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#B4501F"
+    },
+    "background": "#FFDFB2"
+  },
+  {
+    "id": "fitness-energy",
+    "name": "피트니스 에너지",
+    "suits": "운동·헬스·루틴",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#FF7A1A"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0E0F12"
+    },
+    "badge": {
+      "ink": "#0E0F12",
+      "fill": "#FF7A1A"
+    },
+    "background": "#0E0F12"
+  },
+  {
+    "id": "beauty-blush",
+    "name": "뷰티 블러시",
+    "suits": "뷰티·스킨케어·메이크업",
+    "content": "portrait",
+    "radius": 120,
+    "headline": {
+      "ink": "#4A2A2A",
+      "emphasis": "#A62B45"
+    },
+    "subtitle": {
+      "ink": "#4A2A2A",
+      "outline": "#FFF6F2"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#A62B45"
+    },
+    "background": "#F3D5CB"
+  },
+  {
+    "id": "travel-postcard",
+    "name": "여행 엽서",
+    "suits": "여행·지역·명소",
+    "content": "portrait",
+    "radius": 6,
+    "headline": {
+      "ink": "#22313F",
+      "emphasis": "#C0282E"
+    },
+    "subtitle": {
+      "ink": "#22313F",
+      "outline": "#FFFFFF"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#2B5FA8"
+    },
+    "background": "#FBF4E4"
+  },
+  {
+    "id": "finance-light",
+    "name": "재테크 라이트",
+    "suits": "재테크·경제·절약(밝은판)",
+    "content": "square",
+    "radius": 20,
+    "headline": {
+      "ink": "#0F2A1D",
+      "emphasis": "#0A7A40"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "fill": "#0A6B39"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#0A7A40"
+    },
+    "background": "#F4FBF7"
+  },
+  {
+    "id": "magazine-editorial",
+    "name": "매거진 에디토리얼",
+    "suits": "패션·라이프스타일·인터뷰",
+    "content": "portrait",
+    "radius": 0,
+    "headline": {
+      "ink": "#111111",
+      "emphasis": "#C52B0A"
+    },
+    "subtitle": {
+      "ink": "#111111",
+      "outline": "#F4F1EA"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#C52B0A"
+    },
+    "background": "#F4F1EA"
+  },
+  {
+    "id": "retro-pixel",
+    "name": "레트로 픽셀",
+    "suits": "게임·IT·레트로",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#FFFFFF",
+      "emphasis": "#FFE14D"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0B0818"
+    },
+    "badge": {
+      "ink": "#15102B",
+      "fill": "#FFE14D"
+    },
+    "background": "#15102B"
+  },
+  {
+    "id": "local-map",
+    "name": "동네 지도",
+    "suits": "맛집·가게·장소 소개",
+    "content": "square",
+    "radius": 24,
+    "headline": {
+      "ink": "#1F2A37",
+      "emphasis": "#C62828"
+    },
+    "subtitle": {
+      "ink": "#1F2A37",
+      "outline": "#FFFFFF"
+    },
+    "badge": {
+      "ink": "#FFFFFF",
+      "fill": "#D32F2F"
+    },
+    "background": "#EDEFE4"
+  },
+  {
+    "id": "minimal-mono",
+    "name": "미니멀 모노",
+    "suits": "브랜드 필름·미니멀·소개",
+    "content": "square",
+    "radius": 0,
+    "headline": {
+      "ink": "#BDBDBD",
+      "emphasis": "#FFFFFF"
+    },
+    "subtitle": {
+      "ink": "#FFFFFF",
+      "outline": "#0A0A0A"
+    },
+    "badge": {
+      "ink": "#0A0A0A",
+      "fill": "#FFFFFF"
+    },
+    "background": "#0A0A0A"
   }
 ]

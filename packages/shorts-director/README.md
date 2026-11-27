@@ -68,9 +68,10 @@ npx -y @buzzni/shorts-director choices steps-clean/clean full/vlog   # out/choic
 - Screen format (`plan.format`): `full` (default) fills the screen with the picture — for shorts whose picture carries
   the meaning. `band` puts each scene in a window in the middle of a genre frame, keeps `format.headline` (or the first
   hook caption) in the top band for the whole video and the subtitles in the bottom band — for steps, lists, rankings,
-  data and app or product screens, where the words carry the meaning. Twelve frames ship as plain SVG (`frames/`, drawn
-  by AppKit, no text inside): brief-news, data-dark, steps-clean, recipe-note, review-verdict, ranking-pop,
-  product-showcase and app-device (tall window), vlog-diary, story-chat, calm-film and promo-burst. Headline, subtitles
+  data and app or product screens, where the words carry the meaning. Twenty-four frames ship as plain SVG (`frames/`,
+  drawn by AppKit, no text inside; `formats` lists them with what each suits): news, data, steps, recipe, review, ranking,
+  product and app screens, vlog, chat story, film, promo, quiz, versus, kids, pets, fitness, beauty, travel postcard,
+  light finance, magazine, retro pixel, local map and minimal — some with a tall window for screens and products. Headline, subtitles
   and `moments[].badge` (a step or rank number on the window corner, up to four characters) take the frame's colours.
   `check` refuses a caption `position` outside the window (it would cover the headline or subtitles), and captions
   moved off a face stay inside the window.
